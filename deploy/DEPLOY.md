@@ -4,6 +4,10 @@ Guía paso a paso. Los comandos se corren por SSH en el VPS.
 
 > **El hosting Business (compartido) no sirve** para esta app: corre PHP y no
 > permite procesos Python de larga duración. Tiene que ser el VPS.
+>
+> **Si tu VPS ya tiene Traefik o nginx sirviendo otra cosa** (por ejemplo n8n),
+> NO sigas esta guía: instalar nginx dejaría ese servicio caído. Usá
+> [DEPLOY-TRAEFIK.md](DEPLOY-TRAEFIK.md).
 
 ---
 

@@ -54,8 +54,10 @@ En local podés dejarla vacía y entrar sin contraseña.
 
 ## Desplegar en un servidor
 
-Ver [deploy/DEPLOY.md](deploy/DEPLOY.md) — guía paso a paso para un VPS
-Ubuntu/Debian con systemd, Nginx y HTTPS.
+- [deploy/DEPLOY.md](deploy/DEPLOY.md) — VPS limpio: systemd + Nginx + certbot.
+- [deploy/DEPLOY-TRAEFIK.md](deploy/DEPLOY-TRAEFIK.md) — VPS que ya corre
+  Traefik (p. ej. junto a n8n): B2X se suma como contenedor y Traefik le emite
+  el certificado.
 
 **Un hosting compartido (tipo Hostinger Business) no sirve**: corre PHP y no
 permite procesos de larga duración. **Las plataformas serverless (Vercel,

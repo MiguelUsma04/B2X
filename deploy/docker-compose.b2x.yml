@@ -1,0 +1,52 @@
+# Bloque para agregar B2X al docker-compose.yml que ya tenés en /root.
+#
+# Copiá el servicio `b2x` dentro de `services:` (al mismo nivel que n8n y
+# postgres) y el volumen `b2x_data` dentro de `volumes:`.
+#
+# Sigue el mismo patrón que n8n: etiquetas de Traefik, el mismo resolver de
+# certificados (mytlschallenge) y las mismas cabeceras de seguridad.
+
+services:
+  b2x:
+    build:
+      context: /opt/b2x
+      dockerfile: Dockerfile
+    image: b2x:latest
+    restart: always
+    # Solo accesible desde el propio host; Traefik lo alcanza por la red interna.
+    ports:
+      - "127.0.0.1:8077:8077"
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.b2x.rule=Host(`b2x.${DOMAIN_NAME}`)
+      - traefik.http.routers.b2x.tls=true
+      - traefik.http.routers.b2x.entrypoints=web,websecure
+      - traefik.http.routers.b2x.tls.certresolver=mytlschallenge
+      - traefik.http.services.b2x.loadbalancer.server.port=8077
+      - traefik.http.middlewares.b2x.headers.SSLRedirect=true
+      - traefik.http.middlewares.b2x.headers.STSSeconds=315360000
+      - traefik.http.middlewares.b2x.headers.browserXSSFilter=true
+      - traefik.http.middlewares.b2x.headers.contentTypeNosniff=true
+      - traefik.http.middlewares.b2x.headers.forceSTSHeader=true
+      - traefik.http.middlewares.b2x.headers.SSLHost=${DOMAIN_NAME}
+      - traefik.http.middlewares.b2x.headers.STSIncludeSubdomains=true
+      - traefik.http.middlewares.b2x.headers.STSPreload=true
+      - traefik.http.routers.b2x.middlewares=b2x@docker
+    environment:
+      - APP_PASSWORD=${B2X_PASSWORD}
+      - SECRET_KEY=${B2X_SECRET_KEY}
+      - COOKIE_SECURE=true
+      - PROSPEO_API_KEY=${PROSPEO_API_KEY}
+      - ICYPEAS_API_KEY=${ICYPEAS_API_KEY}
+      - HUNTER_API_KEY=${HUNTER_API_KEY}
+      - GHL_API_TOKEN=${GHL_API_TOKEN}
+      - GHL_LOCATION_ID=${GHL_LOCATION_ID}
+      - GHL_DEFAULT_TAG=${GHL_DEFAULT_TAG:-piloto-prospeccion}
+      - ENRICH_DELAY_SECONDS=1.0
+      - ENRICH_MAX_RETRIES=3
+    volumes:
+      # La base de datos persiste acá. Sin esto, se pierde en cada redeploy.
+      - b2x_data:/app/data
+
+volumes:
+  b2x_data:
