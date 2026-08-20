@@ -93,6 +93,7 @@ nano /root/.env
 Agregá al final:
 
 ```
+B2X_DOMAIN=b2x.gmarketing.co
 B2X_PASSWORD=elegí-una-contraseña-larga-y-única
 B2X_SECRET_KEY=PEGAR_ACÁ_LA_CLAVE_GENERADA
 PROSPEO_API_KEY=...
@@ -115,8 +116,9 @@ Protegé el archivo:
 chmod 600 /root/.env
 ```
 
-> `DOMAIN_NAME` ya existe en ese `.env` (lo usa n8n). El bloque de B2X lo
-> reutiliza para armar `b2x.${DOMAIN_NAME}`.
+> **No uses `DOMAIN_NAME`**: en este servidor vale `srv802743.hstgr.cloud`
+> (el hostname de Hostinger), no tu dominio real. Por eso B2X usa su propia
+> variable `B2X_DOMAIN` con el dominio completo.
 
 ---
 

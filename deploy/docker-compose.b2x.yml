@@ -5,6 +5,9 @@
 #
 # Sigue el mismo patrón que n8n: etiquetas de Traefik, el mismo resolver de
 # certificados (mytlschallenge) y las mismas cabeceras de seguridad.
+#
+# Usa su propia variable B2X_DOMAIN (dominio completo) en vez de DOMAIN_NAME:
+# en este servidor DOMAIN_NAME es el hostname de Hostinger, no el dominio real.
 
 services:
   b2x:
@@ -18,7 +21,7 @@ services:
       - "127.0.0.1:8077:8077"
     labels:
       - traefik.enable=true
-      - traefik.http.routers.b2x.rule=Host(`b2x.${DOMAIN_NAME}`)
+      - traefik.http.routers.b2x.rule=Host(`${B2X_DOMAIN}`)
       - traefik.http.routers.b2x.tls=true
       - traefik.http.routers.b2x.entrypoints=web,websecure
       - traefik.http.routers.b2x.tls.certresolver=mytlschallenge
@@ -28,7 +31,7 @@ services:
       - traefik.http.middlewares.b2x.headers.browserXSSFilter=true
       - traefik.http.middlewares.b2x.headers.contentTypeNosniff=true
       - traefik.http.middlewares.b2x.headers.forceSTSHeader=true
-      - traefik.http.middlewares.b2x.headers.SSLHost=${DOMAIN_NAME}
+      - traefik.http.middlewares.b2x.headers.SSLHost=${B2X_DOMAIN}
       - traefik.http.middlewares.b2x.headers.STSIncludeSubdomains=true
       - traefik.http.middlewares.b2x.headers.STSPreload=true
       - traefik.http.routers.b2x.middlewares=b2x@docker
