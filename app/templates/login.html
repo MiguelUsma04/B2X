@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>B2X — Acceso</title>
+<link rel="stylesheet" href="/static/style.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='13' font-size='13'>◈</text></svg>">
+<style>
+  body{display:flex;align-items:center;justify-content:center;min-height:100vh;padding:20px}
+  .login{width:100%;max-width:370px}
+  .login .brand{font-size:34px;letter-spacing:.16em;margin-bottom:4px}
+  .login .tag{font-family:var(--mono);font-size:11px;letter-spacing:.12em;
+    text-transform:uppercase;color:var(--ink-3);margin-bottom:24px}
+  .login input{width:100%;margin-bottom:11px;padding:10px}
+  .login button{width:100%;padding:11px}
+</style>
+</head>
+<body>
+  <div class="login">
+    <div class="brand">B2X<span style="color:var(--ink-3)">//</span></div>
+    <div class="tag">prospección b2b · acceso restringido</div>
+    <div class="card"><div class="body">
+      <form method="post" action="/api/login" id="f">
+        <label class="fld" for="pw">Contraseña</label>
+        <input type="password" id="pw" name="password" autofocus autocomplete="current-password" required>
+        <button class="primary" type="submit">Entrar</button>
+      </form>
+      <div id="msg"></div>
+    </div></div>
+  </div>
+<script>
+  const p = new URLSearchParams(location.search);
+  if (p.get('error')) {
+    document.getElementById('msg').innerHTML =
+      '<div class="alert err" style="margin:12px 0 0">Contraseña incorrecta.</div>';
+  }
+</script>
+</body>
+</html>

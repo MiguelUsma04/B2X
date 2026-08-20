@@ -1,27 +1,67 @@
 """B2X — app interna de prospección B2B. FastAPI + SQLite."""
 import asyncio
 import json
+import os
 from pathlib import Path
 
-from dotenv import load_dotenv
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
-from fastapi.responses import HTMLResponse, JSONResponse
+from dotenv import dotenv_values
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
 BASE_DIR = Path(__file__).resolve().parent
-# override=True: el .env manda sobre lo que haya en el entorno. Sin esto, una
-# variable exportada vacía en la shell deja al proveedor apagado sin explicación.
-load_dotenv(BASE_DIR.parent / ".env", override=True)
+
+
+def _load_env() -> None:
+    """Carga el .env dándole prioridad, pero sin dejar que una clave vacía
+    borre un valor real del entorno.
+
+    Importa en el servidor: ahí las variables llegan por systemd, y una línea
+    vacía en el .env (APP_PASSWORD=) apagaría el login sin previo aviso.
+    """
+    values = dotenv_values(BASE_DIR.parent / ".env")
+    for key, value in values.items():
+        if value:                      # el .env manda cuando trae algo
+            os.environ[key] = value
+        elif key not in os.environ:    # vacío: solo si no había nada
+            os.environ[key] = ""
+
+
+_load_env()
 
 from .db import get_db, init_db          # noqa: E402
 from .importer import import_contacts, preview_csv  # noqa: E402
-from . import enrichment, ghl            # noqa: E402
+from . import auth, enrichment, ghl     # noqa: E402
 from .providers import build_chain       # noqa: E402
 
 app = FastAPI(title="B2X", docs_url="/api/docs")
 init_db()
 
 app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
+
+# Todo pasa por el chequeo de sesión (ver app/auth.py).
+app.middleware("http")(auth.auth_middleware)
+
+
+@app.get("/login", response_class=HTMLResponse)
+def login_page():
+    return (BASE_DIR / "templates" / "login.html").read_text(encoding="utf-8")
+
+
+@app.post("/api/login")
+def do_login(password: str = Form(...)):
+    if not auth.check_password(password):
+        return RedirectResponse("/login?error=1", status_code=303)
+    resp = RedirectResponse("/", status_code=303)
+    auth.issue_cookie(resp)
+    return resp
+
+
+@app.post("/api/logout")
+def do_logout():
+    resp = RedirectResponse("/login", status_code=303)
+    auth.clear_cookie(resp)
+    return resp
 
 # Caché en memoria del archivo subido, entre la vista previa y la confirmación.
 _PENDING_UPLOAD: dict = {}

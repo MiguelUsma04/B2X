@@ -1,0 +1,26 @@
+[Unit]
+Description=B2X — consola de prospección B2B
+After=network.target
+
+[Service]
+Type=simple
+User=b2x
+Group=b2x
+WorkingDirectory=/opt/b2x
+EnvironmentFile=/opt/b2x/.env
+ExecStart=/opt/b2x/.venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8077
+Restart=always
+RestartSec=5
+
+# El enriquecimiento puede tardar; que systemd no lo mate por lento.
+TimeoutStopSec=30
+
+# Endurecimiento: la app solo necesita escribir en data/
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/b2x/data
+
+[Install]
+WantedBy=multi-user.target

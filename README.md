@@ -36,8 +36,31 @@ proveedores están configurados (verde = activo).
 | `ENRICH_DELAY_SECONDS` | Espera entre contactos | default `1.0` |
 | `ENRICH_MAX_RETRIES` | Reintentos ante 429/5xx | default `3` |
 | `ONLY_VERIFIED_EMAIL` | Prospeo: solo emails verificados | default `false` |
+| `APP_PASSWORD` | Contraseña de acceso | obligatoria para exponer la app |
+| `SECRET_KEY` | Firma de la cookie de sesión | `python -c "import secrets; print(secrets.token_urlsafe(32))"` |
+| `COOKIE_SECURE` | Cookie solo por HTTPS | default `true` |
 
 La app funciona con las keys que tenga: si falta una, ese proveedor se saltea.
+
+## Acceso
+
+La app pide contraseña (`APP_PASSWORD`), con sesión por cookie de 12 h.
+
+**Sin `APP_PASSWORD` definida, solo acepta conexiones locales.** Es a propósito:
+sin esa protección, cualquiera que llegue a la URL podría gastar tus créditos de
+enriquecimiento y escribir en tu GHL.
+
+En local podés dejarla vacía y entrar sin contraseña.
+
+## Desplegar en un servidor
+
+Ver [deploy/DEPLOY.md](deploy/DEPLOY.md) — guía paso a paso para un VPS
+Ubuntu/Debian con systemd, Nginx y HTTPS.
+
+**Un hosting compartido (tipo Hostinger Business) no sirve**: corre PHP y no
+permite procesos de larga duración. **Las plataformas serverless (Vercel,
+Lambda) tampoco**: SQLite no persiste en disco efímero y el enriquecimiento
+excede el límite de tiempo de las funciones.
 
 ## Uso
 
@@ -87,15 +110,17 @@ app/
   enrichment.py     motor waterfall + progreso
   ghl.py            cliente GoHighLevel v2
   providers/        prospeo.py · icypeas.py · hunter.py · base.py
+  auth.py           login por contraseña + sesión
   static/           style.css · app.js
-  templates/        index.html
+  templates/        index.html · login.html
+deploy/             systemd, nginx, instalador y guía
 data/b2x.db         SQLite (gitignored)
 ```
 
 ## Fuera de alcance (MVP)
 
-Envío de email/WhatsApp (lo hace GHL), scoring de ICP, login/multi-usuario,
-búsqueda de teléfono (el campo `phone` existe y se llena desde el CSV si viene,
+Envío de email/WhatsApp (lo hace GHL), scoring de ICP, multi-usuario
+(hay login, pero con una sola contraseña compartida), búsqueda de teléfono (el campo `phone` existe y se llena desde el CSV si viene,
 pero no lo buscamos vía API).
 
 ## Notas
