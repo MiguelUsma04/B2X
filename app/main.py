@@ -9,7 +9,9 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 BASE_DIR = Path(__file__).resolve().parent
-load_dotenv(BASE_DIR.parent / ".env")
+# override=True: el .env manda sobre lo que haya en el entorno. Sin esto, una
+# variable exportada vacía en la shell deja al proveedor apagado sin explicación.
+load_dotenv(BASE_DIR.parent / ".env", override=True)
 
 from .db import get_db, init_db          # noqa: E402
 from .importer import import_contacts, preview_csv  # noqa: E402
