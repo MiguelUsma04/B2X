@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>B2X — Consola de prospección</title>
+<link rel="stylesheet" href="/static/style.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='13' font-size='13'>◈</text></svg>">
+</head>
+<body>
+
+<header class="top">
+  <div class="brand">B2X<span>//</span></div>
+  <div class="sub">prospección b2b</div>
+  <div class="spacer"></div>
+  <div class="provstat" id="provstat"></div>
+</header>
+
+<div class="wrap">
+  <div class="metrics" id="metrics"></div>
+
+  <nav class="tabs">
+    <button class="tab active" data-panel="contacts">Contactos</button>
+    <button class="tab" data-panel="import">Importar CSV</button>
+    <button class="tab" data-panel="enrich">Enriquecer</button>
+    <button class="tab" data-panel="batches">Lotes</button>
+  </nav>
+
+  <!-- ============ CONTACTOS ============ -->
+  <section class="panel active" id="panel-contacts">
+    <div class="card">
+      <h2>Filtros</h2>
+      <div class="body">
+        <div class="row">
+          <div><label class="fld">Buscar</label>
+            <input id="f-q" placeholder="nombre / empresa / email" style="width:210px"></div>
+          <div><label class="fld">Estado email</label>
+            <select id="f-status"><option value="">todos</option><option value="verified">verified</option>
+            <option value="unverified">unverified</option><option value="pending">pending</option>
+            <option value="not_found">not_found</option></select></div>
+          <div><label class="fld">Fuente</label>
+            <select id="f-source"><option value="">todas</option><option value="apollo">apollo</option>
+            <option value="prospeo">prospeo</option><option value="icypeas">icypeas</option>
+            <option value="hunter">hunter</option></select></div>
+          <div><label class="fld">Estado GHL</label>
+            <select id="f-ghl"><option value="">todos</option><option value="pending">pending</option>
+            <option value="sent">sent</option><option value="error">error</option></select></div>
+          <div><label class="fld">Lote</label>
+            <select id="f-batch"><option value="">todos</option></select></div>
+          <button onclick="loadContacts()">Aplicar</button>
+          <button onclick="resetFilters()">Limpiar</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Acciones en lote</h2>
+      <div class="body">
+        <div class="row">
+          <button onclick="selectAllFiltered()">Seleccionar todos los filtrados</button>
+          <button onclick="clearSelection()">Deseleccionar</button>
+          <div><label class="fld">Tag en GHL</label>
+            <input id="ghl-tag" placeholder="piloto-prospeccion" style="width:190px"></div>
+          <button class="go" id="btn-ghl" onclick="sendToGHL()">Aprobar y enviar a GHL</button>
+          <span class="hint" id="selinfo">0 seleccionados</span>
+        </div>
+        <div id="ghl-result"></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Contactos <span id="ccount" class="hint"></span></h2>
+      <div class="tbl-scroll">
+        <table>
+          <thead><tr>
+            <th style="width:30px"><input type="checkbox" id="chk-all" onclick="togglePage(this)"></th>
+            <th>Nombre</th><th>Empresa</th><th>Cargo</th><th>Email</th>
+            <th>Estado</th><th>Fuente</th><th>GHL</th><th>Lote</th><th></th>
+          </tr></thead>
+          <tbody id="ctbody"></tbody>
+        </table>
+      </div>
+      <div id="cempty"></div>
+    </div>
+  </section>
+
+  <!-- ============ IMPORTAR ============ -->
+  <section class="panel" id="panel-import">
+    <div class="card">
+      <h2>Paso 1 — Subir CSV de Apollo (export de People)</h2>
+      <div class="body">
+        <input type="file" id="csvfile" accept=".csv,text/csv" onchange="doPreview()">
+        <p class="hint" style="margin-top:9px">
+          Debe ser un export de <b>People</b> (personas). Un export de Accounts (empresas) no
+          sirve: no trae nombre ni email de contacto. Las columnas se detectan solas.
+        </p>
+        <div id="prev-alert"></div>
+      </div>
+    </div>
+    <div id="prev-box"></div>
+  </section>
+
+  <!-- ============ ENRIQUECER ============ -->
+  <section class="panel" id="panel-enrich">
+    <div class="card">
+      <h2>Motor de enriquecimiento — cascada Prospeo → Icypeas → Hunter</h2>
+      <div class="body">
+        <div id="enrich-warn"></div>
+        <div class="row">
+          <div><label class="fld">Límite (vacío = todos)</label>
+            <input id="e-limit" type="number" min="1" placeholder="10" style="width:110px"></div>
+          <div><label class="fld">Solo un lote</label>
+            <select id="e-batch"><option value="">todos</option></select></div>
+          <button class="primary" id="btn-enrich" onclick="startEnrich()">Enriquecer pendientes</button>
+          <span class="hint" id="pendinfo"></span>
+        </div>
+        <p class="hint" style="margin-top:10px">
+          Serial, con espera entre contactos. Reintenta 429/5xx con backoff exponencial
+          (máx. 3) antes de pasar al siguiente proveedor. Cada intento queda registrado.
+          <b>Consume créditos.</b> Probá primero con un límite de 5–10.
+        </p>
+        <div id="progress-box" style="margin-top:14px"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ LOTES ============ -->
+  <section class="panel" id="panel-batches">
+    <div class="card">
+      <h2>Lotes importados</h2>
+      <div class="tbl-scroll">
+        <table>
+          <thead><tr><th>#</th><th>Archivo</th><th>Fecha</th><th>Filas</th>
+            <th>Nuevos</th><th>Duplicados</th><th>ICP</th></tr></thead>
+          <tbody id="btbody"></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+</div>
+
+<div class="modal" id="modal" onclick="if(event.target===this)closeModal()">
+  <div class="modal-box">
+    <div class="modal-head">
+      <h3 id="modal-title">Detalle</h3>
+      <div class="spacer"></div>
+      <button class="sm" onclick="closeModal()">Cerrar ✕</button>
+    </div>
+    <div class="modal-body" id="modal-body"></div>
+  </div>
+</div>
+
+<script src="/static/app.js"></script>
+</body>
+</html>
