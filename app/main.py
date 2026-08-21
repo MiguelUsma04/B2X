@@ -208,6 +208,32 @@ def api_pending_count():
     return {"pending": len(enrichment.pending_contacts())}
 
 
+@app.post("/api/mobile/start")
+async def api_mobile_start(contact_ids: str = Form(...)):
+    """Búsqueda de móviles: cuesta 10 créditos por contacto, así que va
+    siempre sobre una selección explícita, nunca sobre toda la base."""
+    if enrichment.MOBILE_PROGRESS.running:
+        raise HTTPException(409, "Ya hay una búsqueda de teléfonos en curso.")
+    try:
+        ids = [int(i) for i in json.loads(contact_ids)]
+    except Exception:
+        raise HTTPException(400, "contact_ids debe ser un array JSON de enteros.")
+    if not ids:
+        raise HTTPException(400, "No se seleccionó ningún contacto.")
+
+    pending = enrichment.contacts_without_phone(ids)
+    if not pending:
+        return {"started": False,
+                "message": "Los contactos seleccionados ya tienen teléfono."}
+    asyncio.create_task(enrichment.run_mobile_search(ids))
+    return {"started": True, "queued": len(pending)}
+
+
+@app.get("/api/mobile/progress")
+def api_mobile_progress():
+    return enrichment.MOBILE_PROGRESS.as_dict()
+
+
 # ------------------------------------------------------------------------ GHL
 @app.post("/api/ghl/send")
 async def api_ghl_send(contact_ids: str = Form(...), tag: str = Form("")):

@@ -13,6 +13,7 @@ class EnrichResult:
     success: bool
     email: str | None = None
     verified: bool = False
+    phone: str | None = None
     request_payload: dict = field(default_factory=dict)
     response_payload: dict | None = None
     error_message: str | None = None

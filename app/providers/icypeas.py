@@ -75,12 +75,20 @@ class IcypeasProvider(Provider):
             if status in PENDING_STATUSES:
                 continue
 
-            emails = ((item.get("results") or {}).get("emails")) or []
+            results = item.get("results") or {}
+            emails = results.get("emails") or []
+            # Icypeas a veces incluye teléfonos sin costo extra; los aprovechamos.
+            phones = results.get("phones") or []
+            phone = None
+            if phones:
+                first = phones[0]
+                phone = first.get("phone") if isinstance(first, dict) else first
             if status in SUCCESS_STATUSES and emails:
                 best = emails[0]
                 certainty = str(best.get("certainty", "")).lower()
                 return EnrichResult(True, email=best.get("email"),
                                     verified=certainty in VERIFIED_CERTAINTY,
+                                    phone=phone,
                                     request_payload=payload, response_payload=rb)
             return EnrichResult(False, request_payload=payload, response_payload=rb,
                                 error_message=f"Icypeas sin resultado (status={status}).")

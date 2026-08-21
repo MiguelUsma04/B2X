@@ -42,6 +42,7 @@ class HunterProvider(Provider):
                 # como no verificado pero utilizable.
                 return EnrichResult(True, email=email,
                                     verified=(status == "valid" or score >= 90),
+                                    phone=data.get("phone_number"),
                                     request_payload=safe_params, response_payload=body)
             return EnrichResult(False, request_payload=safe_params, response_payload=body,
                                 error_message="Hunter no encontró email.")

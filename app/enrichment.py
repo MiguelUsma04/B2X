@@ -122,6 +122,13 @@ async def run_enrichment(limit: int | None = None, batch_id: int | None = None) 
                                      "verified" if result.verified else "unverified",
                                      provider.name, contact["id"]),
                                 )
+                            # Algunos proveedores devuelven el teléfono de paso:
+                            # se guarda si el contacto todavía no tenía uno.
+                            if result.phone and not contact.get("phone"):
+                                conn.execute(
+                                    """UPDATE contacts SET phone=?,
+                                       updated_at=datetime('now') WHERE id=?""",
+                                    (result.phone, contact["id"]))
                         if result.success and result.email:
                             PROGRESS.found += 1
                             PROGRESS.by_provider[provider.name] = \
@@ -149,3 +156,94 @@ async def run_enrichment(limit: int | None = None, batch_id: int | None = None) 
             PROGRESS.finished = True
             PROGRESS.current_contact = None
             PROGRESS.current_provider = None
+
+
+# --------------------------------------------------------------- móviles
+MOBILE_PROGRESS = EnrichProgress()
+_MOBILE_LOCK = asyncio.Lock()
+
+
+def contacts_without_phone(contact_ids: list[int]) -> list[dict]:
+    if not contact_ids:
+        return []
+    marks = ",".join("?" * len(contact_ids))
+    with get_db() as conn:
+        return [dict(r) for r in conn.execute(
+            f"""SELECT * FROM contacts
+                WHERE id IN ({marks}) AND (phone IS NULL OR phone = '')
+                ORDER BY id""", contact_ids)]
+
+
+async def run_mobile_search(contact_ids: list[int]) -> None:
+    """Busca el móvil de los contactos indicados usando Prospeo.
+
+    Va aparte del waterfall de emails porque cuesta 10 créditos por contacto
+    en vez de 1: se dispara solo sobre una selección explícita.
+    """
+    global MOBILE_PROGRESS
+    if _MOBILE_LOCK.locked():
+        return
+    async with _MOBILE_LOCK:
+        from .providers import ProspeoProvider
+
+        provider = ProspeoProvider(os.getenv("PROSPEO_API_KEY"))
+        MOBILE_PROGRESS = EnrichProgress(running=True)
+
+        if not provider.enabled:
+            MOBILE_PROGRESS.running = False
+            MOBILE_PROGRESS.finished = True
+            MOBILE_PROGRESS.error = ("La búsqueda de teléfonos usa Prospeo y no hay "
+                                     "una API key configurada.")
+            return
+
+        contacts = contacts_without_phone(contact_ids)
+        MOBILE_PROGRESS.total = len(contacts)
+        delay = float(os.getenv("ENRICH_DELAY_SECONDS", "1.0"))
+
+        try:
+            async with httpx.AsyncClient(timeout=45.0) as client:
+                for contact in contacts:
+                    MOBILE_PROGRESS.current_contact = (
+                        contact.get("full_name") or f"#{contact['id']}")
+                    MOBILE_PROGRESS.current_provider = "prospeo"
+                    try:
+                        result = await provider.find_mobile(client, contact)
+                    except Exception as exc:
+                        from .providers.base import EnrichResult
+                        result = EnrichResult(
+                            False, error_message=f"{type(exc).__name__}: {exc}"[:500])
+
+                    with get_db() as conn:
+                        _log(conn, contact["id"], "prospeo_mobile", result)
+                        if result.success and result.phone:
+                            conn.execute(
+                                """UPDATE contacts SET phone=?,
+                                   updated_at=datetime('now') WHERE id=?""",
+                                (result.phone, contact["id"]))
+                            # Si de paso trajo un email y no teníamos, lo guardamos.
+                            if result.email and not contact.get("email"):
+                                conn.execute(
+                                    """UPDATE contacts
+                                       SET email=?, email_status=?, email_source='prospeo',
+                                           updated_at=datetime('now')
+                                       WHERE id=?""",
+                                    (result.email,
+                                     "verified" if result.verified else "unverified",
+                                     contact["id"]))
+
+                    if result.success and result.phone:
+                        MOBILE_PROGRESS.found += 1
+                        MOBILE_PROGRESS.by_provider["prospeo"] =                             MOBILE_PROGRESS.by_provider.get("prospeo", 0) + 1
+                    else:
+                        MOBILE_PROGRESS.not_found += 1
+
+                    MOBILE_PROGRESS.processed += 1
+                    if delay > 0:
+                        await asyncio.sleep(delay)
+        except Exception as exc:
+            MOBILE_PROGRESS.error = f"{type(exc).__name__}: {exc}"[:500]
+        finally:
+            MOBILE_PROGRESS.running = False
+            MOBILE_PROGRESS.finished = True
+            MOBILE_PROGRESS.current_contact = None
+            MOBILE_PROGRESS.current_provider = None

@@ -143,6 +143,7 @@ async function loadContacts() {
       <td>${esc(c.company_name || '—')}
         ${c.company_domain ? `<div class="sub">${esc(c.company_domain)}</div>` : ''}</td>
       <td>${c.email ? esc(c.email) : '<span class="sub">—</span>'}</td>
+      <td>${c.phone ? esc(c.phone) : '<span class="sub">—</span>'}</td>
       <td>${pill(c.email_status, STATUS_TXT)}</td>
       <td>${pill(c.email_source, SOURCE_TXT)}</td>
       <td>${pill(c.ghl_status, GHL_TXT)}
@@ -198,6 +199,69 @@ function updateSelInfo() {
   $('selinfo').textContent = n === 0 ? 'Ninguno marcado'
     : (n === 1 ? '1 contacto marcado' : `${n} contactos marcados`);
   $('btn-ghl').disabled = n === 0;
+  const mb = $('btn-mobile');
+  if (mb) mb.disabled = n === 0;
+}
+
+/* ---------------- buscar teléfonos ---------------- */
+let MPOLL = null;
+
+async function startMobile() {
+  const ids = [...SELECTED];
+  if (!ids.length) return;
+  if (!confirm(
+    `Buscar el teléfono de ${ids.length} contacto(s).
+
+` +
+    `Esto consume unos 10 créditos por contacto (unos ${ids.length * 10} en total), ` +
+    `mucho más que buscar un email.
+
+¿Seguimos?`)) return;
+
+  const fd = new FormData();
+  fd.append('contact_ids', JSON.stringify(ids));
+  const r = await fetch('/api/mobile/start', { method: 'POST', body: fd });
+  const d = await r.json();
+  if (!r.ok) {
+    $('mobile-progress').innerHTML = `<div class="alert err">${esc(d.detail || 'Error.')}</div>`;
+    return;
+  }
+  if (!d.started) {
+    $('mobile-progress').innerHTML = `<div class="alert info">${esc(d.message)}</div>`;
+    return;
+  }
+  $('btn-mobile').disabled = true;
+  if (MPOLL) clearInterval(MPOLL);
+  MPOLL = setInterval(pollMobile, 900);
+  pollMobile();
+}
+
+async function pollMobile() {
+  const p = await (await fetch('/api/mobile/progress')).json();
+  const pct = p.total ? Math.round((p.processed / p.total) * 100) : 0;
+
+  if (p.error) {
+    $('mobile-progress').innerHTML = `<div class="alert err">${esc(p.error)}</div>`;
+  } else if (p.running) {
+    $('mobile-progress').innerHTML = `
+      <div style="font-size:17px;font-weight:600">
+        <span class="pulse">●</span> ${p.processed} de ${p.total} revisados</div>
+      <div class="bar"><i style="width:${pct}%"></i></div>
+      ${p.current_contact ? `<p style="color:var(--ink-2)">Buscando el teléfono de
+        ${esc(p.current_contact)}</p>` : ''}
+      <p style="color:var(--ok);font-weight:600">${p.found} teléfonos encontrados</p>`;
+  } else if (p.finished) {
+    $('mobile-progress').innerHTML = `<div class="alert ${p.found ? 'ok' : 'info'}">
+      <b>Búsqueda terminada.</b> Se encontraron ${p.found} teléfonos
+      de ${p.total} contactos.
+      ${p.not_found ? ` En ${p.not_found} no había número disponible.` : ''}</div>`;
+  }
+
+  if (!p.running && p.finished) {
+    clearInterval(MPOLL); MPOLL = null;
+    $('btn-mobile').disabled = SELECTED.size === 0;
+    await loadContacts();
+  }
 }
 
 /* ---------------- importar ---------------- */

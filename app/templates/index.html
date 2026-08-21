@@ -114,13 +114,29 @@
     </div>
 
     <div class="card">
+      <h2>Buscar teléfonos <span class="hint">— opcional, consume más créditos</span></h2>
+      <div class="body">
+        <p class="lede">
+          Marcá contactos en la tabla y buscales el celular. Se hace aparte porque
+          <b>cuesta 10 veces más que buscar un email</b>: conviene usarlo solo con
+          los contactos que de verdad vas a llamar.
+        </p>
+        <div class="row">
+          <button id="btn-mobile" onclick="startMobile()">Buscar teléfono de los marcados</button>
+          <span id="mobinfo" style="color:var(--ink-2)"></span>
+        </div>
+        <div id="mobile-progress" style="margin-top:14px"></div>
+      </div>
+    </div>
+
+    <div class="card">
       <h2>Tus contactos <span class="hint" id="ccount"></span></h2>
       <div class="tbl-scroll">
         <table>
           <thead><tr>
             <th style="width:44px"><input type="checkbox" id="chk-all" onclick="togglePage(this)"
                 aria-label="Marcar todos los de esta página"></th>
-            <th>Persona</th><th>Empresa</th><th>Email</th>
+            <th>Persona</th><th>Empresa</th><th>Email</th><th>Teléfono</th>
             <th>Estado</th><th>Encontrado por</th><th>CRM</th><th></th>
           </tr></thead>
           <tbody id="ctbody"></tbody>
