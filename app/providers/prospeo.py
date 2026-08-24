@@ -24,7 +24,15 @@ URL = "https://api.prospeo.io/enrich-person"
 
 
 def _build_data(contact: dict) -> dict:
+    """Arma los datapoints de identificación.
+
+    El linkedin_url va primero porque identifica a la persona sin ambigüedad;
+    con nombres latinos (donde Apollo mete el segundo nombre dentro del
+    apellido) el par nombre+dominio falla seguido.
+    """
     data: dict = {}
+    if contact.get("linkedin_url"):
+        data["linkedin_url"] = contact["linkedin_url"]
     if contact.get("first_name") and contact.get("last_name"):
         data["first_name"] = contact["first_name"]
         data["last_name"] = contact["last_name"]
@@ -34,8 +42,6 @@ def _build_data(contact: dict) -> dict:
         data["company_website"] = contact["company_domain"]
     if contact.get("company_name"):
         data["company_name"] = contact["company_name"]
-    if contact.get("linkedin_url"):
-        data["linkedin_url"] = contact["linkedin_url"]
     return data
 
 

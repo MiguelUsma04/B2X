@@ -71,6 +71,40 @@ class Provider:
         return (2 ** attempt) + random.uniform(0, 0.5)
 
 
+def name_variants(contact: dict) -> list[tuple[str, str]]:
+    """Devuelve pares (nombre, apellido) a probar, del más probable al menos.
+
+    Apollo parte los nombres latinos mal: "Gerardo Javier Salinas" sale como
+    First="Gerardo", Last="Javier Salinas", donde "Javier" es en realidad el
+    segundo nombre. Los proveedores buscan patrones sobre el apellido real,
+    así que hay que probar también con la última palabra sola.
+    """
+    first = (contact.get("first_name") or "").strip()
+    last = (contact.get("last_name") or "").strip()
+    if not first and contact.get("full_name"):
+        parts = contact["full_name"].split()
+        if len(parts) >= 2:
+            first, last = parts[0], " ".join(parts[1:])
+    if not (first and last):
+        return []
+
+    out = [(first, last)]
+    words = last.split()
+    if len(words) > 1:
+        # "Javier Salinas" -> probar "Salinas" (apellido paterno más probable)
+        out.append((first, words[-1]))
+        # ...y "Javier" por si el orden es apellido-compuesto
+        if words[0].lower() != words[-1].lower():
+            out.append((first, words[0]))
+    # Deduplicar conservando el orden
+    seen, uniq = set(), []
+    for pair in out:
+        k = (pair[0].lower(), pair[1].lower())
+        if k not in seen:
+            seen.add(k); uniq.append(pair)
+    return uniq
+
+
 def safe_json(resp: httpx.Response) -> dict:
     try:
         data = resp.json()

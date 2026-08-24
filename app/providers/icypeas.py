@@ -10,7 +10,7 @@ Doc: https://api-doc.icypeas.com/getting-started
      DEBITED = encontrado. results.emails[].certainty: ultra_sure|very_probable|probable|...
 """
 import asyncio
-from .base import Provider, EnrichResult, safe_json
+from .base import Provider, EnrichResult, name_variants, safe_json
 
 SEARCH_URL = "https://app.icypeas.com/api/email-search"
 READ_URL = "https://app.icypeas.com/api/bulk-single-searchs/read"
@@ -19,7 +19,9 @@ PENDING_STATUSES = {"NONE", "SCHEDULED", "IN_PROGRESS"}
 SUCCESS_STATUSES = {"DEBITED", "FREE"}
 VERIFIED_CERTAINTY = {"ultra_sure", "very_probable"}
 
-POLL_DELAYS = [2, 3, 4, 5, 6, 8, 10]  # ~38s de espera máxima
+# Arranca rápido: la mayoría de las búsquedas resuelven en 2-4 s. Los tramos
+# largos del final son para las lentas, no para el caso normal.
+POLL_DELAYS = [1.5, 1.5, 2, 2, 3, 4, 5]  # ~19s máximo
 
 
 class IcypeasProvider(Provider):
@@ -33,14 +35,15 @@ class IcypeasProvider(Provider):
         if not company:
             return EnrichResult(False, error_message="Sin dominio ni empresa para Icypeas.")
 
-        first = contact.get("first_name")
-        last = contact.get("last_name")
-        if not (first and last) and contact.get("full_name"):
-            parts = contact["full_name"].split()
-            if len(parts) >= 2:
-                first, last = parts[0], " ".join(parts[1:])
-        if not (first and last):
+        variants = name_variants(contact)
+        if not variants:
             return EnrichResult(False, error_message="Icypeas requiere nombre y apellido.")
+        # Icypeas cobra por búsqueda, así que se usa una sola variante: la
+        # última palabra del apellido, que es la que más rinde con nombres
+        # latinos mal partidos por Apollo.
+        first, last = variants[-1] if len(variants) > 1 else variants[0]
+        if len(variants) > 1:
+            first, last = variants[1]
 
         payload = {"firstname": first, "lastname": last, "domainOrCompany": company}
 

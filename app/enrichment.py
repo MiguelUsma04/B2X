@@ -147,8 +147,11 @@ async def run_enrichment(limit: int | None = None, batch_id: int | None = None) 
                         PROGRESS.not_found += 1
 
                     PROGRESS.processed += 1
+                    # La pausa es para no pegarle a los rate limits; si el
+                    # contacto se resolvió con el primer proveedor no hace
+                    # falta esperar tanto.
                     if delay > 0:
-                        await asyncio.sleep(delay)
+                        await asyncio.sleep(delay if not resolved else delay / 2)
         except Exception as exc:
             PROGRESS.error = f"{type(exc).__name__}: {exc}"[:500]
         finally:
