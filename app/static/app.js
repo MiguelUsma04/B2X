@@ -196,7 +196,10 @@ async function loadContacts() {
             ? '<div class="sub" title="Es el conmutador de la empresa, no el número directo del contacto">conmutador</div>'
             : '')
         : '<span class="sub">—</span>'}</td>
-      <td>${pill(c.email_status, STATUS_TXT)}</td>
+      <td>${pill(c.email_status, STATUS_TXT)}
+        ${c.mobile_available && !c.phone
+          ? '<div class="sub" title="Prospeo tiene su celular pero no lo reveló. Se desbloquea desde Buscar teléfonos.">📱 hay celular</div>'
+          : ''}</td>
       <td>${pill(c.email_source, SOURCE_TXT)}</td>
       <td>${pill(c.ghl_status, GHL_TXT)}
         ${c.ghl_error_message

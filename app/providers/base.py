@@ -20,6 +20,8 @@ class EnrichResult:
     # True => el error es del proveedor/credenciales, no del contacto.
     # Sirve para no quemar la cadena entera si la key está mal.
     fatal: bool = False
+    # True => el proveedor tiene un móvil que no reveló (cuesta créditos).
+    mobile_available: bool = False
 
 
 class Provider:
@@ -91,11 +93,13 @@ def name_variants(contact: dict) -> list[tuple[str, str]]:
     out = [(first, last)]
     words = last.split()
     if len(words) > 1:
-        # "Javier Salinas" -> probar "Salinas" (apellido paterno más probable)
-        out.append((first, words[-1]))
-        # ...y "Javier" por si el orden es apellido-compuesto
+        # En español el apellido paterno va primero y es el que suelen usar
+        # los emails corporativos: "Oscar Valencia Mesa" -> ovalencia@.
+        # Pero Apollo también mete segundos nombres ahí ("Javier Salinas"),
+        # donde el bueno es el último. Se prueban los dos, paterno primero.
+        out.append((first, words[0]))
         if words[0].lower() != words[-1].lower():
-            out.append((first, words[0]))
+            out.append((first, words[-1]))
     # Deduplicar conservando el orden
     seen, uniq = set(), []
     for pair in out:

@@ -148,6 +148,10 @@ async def run_enrichment(limit: int | None = None, batch_id: int | None = None) 
                                      "verified" if result.verified else "unverified",
                                      provider.name, contact["id"]),
                                 )
+                            if result.mobile_available:
+                                conn.execute(
+                                    """UPDATE contacts SET mobile_available=1
+                                       WHERE id=?""", (contact["id"],))
                             # Algunos proveedores devuelven el teléfono de paso:
                             # se guarda si el contacto todavía no tenía uno.
                             if result.phone and not contact.get("phone"):

@@ -19,9 +19,9 @@ PENDING_STATUSES = {"NONE", "SCHEDULED", "IN_PROGRESS"}
 SUCCESS_STATUSES = {"DEBITED", "FREE"}
 VERIFIED_CERTAINTY = {"ultra_sure", "very_probable"}
 
-# Arranca rápido: la mayoría de las búsquedas resuelven en 2-4 s. Los tramos
-# largos del final son para las lentas, no para el caso normal.
-POLL_DELAYS = [1.5, 1.5, 2, 2, 3, 4, 5]  # ~19s máximo
+# Arranca rápido (la mayoría resuelve en 2-4 s) pero con cola larga: cortar
+# antes de que Icypeas termine desperdicia la búsqueda, que igual se cobró.
+POLL_DELAYS = [1.5, 1.5, 2, 2, 3, 4, 5, 6, 8, 10, 12, 15]  # ~80s máximo
 
 
 class IcypeasProvider(Provider):
@@ -38,12 +38,9 @@ class IcypeasProvider(Provider):
         variants = name_variants(contact)
         if not variants:
             return EnrichResult(False, error_message="Icypeas requiere nombre y apellido.")
-        # Icypeas cobra por búsqueda, así que se usa una sola variante: la
-        # última palabra del apellido, que es la que más rinde con nombres
-        # latinos mal partidos por Apollo.
-        first, last = variants[-1] if len(variants) > 1 else variants[0]
-        if len(variants) > 1:
-            first, last = variants[1]
+        # Icypeas cobra por búsqueda, así que va una sola variante: el
+        # apellido paterno, que es el que usan los emails corporativos.
+        first, last = variants[1] if len(variants) > 1 else variants[0]
 
         payload = {"firstname": first, "lastname": last, "domainOrCompany": company}
 
@@ -96,5 +93,7 @@ class IcypeasProvider(Provider):
             return EnrichResult(False, request_payload=payload, response_payload=rb,
                                 error_message=f"Icypeas sin resultado (status={status}).")
 
-        return EnrichResult(False, request_payload=payload, response_payload=last_body,
-                            error_message="Icypeas: timeout esperando el resultado.")
+        return EnrichResult(
+            False, request_payload=payload, response_payload=last_body,
+            error_message="Icypeas seguía procesando cuando se agotó la espera; "
+                          "la búsqueda quedó sin resolver.")

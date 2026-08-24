@@ -114,8 +114,19 @@ class ProspeoProvider(Provider):
                 return EnrichResult(True, email=email, verified=email_verified,
                                     phone=mobile, request_payload=payload,
                                     response_payload=body)
+
+            # Sin email, pero puede haber un móvil sin revelar: saberlo permite
+            # decidir si vale la pena pagar los 10 créditos para desbloquearlo.
+            raw_mobile = person.get("mobile")
+            has_hidden_mobile = (isinstance(raw_mobile, dict)
+                                 and raw_mobile.get("mobile")
+                                 and not raw_mobile.get("revealed"))
+            msg = ("Prospeo no tiene el email, pero sí un móvil sin revelar "
+                   "(se puede desbloquear desde 'Buscar teléfonos')."
+                   if has_hidden_mobile else
+                   "Prospeo no devolvió un email utilizable.")
             return EnrichResult(False, request_payload=payload, response_payload=body,
-                                error_message="Prospeo no devolvió un email utilizable.")
+                                error_message=msg, mobile_available=has_hidden_mobile)
 
         msg = body.get("message") or body.get("error") or f"HTTP {resp.status_code}"
         code = str(body.get("error_code") or body.get("code") or "").upper()
