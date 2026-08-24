@@ -12,19 +12,26 @@ from urllib.parse import urlparse
 FIELD_ALIASES = {
     "first_name":     ["first name", "firstname", "given name", "nombre"],
     "last_name":      ["last name", "lastname", "surname", "family name", "apellido"],
-    "full_name":      ["full name", "fullname", "name", "contact name", "nombre completo"],
+    # Ojo: "name" a secas NO va como alias. Apollo exporta "Company Name" y
+    # "Company Name for Emails", y la coincidencia por contención se llevaba
+    # el nombre de la empresa como si fuera el de la persona.
+    "full_name":      ["full name", "fullname", "person name", "contact name",
+                       "nombre completo"],
     "email":          ["email", "email address", "work email", "primary email",
                        "person email", "correo"],
     "job_title":      ["title", "job title", "position", "headline", "cargo", "puesto"],
-    "company_name":   ["company", "company name", "company name for emails",
+    "company_name":   ["company name", "company", "company name for emails",
                        "organization", "organization name", "account name", "employer",
                        "empresa"],
     "company_domain": ["website", "company website", "company domain", "domain",
                        "company url", "primary domain", "sitio web"],
     "linkedin_url":   ["person linkedin url", "linkedin url", "linkedin",
                        "linkedin profile", "person linkedin"],
-    "phone":          ["phone", "phone number", "mobile", "direct phone",
-                       "work direct phone", "mobile phone", "telefono", "teléfono"],
+    # Orden = preferencia: el móvil y el directo sirven para prospectar; el
+    # conmutador corporativo queda último, como último recurso.
+    "phone":          ["mobile phone", "work direct phone", "direct phone", "mobile",
+                       "phone number", "home phone", "corporate phone", "other phone",
+                       "phone", "telefono", "teléfono"],
 }
 
 # Columnas que identifican un export de EMPRESAS (no de personas).
@@ -41,6 +48,11 @@ def _norm(s: str) -> str:
     s = re.sub(r"[_\-./]+", " ", s)
     s = re.sub(r"[^a-z0-9# ]+", "", s)
     return re.sub(r"\s+", " ", s).strip()
+
+
+# Campos que describen a la persona: una columna "Company ..." nunca lo es.
+PERSON_FIELDS = {"first_name", "last_name", "full_name", "email", "job_title",
+                 "linkedin_url", "phone"}
 
 
 def detect_mapping(headers: list[str]) -> dict[str, str | None]:
@@ -61,6 +73,9 @@ def detect_mapping(headers: list[str]) -> dict[str, str | None]:
             for alias in aliases:
                 for nh, orig in norm_map.items():
                     if orig in used:
+                        continue
+                    # Una columna de empresa nunca describe a la persona.
+                    if field in PERSON_FIELDS and nh.startswith("company "):
                         continue
                     if nh.startswith(alias + " ") or nh.endswith(" " + alias) or (
                         alias in nh and len(alias) >= 5
@@ -170,6 +185,16 @@ def row_to_contact(row: dict, mapping: dict[str, str | None]) -> dict:
         elif parts:
             first = parts[0]
 
+    # El teléfono se resuelve por fila, no por columna: Apollo llena distintas
+    # columnas según el contacto, y el mapeo global elige una sola.
+    phone = g("phone")
+    if not phone:
+        for col in ("Mobile Phone", "Work Direct Phone", "Home Phone",
+                    "Other Phone", "Corporate Phone", "Company Phone"):
+            phone = clean_text(row.get(col))
+            if phone:
+                break
+
     email = clean_email(g("email"))
     return {
         "first_name": first,
@@ -178,7 +203,7 @@ def row_to_contact(row: dict, mapping: dict[str, str | None]) -> dict:
         "email": email,
         "email_status": "verified" if email else "pending",
         "email_source": "apollo" if email else None,
-        "phone": g("phone"),
+        "phone": phone,
         "job_title": g("job_title"),
         "company_name": g("company_name"),
         "company_domain": clean_domain(g("company_domain")),
