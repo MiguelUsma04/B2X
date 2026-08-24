@@ -45,6 +45,11 @@ services:
       - GHL_API_TOKEN=${GHL_API_TOKEN}
       - GHL_LOCATION_ID=${GHL_LOCATION_ID}
       - GHL_DEFAULT_TAG=${GHL_DEFAULT_TAG:-piloto-prospeccion}
+      # Embudo donde se abre la oportunidad de cada contacto enviado.
+      # Se elige desde la app, pero conviene fijarlo acá: el contenedor no
+      # monta el .env, así que sin esto la elección se pierde al redesplegar.
+      - GHL_PIPELINE_ID=${GHL_PIPELINE_ID:-}
+      - GHL_STAGE_ID=${GHL_STAGE_ID:-}
       - ENRICH_DELAY_SECONDS=1.0
       - ENRICH_MAX_RETRIES=3
     volumes:

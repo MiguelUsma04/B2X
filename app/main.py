@@ -255,6 +255,57 @@ def api_mobile_progress():
 
 
 # ------------------------------------------------------------------------ GHL
+@app.get("/api/ghl/pipelines")
+async def api_ghl_pipelines():
+    """Lista los embudos del sub-account para elegir en la UI."""
+    return await ghl.list_pipelines()
+
+
+@app.get("/api/ghl/settings")
+def api_ghl_settings():
+    return {"pipeline_id": os.getenv("GHL_PIPELINE_ID", ""),
+            "stage_id": os.getenv("GHL_STAGE_ID", ""),
+            "default_tag": os.getenv("GHL_DEFAULT_TAG", "")}
+
+
+@app.post("/api/ghl/settings")
+def api_ghl_settings_save(pipeline_id: str = Form(""), stage_id: str = Form("")):
+    """Guarda el embudo elegido.
+
+    Se escribe en el entorno del proceso y en el .env cuando existe, para que
+    sobreviva a un reinicio. En Docker el .env no está montado: ahí el valor
+    dura lo que dure el contenedor, y conviene fijarlo en docker-compose.
+    """
+    os.environ["GHL_PIPELINE_ID"] = pipeline_id.strip()
+    os.environ["GHL_STAGE_ID"] = stage_id.strip()
+
+    persisted = False
+    env_path = BASE_DIR.parent / ".env"
+    if env_path.exists():
+        try:
+            lines = env_path.read_text(encoding="utf-8").splitlines()
+            out, seen = [], set()
+            for line in lines:
+                key = line.split("=", 1)[0].strip() if "=" in line else ""
+                if key == "GHL_PIPELINE_ID":
+                    out.append(f"GHL_PIPELINE_ID={pipeline_id.strip()}"); seen.add(key)
+                elif key == "GHL_STAGE_ID":
+                    out.append(f"GHL_STAGE_ID={stage_id.strip()}"); seen.add(key)
+                else:
+                    out.append(line)
+            if "GHL_PIPELINE_ID" not in seen:
+                out.append(f"GHL_PIPELINE_ID={pipeline_id.strip()}")
+            if "GHL_STAGE_ID" not in seen:
+                out.append(f"GHL_STAGE_ID={stage_id.strip()}")
+            env_path.write_text("\n".join(out) + "\n", encoding="utf-8")
+            persisted = True
+        except OSError:
+            persisted = False
+
+    return {"saved": True, "persisted_to_env": persisted,
+            "pipeline_id": pipeline_id.strip(), "stage_id": stage_id.strip()}
+
+
 @app.post("/api/ghl/send")
 async def api_ghl_send(contact_ids: str = Form(...), tag: str = Form("")):
     try:

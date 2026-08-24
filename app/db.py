@@ -37,6 +37,7 @@ CREATE TABLE IF NOT EXISTS contacts (
     ghl_status        TEXT NOT NULL DEFAULT 'pending'
                       CHECK (ghl_status IN ('pending','sent','error')),
     ghl_contact_id    TEXT,
+    ghl_opportunity_id TEXT,
     ghl_error_message TEXT,
     created_at        TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at        TEXT NOT NULL DEFAULT (datetime('now'))
@@ -108,6 +109,8 @@ def _migrate(conn) -> None:
     cols = {r["name"] for r in conn.execute("PRAGMA table_info(contacts)")}
     if "phone_type" not in cols:
         conn.execute("ALTER TABLE contacts ADD COLUMN phone_type TEXT")
+    if "ghl_opportunity_id" not in cols:
+        conn.execute("ALTER TABLE contacts ADD COLUMN ghl_opportunity_id TEXT")
 
 
 def init_db() -> None:

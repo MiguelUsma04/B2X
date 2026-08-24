@@ -554,6 +554,81 @@ async function showDetail(id) {
 function closeModal() { $('modal').classList.remove('open'); }
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeModal(); });
 
+/* ---------------- embudo de oportunidades ---------------- */
+let PIPELINES = [];
+
+async function loadPipelines() {
+  const box = $('pipeline-box');
+  if (!box) return;
+  box.innerHTML = '<p class="help">Cargando embudos del CRM…</p>';
+
+  const [pipes, cfg] = await Promise.all([
+    (await fetch('/api/ghl/pipelines')).json(),
+    (await fetch('/api/ghl/settings')).json(),
+  ]);
+
+  if (pipes.error) {
+    box.innerHTML = `<div class="alert warn">No se pudieron leer los embudos:
+      ${esc(pipes.error)}</div>`;
+    return;
+  }
+  PIPELINES = pipes.pipelines || [];
+  if (!PIPELINES.length) {
+    box.innerHTML = '<p class="help">No hay embudos en este sub-account.</p>';
+    return;
+  }
+
+  const opts = PIPELINES.map((p) =>
+    `<option value="${esc(p.id)}" ${p.id === cfg.pipeline_id ? 'selected' : ''}>
+       ${esc(p.name)}</option>`).join('');
+
+  box.innerHTML = `
+    <p class="lede" style="margin-bottom:12px">
+      <b>Oportunidades.</b> Cada contacto que envíes abre además una oportunidad
+      en el embudo que elijas. Si no elegís ninguno, solo se crea el contacto.
+    </p>
+    <div class="row">
+      <div>
+        <label class="fld" for="pipe-sel">Embudo</label>
+        <select id="pipe-sel" onchange="renderStages()" style="min-width:230px">
+          <option value="">— No crear oportunidades —</option>${opts}
+        </select>
+      </div>
+      <div>
+        <label class="fld" for="stage-sel">Etapa</label>
+        <select id="stage-sel" style="min-width:210px"></select>
+      </div>
+      <button onclick="savePipeline()">Guardar</button>
+      <span id="pipe-msg" style="color:var(--ink-2)"></span>
+    </div>`;
+  renderStages(cfg.stage_id);
+}
+
+function renderStages(selected) {
+  const pid = $('pipe-sel').value;
+  const pipe = PIPELINES.find((p) => p.id === pid);
+  const sel = $('stage-sel');
+  if (!pipe) {
+    sel.innerHTML = '<option value="">—</option>';
+    sel.disabled = true;
+    return;
+  }
+  sel.disabled = false;
+  sel.innerHTML = pipe.stages.map((st, i) =>
+    `<option value="${esc(st.id)}" ${st.id === selected || (!selected && i === 0)
+      ? 'selected' : ''}>${esc(st.name)}</option>`).join('');
+}
+
+async function savePipeline() {
+  const fd = new FormData();
+  fd.append('pipeline_id', $('pipe-sel').value);
+  fd.append('stage_id', $('stage-sel').value || '');
+  const d = await (await fetch('/api/ghl/settings', { method: 'POST', body: fd })).json();
+  $('pipe-msg').textContent = d.pipeline_id
+    ? (d.persisted_to_env ? 'Guardado.' : 'Guardado (se pierde al reiniciar el contenedor).')
+    : 'Listo: no se crearán oportunidades.';
+}
+
 /* ---------------- enviar al CRM ---------------- */
 async function sendToGHL() {
   const ids = [...SELECTED];
@@ -575,6 +650,9 @@ async function sendToGHL() {
   } else {
     const errs = (d.results || []).filter((x) => x.status === 'error').slice(0, 5);
     const parts = [`<b>${d.sent} contacto(s) enviados al CRM.</b>`];
+    if (d.pipeline_configured) {
+      parts.push(`Se crearon ${d.opportunities} oportunidad(es) en el embudo.`);
+    }
     if (d.skipped) parts.push(`${d.skipped} no se enviaron porque todavía no tienen email.`);
     if (d.failed) parts.push(`${d.failed} fallaron.`);
     $('ghl-result').innerHTML = `<div class="alert ${d.failed ? 'warn' : 'ok'}">
@@ -588,4 +666,7 @@ async function sendToGHL() {
 
 /* ---------------- init ---------------- */
 $('f-q').addEventListener('keydown', (e) => { if (e.key === 'Enter') loadContacts(); });
-(async () => { await loadMetrics(); await loadContacts(); await refreshPending(); })();
+(async () => {
+  await loadMetrics(); await loadContacts(); await refreshPending();
+  loadPipelines();   // en segundo plano: depende de una llamada al CRM
+})();
