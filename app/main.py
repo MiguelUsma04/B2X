@@ -107,8 +107,19 @@ async def api_confirm(icp_tag: str = Form("")):
 @app.get("/api/contacts")
 def api_contacts(email_status: str = "", email_source: str = "",
                  ghl_status: str = "", import_batch_id: str = "",
-                 q: str = "", limit: int = 500, offset: int = 0):
+                 reach: str = "", q: str = "", limit: int = 500, offset: int = 0):
+    HAS_EMAIL = "email IS NOT NULL AND email <> ''"
+    HAS_PHONE = "phone IS NOT NULL AND phone <> '' AND phone_type = 'personal'"
+    REACH_SQL = {
+        "contactable": f"(({HAS_EMAIL}) OR ({HAS_PHONE}))",
+        "email":       f"({HAS_EMAIL})",
+        "phone":       f"({HAS_PHONE})",
+        "both":        f"(({HAS_EMAIL}) AND ({HAS_PHONE}))",
+        "none":        f"(NOT ({HAS_EMAIL}) AND NOT ({HAS_PHONE}))",
+    }
     where, params = [], []
+    if reach in REACH_SQL:
+        where.append(REACH_SQL[reach])
     if email_status:
         where.append("email_status=?"); params.append(email_status)
     if email_source:
@@ -168,14 +179,32 @@ def api_metrics():
             "SELECT email_source, COUNT(*) c FROM contacts GROUP BY email_source")}
         by_ghl = {r["ghl_status"]: r["c"] for r in conn.execute(
             "SELECT ghl_status, COUNT(*) c FROM contacts GROUP BY ghl_status")}
-        with_email = conn.execute(
-            "SELECT COUNT(*) c FROM contacts WHERE email IS NOT NULL AND email<>''"
-        ).fetchone()["c"]
+        # "Contactable" = tiene email o un teléfono PERSONAL. El conmutador de
+        # la empresa no cuenta: llamar ahí no llega al contacto.
+        HAS_EMAIL = "email IS NOT NULL AND email <> ''"
+        HAS_PHONE = "phone IS NOT NULL AND phone <> '' AND phone_type = 'personal'"
+        counts = conn.execute(f"""
+            SELECT
+              SUM(CASE WHEN {HAS_EMAIL} THEN 1 ELSE 0 END)                          AS with_email,
+              SUM(CASE WHEN {HAS_PHONE} THEN 1 ELSE 0 END)                          AS with_phone,
+              SUM(CASE WHEN {HAS_EMAIL} AND {HAS_PHONE} THEN 1 ELSE 0 END)          AS with_both,
+              SUM(CASE WHEN {HAS_EMAIL} OR  {HAS_PHONE} THEN 1 ELSE 0 END)          AS contactable,
+              SUM(CASE WHEN NOT ({HAS_EMAIL}) AND NOT ({HAS_PHONE})
+                        AND mobile_available = 1 THEN 1 ELSE 0 END)                 AS mobile_available
+            FROM contacts""").fetchone()
+        with_email = counts["with_email"] or 0
+        with_phone = counts["with_phone"] or 0
+        with_both = counts["with_both"] or 0
+        contactable = counts["contactable"] or 0
+        mobile_avail = counts["mobile_available"] or 0
         batches = [dict(r) for r in conn.execute(
             "SELECT * FROM import_batches ORDER BY id DESC")]
     return {
         "total": total, "with_email": with_email,
+        "with_phone": with_phone, "with_both": with_both,
+        "contactable": contactable, "mobile_available": mobile_avail,
         "pct_with_email": round(with_email / total * 100, 1) if total else 0.0,
+        "pct_contactable": round(contactable / total * 100, 1) if total else 0.0,
         "by_status": by_status, "by_source": by_source, "by_ghl": by_ghl,
         "batches": batches,
         "providers": [{"name": p.name, "enabled": p.enabled} for p in build_chain()],

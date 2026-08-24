@@ -27,6 +27,8 @@ class EnrichProgress:
     finished: bool = False
     error: str | None = None
     by_provider: dict = field(default_factory=dict)
+    # Qué se encontró, para mostrarlo al terminar en vez de solo el conteo.
+    found_items: list = field(default_factory=list)
 
     def as_dict(self) -> dict:
         return {
@@ -36,6 +38,7 @@ class EnrichProgress:
             "current_provider": self.current_provider,
             "finished": self.finished, "error": self.error,
             "by_provider": self.by_provider,
+            "found_items": self.found_items,
         }
 
 
@@ -273,6 +276,12 @@ async def run_mobile_search(contact_ids: list[int]) -> None:
                     if result.success and result.phone:
                         MOBILE_PROGRESS.found += 1
                         MOBILE_PROGRESS.by_provider["prospeo"] =                             MOBILE_PROGRESS.by_provider.get("prospeo", 0) + 1
+                        MOBILE_PROGRESS.found_items.append({
+                            "name": contact.get("full_name"),
+                            "company": contact.get("company_name"),
+                            "value": result.phone,
+                            "provider": "prospeo",
+                        })
                     else:
                         MOBILE_PROGRESS.not_found += 1
 

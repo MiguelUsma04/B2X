@@ -81,10 +81,14 @@ async def send_contacts(contact_ids: list[int], tag: str | None = None) -> dict:
     results = []
     async with httpx.AsyncClient(timeout=30.0) as client:
         for contact in rows:
-            if not contact.get("email"):
+            # Alcanza con email O teléfono personal: un contacto con celular
+            # se puede trabajar por llamada o WhatsApp desde el CRM.
+            has_phone = (contact.get("phone")
+                         and contact.get("phone_type") == "personal")
+            if not contact.get("email") and not has_phone:
                 skipped += 1
                 results.append({"id": contact["id"], "status": "skipped",
-                                "message": "Sin email — no se envía a GHL."})
+                                "message": "Sin email ni celular — no se envía a GHL."})
                 continue
 
             payload = build_payload(contact, tag)

@@ -65,27 +65,44 @@ async function loadMetrics() {
   const pending = m.by_status.pending || 0;
   const sent = m.by_ghl.sent || 0;
 
+  const soloEmail = m.with_email - m.with_both;
+  const soloTel = m.with_phone - m.with_both;
+
   $('metrics').innerHTML = `
     <div class="metric hero">
-      <div class="k">Contactos con email</div>
+      <div class="k">Contactables</div>
+      <div class="v">${m.contactable}</div>
+      <div class="n">${m.pct_contactable}% de ${m.total} · tienen email o celular</div>
+    </div>
+    <div class="metric">
+      <div class="k">Cómo podés llegarles</div>
+      <div style="margin-top:8px">
+        <div class="srcline"><span>Email y celular</span><span>${m.with_both}</span></div>
+        <div class="srcline"><span>Solo email</span><span>${soloEmail}</span></div>
+        <div class="srcline"><span>Solo celular</span><span>${soloTel}</span></div>
+        <div class="srcline" style="border-top:1px solid var(--line);margin-top:4px;padding-top:6px">
+          <span style="color:var(--ink-3)">Sin ningún dato</span>
+          <span>${m.total - m.contactable}</span></div>
+      </div>
+    </div>
+    <div class="metric">
+      <div class="k">Con email</div>
       <div class="v">${m.with_email}</div>
-      <div class="n">${m.pct_with_email}% de ${m.total} · listos para contactar</div>
+      <div class="n">${m.pct_with_email}% del total</div>
     </div>
     <div class="metric">
-      <div class="k">Total cargados</div>
-      <div class="v">${m.total}</div>
-      <div class="n">${m.batches.length} carga(s) de Apollo</div>
-    </div>
-    <div class="metric">
-      <div class="k">Falta buscarles el email</div>
-      <div class="v">${pending}</div>
-      <div class="n">${pending ? 'Andá al paso 2' : 'Ninguno pendiente'}</div>
+      <div class="k">Con celular</div>
+      <div class="v">${m.with_phone}</div>
+      <div class="n">${m.mobile_available
+        ? `📱 ${m.mobile_available} más tienen celular disponible`
+        : 'número directo, no conmutador'}</div>
     </div>
     <div class="metric">
       <div class="k">Ya están en el CRM</div>
       <div class="v">${sent}</div>
       <div class="n">${(m.by_ghl.error || 0)
-        ? (m.by_ghl.error + ' fallaron al enviar') : 'Sin errores'}</div>
+        ? (m.by_ghl.error + ' fallaron al enviar')
+        : (pending ? `${pending} sin buscarles el email` : 'Sin errores')}</div>
     </div>
     <div class="metric">
       <div class="k">Quién encontró cada email</div>
@@ -168,6 +185,7 @@ async function deleteBatch(id, contactCount) {
 function filterParams() {
   const p = new URLSearchParams();
   if ($('f-q').value.trim()) p.set('q', $('f-q').value.trim());
+  if ($('f-reach').value) p.set('reach', $('f-reach').value);
   if ($('f-status').value) p.set('email_status', $('f-status').value);
   if ($('f-source').value) p.set('email_source', $('f-source').value);
   if ($('f-ghl').value) p.set('ghl_status', $('f-ghl').value);
@@ -217,7 +235,7 @@ async function loadContacts() {
 }
 
 function resetFilters() {
-  ['f-q', 'f-status', 'f-source', 'f-ghl', 'f-batch'].forEach((i) => { $(i).value = ''; });
+  ['f-q', 'f-reach', 'f-status', 'f-source', 'f-ghl', 'f-batch'].forEach((i) => { $(i).value = ''; });
   loadContacts();
 }
 
@@ -256,6 +274,20 @@ function updateSelInfo() {
   $('btn-ghl').disabled = n === 0;
   const mb = $('btn-mobile');
   if (mb) mb.disabled = n === 0;
+}
+
+function foundList(items, label) {
+  if (!items || !items.length) return '';
+  const rows = items.map((f) => `
+    <tr><td style="padding:5px 12px 5px 0">${esc(f.name || '—')}
+        ${f.company ? `<div class="sub">${esc(f.company)}</div>` : ''}</td>
+      <td style="padding:5px 12px 5px 0"><b>${esc(f.value)}</b></td>
+      <td style="padding:5px 0">${f.provider
+        ? `<span class="pill ${esc(f.provider)}">${esc(SOURCE_TXT[f.provider] || f.provider)}</span>`
+        : ''}</td></tr>`).join('');
+  return `<div style="margin-top:12px">
+      <div style="font-weight:600;margin-bottom:6px">${esc(label)}</div>
+      <table style="font-size:14px">${rows}</table></div>`;
 }
 
 /* ---------------- buscar teléfonos ---------------- */
@@ -307,9 +339,10 @@ async function pollMobile() {
       <p style="color:var(--ok);font-weight:600">${p.found} teléfonos encontrados</p>`;
   } else if (p.finished) {
     $('mobile-progress').innerHTML = `<div class="alert ${p.found ? 'ok' : 'info'}">
-      <b>Búsqueda terminada.</b> Se encontraron ${p.found} teléfonos
+      <b>Búsqueda terminada.</b> Se encontraron ${p.found} teléfono(s)
       de ${p.total} contactos.
-      ${p.not_found ? ` En ${p.not_found} no había número disponible.` : ''}</div>`;
+      ${p.not_found ? ` En ${p.not_found} no había número disponible.` : ''}
+      ${foundList(p.found_items, 'Teléfonos encontrados:')}</div>`;
   }
 
   if (!p.running && p.finished) {
@@ -489,11 +522,12 @@ async function pollProgress() {
       </div></div>`;
   } else if (p.finished) {
     $('progress-box').innerHTML = `
-      <div class="alert ok">
-        <b>Búsqueda terminada.</b> Se encontraron ${p.found} emails nuevos
+      <div class="alert ${p.found ? 'ok' : 'info'}">
+        <b>Búsqueda terminada.</b> Se encontraron ${p.found} email(s) nuevos
         de ${p.total} contactos revisados.
         ${p.not_found ? ` En ${p.not_found} no hubo resultado en ningún servicio.` : ''}
-        <br><br>${by ? by + '<br><br>' : ''}
+        ${foundList(p.found_items, 'Emails encontrados:')}
+        <br>${by ? by + '<br><br>' : ''}
         <button class="primary" onclick="goToStep('contacts')">Ver y enviar al CRM →</button>
       </div>`;
   }
