@@ -76,14 +76,51 @@ def reset_not_found(batch_id: int | None = None) -> int:
         return conn.execute(q, params).rowcount
 
 
-def count_not_found(batch_id: int | None = None) -> int:
-    q = "SELECT COUNT(*) c FROM contacts WHERE email_status='not_found'"
+def count_not_found(batch_id: int | None = None) -> dict:
+    """Cuenta los 'not_found' separando los que ya se reintentaron.
+
+    Un contacto probado una sola vez puede valer un reintento (sobre todo si
+    mejoró la búsqueda). Uno que ya pasó por la cascada dos o más veces casi
+    seguro no está en ninguna base: insistir solo gasta créditos.
+    """
+    where = "c.email_status='not_found'"
     params: list = []
     if batch_id:
-        q += " AND import_batch_id=?"
+        where += " AND c.import_batch_id=?"
         params.append(batch_id)
+
+    # Una "vuelta" = un intento del primer proveedor de la cadena.
+    q = f"""
+        SELECT
+          COUNT(*) AS total,
+          SUM(CASE WHEN rondas <= 1 THEN 1 ELSE 0 END) AS nuevos,
+          SUM(CASE WHEN rondas >= 2 THEN 1 ELSE 0 END) AS reintentados
+        FROM (
+          SELECT c.id,
+                 (SELECT COUNT(*) FROM enrichment_log l
+                   WHERE l.contact_id = c.id AND l.provider = 'prospeo') AS rondas
+          FROM contacts c WHERE {where}
+        )"""
     with get_db() as conn:
-        return conn.execute(q, params).fetchone()["c"]
+        r = conn.execute(q, params).fetchone()
+    return {"total": r["total"] or 0,
+            "nuevos": r["nuevos"] or 0,
+            "reintentados": r["reintentados"] or 0}
+
+
+def reset_not_found_new_only(batch_id: int | None = None) -> int:
+    """Reintenta solo los que todavía no se reintentaron."""
+    where = "email_status='not_found'"
+    params: list = []
+    if batch_id:
+        where += " AND import_batch_id=?"
+        params.append(batch_id)
+    q = f"""UPDATE contacts SET email_status='pending', updated_at=datetime('now')
+            WHERE {where} AND (
+              SELECT COUNT(*) FROM enrichment_log l
+               WHERE l.contact_id = contacts.id AND l.provider='prospeo') <= 1"""
+    with get_db() as conn:
+        return conn.execute(q, params).rowcount
 
 
 def pending_contacts(limit: int | None = None, batch_id: int | None = None) -> list[dict]:

@@ -245,15 +245,24 @@ def api_enrich_progress():
 
 @app.get("/api/enrich/pending-count")
 def api_pending_count():
+    nf = enrichment.count_not_found()
     return {"pending": len(enrichment.pending_contacts()),
-            "not_found": enrichment.count_not_found()}
+            "not_found": nf["total"],
+            "not_found_new": nf["nuevos"],
+            "not_found_retried": nf["reintentados"]}
 
 
 @app.post("/api/enrich/retry-not-found")
-def api_retry_not_found(batch_id: str = Form("")):
-    """Vuelve a poner en pendiente los que no se encontraron, para reintentar."""
+def api_retry_not_found(batch_id: str = Form(""), include_retried: str = Form("")):
+    """Vuelve a poner en pendiente los que no se encontraron.
+
+    Por defecto solo los probados una vez; con include_retried también los que
+    ya pasaron por la cascada más de una vez.
+    """
     bid = int(batch_id) if str(batch_id).strip().isdigit() else None
-    n = enrichment.reset_not_found(bid)
+    todos = str(include_retried).lower() in ("1", "true", "yes", "on")
+    n = (enrichment.reset_not_found(bid) if todos
+         else enrichment.reset_not_found_new_only(bid))
     return {"reset": n}
 
 

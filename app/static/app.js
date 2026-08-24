@@ -450,26 +450,40 @@ async function refreshPending() {
     : (d.pending === 1 ? 'Falta 1 contacto' : `Faltan ${d.pending} contactos`);
   $('btn-enrich').disabled = d.pending === 0;
 
-  // Los que no se encontraron quedan fuera de la búsqueda hasta que se
-  // reintenten a propósito: si no, cada corrida los volvería a cobrar.
+  // El aviso solo aparece si hay algo que todavía no se reintentó: repetir
+  // una búsqueda que ya falló dos veces solo gasta créditos.
   const box = $('retry-box');
   if (!box) return;
-  box.innerHTML = d.not_found
-    ? `<div class="alert info">
-         Hay <b>${d.not_found} contacto(s)</b> en los que no se encontró email en
-         un intento anterior. Podés volver a intentarlo — tiene sentido si desde
-         entonces se mejoró la búsqueda.<br><br>
-         <button onclick="retryNotFound()">Reintentar esos ${d.not_found}</button>
-       </div>`
-    : '';
+
+  if (d.not_found_new) {
+    box.innerHTML = `<div class="alert info">
+       Hay <b>${d.not_found_new} contacto(s)</b> sin email que todavía no se
+       reintentaron. Vale la pena si desde entonces se mejoró la búsqueda.<br><br>
+       <button onclick="retryNotFound(false)">Reintentar esos ${d.not_found_new}</button>
+     </div>`;
+  } else if (d.not_found_retried) {
+    box.innerHTML = `<div class="alert" style="background:var(--surface-2);
+         border-color:var(--line);color:var(--ink-2)">
+       <b>${d.not_found_retried} contacto(s)</b> ya pasaron por los tres servicios
+       más de una vez sin resultado. Lo más probable es que su email no esté en
+       ninguna base.<br><br>
+       <button class="sm" onclick="retryNotFound(true)">Intentar de nuevo igual</button>
+       <span class="help" style="margin-left:8px">Consume créditos.</span>
+     </div>`;
+  } else {
+    box.innerHTML = '';
+  }
 }
 
-async function retryNotFound() {
-  const r = await fetch('/api/enrich/retry-not-found', { method: 'POST', body: new FormData() });
+async function retryNotFound(includeRetried) {
+  const fd = new FormData();
+  if (includeRetried) fd.append('include_retried', '1');
+  const r = await fetch('/api/enrich/retry-not-found', { method: 'POST', body: fd });
   const d = await r.json();
-  $('retry-box').innerHTML =
-    `<div class="alert ok"><b>${d.reset} contacto(s) listos para reintentar.</b>
-     Dale a "Empezar búsqueda".</div>`;
+  $('retry-box').innerHTML = d.reset
+    ? `<div class="alert ok"><b>${d.reset} contacto(s) listos para reintentar.</b>
+       Dale a "Empezar búsqueda".</div>`
+    : '<div class="alert info">No había contactos para reintentar.</div>';
   await refreshPending();
   await loadMetrics();
 }
