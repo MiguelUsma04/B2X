@@ -27,6 +27,8 @@ CREATE TABLE IF NOT EXISTS contacts (
     email_source      TEXT
                       CHECK (email_source IN ('apollo','prospeo','icypeas','hunter') OR email_source IS NULL),
     phone             TEXT,
+    -- 'personal' = directo o móvil de la persona; 'company' = conmutador.
+    phone_type        TEXT,
     job_title         TEXT,
     company_name      TEXT,
     company_domain    TEXT,
@@ -82,6 +84,7 @@ def connect() -> sqlite3.Connection:
     conn.execute("PRAGMA journal_mode = WAL")
     if not _schema_ready:
         conn.executescript(SCHEMA)
+        _migrate(conn)
         conn.commit()
         _schema_ready = True
     return conn
@@ -100,6 +103,14 @@ def get_db():
         conn.close()
 
 
+def _migrate(conn) -> None:
+    """Agrega columnas nuevas a bases que ya existen."""
+    cols = {r["name"] for r in conn.execute("PRAGMA table_info(contacts)")}
+    if "phone_type" not in cols:
+        conn.execute("ALTER TABLE contacts ADD COLUMN phone_type TEXT")
+
+
 def init_db() -> None:
     with get_db() as conn:
         conn.executescript(SCHEMA)
+        _migrate(conn)

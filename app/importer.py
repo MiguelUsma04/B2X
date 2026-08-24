@@ -68,11 +68,13 @@ def import_contacts(conn: sqlite3.Connection, filename: str, raw: bytes,
             conn.execute(
                 """INSERT INTO contacts
                    (first_name,last_name,full_name,email,email_status,email_source,
-                    phone,job_title,company_name,company_domain,linkedin_url,import_batch_id)
-                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
+                    phone,phone_type,job_title,company_name,company_domain,
+                    linkedin_url,import_batch_id)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (c["first_name"], c["last_name"], c["full_name"], c["email"],
-                 c["email_status"], c["email_source"], c["phone"], c["job_title"],
-                 c["company_name"], c["company_domain"], c["linkedin_url"], batch_id),
+                 c["email_status"], c["email_source"], c["phone"], c.get("phone_type"),
+                 c["job_title"], c["company_name"], c["company_domain"],
+                 c["linkedin_url"], batch_id),
             )
         except sqlite3.IntegrityError:
             # Carrera contra los índices únicos (duplicado dentro del mismo archivo).

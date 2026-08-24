@@ -152,7 +152,7 @@ async def run_enrichment(limit: int | None = None, batch_id: int | None = None) 
                             # se guarda si el contacto todavía no tenía uno.
                             if result.phone and not contact.get("phone"):
                                 conn.execute(
-                                    """UPDATE contacts SET phone=?,
+                                    """UPDATE contacts SET phone=?, phone_type='personal',
                                        updated_at=datetime('now') WHERE id=?""",
                                     (result.phone, contact["id"]))
                         if result.success and result.email:
@@ -193,13 +193,19 @@ _MOBILE_LOCK = asyncio.Lock()
 
 
 def contacts_without_phone(contact_ids: list[int]) -> list[dict]:
+    """Los que no tienen un teléfono PERSONAL.
+
+    Tener el conmutador de la empresa no sirve para llamar al contacto, así
+    que esos igual entran en la búsqueda de móviles.
+    """
     if not contact_ids:
         return []
     marks = ",".join("?" * len(contact_ids))
     with get_db() as conn:
         return [dict(r) for r in conn.execute(
             f"""SELECT * FROM contacts
-                WHERE id IN ({marks}) AND (phone IS NULL OR phone = '')
+                WHERE id IN ({marks})
+                  AND (phone IS NULL OR phone = '' OR phone_type <> 'personal')
                 ORDER BY id""", contact_ids)]
 
 
@@ -246,7 +252,7 @@ async def run_mobile_search(contact_ids: list[int]) -> None:
                         _log(conn, contact["id"], "prospeo_mobile", result)
                         if result.success and result.phone:
                             conn.execute(
-                                """UPDATE contacts SET phone=?,
+                                """UPDATE contacts SET phone=?, phone_type='personal',
                                    updated_at=datetime('now') WHERE id=?""",
                                 (result.phone, contact["id"]))
                             # Si de paso trajo un email y no teníamos, lo guardamos.

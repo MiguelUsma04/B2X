@@ -191,7 +191,11 @@ async function loadContacts() {
       <td>${esc(c.company_name || '—')}
         ${c.company_domain ? `<div class="sub">${esc(c.company_domain)}</div>` : ''}</td>
       <td>${c.email ? esc(c.email) : '<span class="sub">—</span>'}</td>
-      <td>${c.phone ? esc(c.phone) : '<span class="sub">—</span>'}</td>
+      <td>${c.phone
+        ? esc(c.phone) + (c.phone_type === 'company'
+            ? '<div class="sub" title="Es el conmutador de la empresa, no el número directo del contacto">conmutador</div>'
+            : '')
+        : '<span class="sub">—</span>'}</td>
       <td>${pill(c.email_status, STATUS_TXT)}</td>
       <td>${pill(c.email_source, SOURCE_TXT)}</td>
       <td>${pill(c.ghl_status, GHL_TXT)}
@@ -533,7 +537,11 @@ async function showDetail(id) {
       <dt>LinkedIn</dt><dd>${c.linkedin_url
         ? `<a href="${esc(c.linkedin_url)}" target="_blank" rel="noopener"
              style="color:var(--brand)">Ver perfil</a>` : '—'}</dd>
-      <dt>Teléfono</dt><dd>${esc(c.phone || '—')}</dd>
+      <dt>Teléfono</dt><dd>${c.phone
+        ? esc(c.phone) + (c.phone_type === 'company'
+            ? ' <span class="sub">(conmutador de la empresa, no el directo del contacto)</span>'
+            : ' <span class="sub">(directo)</span>')
+        : '—'}</dd>
       <dt>En el CRM</dt><dd>${pill(c.ghl_status, GHL_TXT)}</dd>
       ${c.ghl_error_message
         ? `<dt>Error del CRM</dt><dd style="color:var(--danger)">${esc(c.ghl_error_message)}</dd>` : ''}

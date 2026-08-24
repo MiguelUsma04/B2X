@@ -187,12 +187,27 @@ def row_to_contact(row: dict, mapping: dict[str, str | None]) -> dict:
 
     # El teléfono se resuelve por fila, no por columna: Apollo llena distintas
     # columnas según el contacto, y el mapeo global elige una sola.
-    phone = g("phone")
+    # Se distingue el de la persona del conmutador de la empresa: llamar al
+    # conmutador creyendo que es un directo hace perder tiempo al vendedor.
+    PERSONAL_COLS = ("Mobile Phone", "Work Direct Phone", "Home Phone", "Other Phone")
+    COMPANY_COLS = ("Corporate Phone", "Company Phone")
+
+    phone, phone_type = None, None
+    for col in PERSONAL_COLS:
+        phone = clean_text(row.get(col))
+        if phone:
+            phone_type = "personal"
+            break
     if not phone:
-        for col in ("Mobile Phone", "Work Direct Phone", "Home Phone",
-                    "Other Phone", "Corporate Phone", "Company Phone"):
+        mapped = g("phone")
+        # La columna mapeada solo cuenta como personal si no es una de empresa.
+        if mapped and (mapping.get("phone") or "") not in COMPANY_COLS:
+            phone, phone_type = mapped, "personal"
+    if not phone:
+        for col in COMPANY_COLS:
             phone = clean_text(row.get(col))
             if phone:
+                phone_type = "company"
                 break
 
     email = clean_email(g("email"))
@@ -204,6 +219,7 @@ def row_to_contact(row: dict, mapping: dict[str, str | None]) -> dict:
         "email_status": "verified" if email else "pending",
         "email_source": "apollo" if email else None,
         "phone": phone,
+        "phone_type": phone_type,
         "job_title": g("job_title"),
         "company_name": g("company_name"),
         "company_domain": clean_domain(g("company_domain")),
