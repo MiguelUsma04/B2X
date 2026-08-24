@@ -104,8 +104,10 @@ async function loadMetrics() {
       <td class="sub">${esc(b.imported_at)}</td><td>${b.total_rows}</td>
       <td style="color:var(--ok);font-weight:600">${b.new_contacts}</td>
       <td class="sub">${b.duplicate_contacts}</td>
-      <td>${esc(b.icp_tag || '—')}</td></tr>`).join('')
-    : `<tr><td colspan="7"><div class="empty"><strong>Todavía no cargaste nada</strong>
+      <td>${esc(b.icp_tag || '—')}</td>
+      <td><button class="sm" onclick="deleteBatch(${b.id}, ${b.new_contacts})"
+          title="Borrar esta carga">Borrar</button></td></tr>`).join('')
+    : `<tr><td colspan="8"><div class="empty"><strong>Todavía no cargaste nada</strong>
        Cuando subas tu primer archivo de Apollo va a aparecer acá.</div></td></tr>`;
 
   const missing = m.providers.filter((p) => !p.enabled).map((p) => p.name);
@@ -114,6 +116,52 @@ async function loadMetrics() {
        La búsqueda va a usar solo los servicios conectados.</div>`
     : '';
   return m;
+}
+
+/* ---------------- borrar cargas ---------------- */
+async function deleteBatch(id, contactCount) {
+  let wipe = false;
+
+  if (contactCount > 0) {
+    const opt = prompt(
+      `La carga #${id} tiene ${contactCount} contacto(s).
+
+` +
+      `Escribí una opción:
+` +
+      `  1 = Borrar solo del historial (los contactos se conservan)
+` +
+      `  2 = Borrar también los contactos
+
+` +
+      `Los contactos que ya enviaste al CRM nunca se borran.`, '1');
+    if (opt === null) return;
+    if (opt.trim() === '2') {
+      wipe = true;
+      if (!confirm(`Se van a borrar los contactos de la carga #${id}.
+
+` +
+                   `Esto no se puede deshacer. ¿Seguimos?`)) return;
+    } else if (opt.trim() !== '1') {
+      return;
+    }
+  } else if (!confirm(`¿Borrar la carga #${id} del historial?`)) {
+    return;
+  }
+
+  const fd = new FormData();
+  if (wipe) fd.append('delete_contacts', '1');
+  const r = await fetch(`/api/batches/${id}/delete`, { method: 'POST', body: fd });
+  const d = await r.json();
+  if (!r.ok) {
+    alert(d.detail || 'No se pudo borrar.');
+    return;
+  }
+  let msg = `Carga #${d.batch_id} borrada.`;
+  if (d.deleted_contacts) msg += ` Se borraron ${d.deleted_contacts} contacto(s).`;
+  if (d.kept_sent_to_crm) msg += ` Se conservaron ${d.kept_sent_to_crm} que ya están en el CRM.`;
+  alert(msg);
+  await loadMetrics(); await loadContacts(); await refreshPending();
 }
 
 /* ---------------- contactos ---------------- */

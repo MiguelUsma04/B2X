@@ -109,3 +109,41 @@ def preview_csv(raw: bytes, limit: int = 10) -> dict:
         "preview": [row_to_contact(r, mapping) for r in rows[:limit]],
         "unmapped_fields": [k for k, v in mapping.items() if v is None],
     }
+
+
+def delete_batch(conn, batch_id: int, delete_contacts: bool = False) -> dict:
+    """Borra una carga del historial.
+
+    Por defecto conserva los contactos y solo los desvincula: ya fueron
+    revisados o enviados al CRM, y perderlos rompería la deduplicación
+    (volverían a entrar como nuevos en la próxima importación).
+
+    Con delete_contacts=True se borran también, salvo los que ya están en
+    el CRM: esos no se tocan nunca, porque el registro de qué se envió es
+    lo único que evita mandar duplicados a GoHighLevel.
+    """
+    row = conn.execute("SELECT id FROM import_batches WHERE id=?", (batch_id,)).fetchone()
+    if not row:
+        raise ValueError(f"La carga #{batch_id} no existe.")
+
+    total = conn.execute(
+        "SELECT COUNT(*) c FROM contacts WHERE import_batch_id=?", (batch_id,)).fetchone()["c"]
+    sent = conn.execute(
+        "SELECT COUNT(*) c FROM contacts WHERE import_batch_id=? AND ghl_status='sent'",
+        (batch_id,)).fetchone()["c"]
+
+    deleted = 0
+    if delete_contacts:
+        # Los enviados al CRM se conservan siempre.
+        deleted = conn.execute(
+            "DELETE FROM contacts WHERE import_batch_id=? AND ghl_status<>'sent'",
+            (batch_id,)).rowcount
+
+    # Lo que quede (o todo, si no se borran) pierde el vínculo con la carga.
+    conn.execute("UPDATE contacts SET import_batch_id=NULL WHERE import_batch_id=?",
+                 (batch_id,))
+    conn.execute("DELETE FROM import_batches WHERE id=?", (batch_id,))
+
+    return {"batch_id": batch_id, "total_contacts": total,
+            "deleted_contacts": deleted, "kept_sent_to_crm": sent,
+            "kept_contacts": total - deleted}

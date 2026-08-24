@@ -30,7 +30,7 @@ def _load_env() -> None:
 _load_env()
 
 from .db import get_db, init_db          # noqa: E402
-from .importer import import_contacts, preview_csv  # noqa: E402
+from .importer import delete_batch, import_contacts, preview_csv  # noqa: E402
 from . import auth, enrichment, ghl     # noqa: E402
 from .providers import build_chain       # noqa: E402
 
@@ -182,6 +182,17 @@ def api_metrics():
         "ghl_configured": bool(__import__("os").getenv("GHL_API_TOKEN")
                                and __import__("os").getenv("GHL_LOCATION_ID")),
     }
+
+
+@app.post("/api/batches/{batch_id}/delete")
+def api_delete_batch(batch_id: int, delete_contacts: str = Form("")):
+    """Borra una carga. Sin delete_contacts solo se quita del historial."""
+    wipe = str(delete_contacts).lower() in ("1", "true", "yes", "on")
+    try:
+        with get_db() as conn:
+            return delete_batch(conn, batch_id, wipe)
+    except ValueError as exc:
+        raise HTTPException(404, str(exc))
 
 
 # -------------------------------------------------------------- enriquecimiento
