@@ -57,6 +57,32 @@ def _log(conn, contact_id: int, provider: str, result) -> None:
     )
 
 
+def reset_not_found(batch_id: int | None = None) -> int:
+    """Devuelve los 'not_found' al estado pendiente para volver a intentarlos.
+
+    Hace falta cuando mejora la lógica de búsqueda: sin esto, los contactos
+    que fallaron quedan congelados y reimportar el CSV no sirve porque la
+    deduplicación los descarta.
+    """
+    q = "UPDATE contacts SET email_status='pending', updated_at=datetime('now') "         "WHERE email_status='not_found'"
+    params: list = []
+    if batch_id:
+        q += " AND import_batch_id=?"
+        params.append(batch_id)
+    with get_db() as conn:
+        return conn.execute(q, params).rowcount
+
+
+def count_not_found(batch_id: int | None = None) -> int:
+    q = "SELECT COUNT(*) c FROM contacts WHERE email_status='not_found'"
+    params: list = []
+    if batch_id:
+        q += " AND import_batch_id=?"
+        params.append(batch_id)
+    with get_db() as conn:
+        return conn.execute(q, params).fetchone()["c"]
+
+
 def pending_contacts(limit: int | None = None, batch_id: int | None = None) -> list[dict]:
     q = "SELECT * FROM contacts WHERE email_status='pending'"
     params: list = []

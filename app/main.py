@@ -205,7 +205,16 @@ def api_enrich_progress():
 
 @app.get("/api/enrich/pending-count")
 def api_pending_count():
-    return {"pending": len(enrichment.pending_contacts())}
+    return {"pending": len(enrichment.pending_contacts()),
+            "not_found": enrichment.count_not_found()}
+
+
+@app.post("/api/enrich/retry-not-found")
+def api_retry_not_found(batch_id: str = Form("")):
+    """Vuelve a poner en pendiente los que no se encontraron, para reintentar."""
+    bid = int(batch_id) if str(batch_id).strip().isdigit() else None
+    n = enrichment.reset_not_found(bid)
+    return {"reset": n}
 
 
 @app.post("/api/mobile/start")

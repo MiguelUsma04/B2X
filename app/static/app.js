@@ -361,6 +361,29 @@ async function refreshPending() {
     ? 'No hay contactos pendientes'
     : (d.pending === 1 ? 'Falta 1 contacto' : `Faltan ${d.pending} contactos`);
   $('btn-enrich').disabled = d.pending === 0;
+
+  // Los que no se encontraron quedan fuera de la búsqueda hasta que se
+  // reintenten a propósito: si no, cada corrida los volvería a cobrar.
+  const box = $('retry-box');
+  if (!box) return;
+  box.innerHTML = d.not_found
+    ? `<div class="alert info">
+         Hay <b>${d.not_found} contacto(s)</b> en los que no se encontró email en
+         un intento anterior. Podés volver a intentarlo — tiene sentido si desde
+         entonces se mejoró la búsqueda.<br><br>
+         <button onclick="retryNotFound()">Reintentar esos ${d.not_found}</button>
+       </div>`
+    : '';
+}
+
+async function retryNotFound() {
+  const r = await fetch('/api/enrich/retry-not-found', { method: 'POST', body: new FormData() });
+  const d = await r.json();
+  $('retry-box').innerHTML =
+    `<div class="alert ok"><b>${d.reset} contacto(s) listos para reintentar.</b>
+     Dale a "Empezar búsqueda".</div>`;
+  await refreshPending();
+  await loadMetrics();
 }
 
 async function startEnrich() {
