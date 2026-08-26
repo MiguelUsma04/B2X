@@ -1,5 +1,6 @@
 """B2X — app interna de prospección B2B. FastAPI + SQLite."""
 import asyncio
+import datetime
 import json
 import os
 from pathlib import Path
@@ -335,12 +336,17 @@ def _places_usage() -> dict:
                    COALESCE(SUM(results), 0)  AS negocios,
                    COUNT(*)                   AS busquedas
               FROM places_usage
-             WHERE strftime('%Y-%m', timestamp) = strftime('%Y-%m', 'now')""").fetchone()
+             WHERE strftime('%Y-%m', timestamp, 'localtime')
+                   = strftime('%Y-%m', 'now', 'localtime')""").fetchone()
 
     consultas = r["consultas"] or 0
     cobrables = max(0, consultas - PLACES_FREE)
+    hoy = datetime.date.today()
+    # El tramo gratis se renueva el 1: no son 30 días desde la primera consulta.
+    proximo = (hoy.replace(day=1) + datetime.timedelta(days=32)).replace(day=1)
     return {
-        "month": __import__("datetime").date.today().strftime("%Y-%m"),
+        "month": hoy.strftime("%Y-%m"),
+        "resets_on": proximo.isoformat(),
         "searches": r["busquedas"] or 0,
         "requests": consultas,
         "results": r["negocios"] or 0,
@@ -357,9 +363,22 @@ def api_places_usage():
     return _places_usage()
 @app.post("/api/places/search")
 async def api_places_search(query: str = Form(...), max_results: str = Form("20")):
-    """Busca negocios por ubicación. No guarda nada: primero se miran."""
+    """Busca negocios por ubicación. No guarda nada: primero se miran.
+
+    Repetir la misma búsqueda tiene que traer negocios nuevos. Google contesta
+    siempre lo mismo para el mismo texto, así que se le saltean los que ya
+    aparecieron antes —o que ya están en la base— y se piden más páginas.
+    """
     n = int(max_results) if str(max_results).strip().isdigit() else 20
-    r = await places.search(query, max_results=n)
+    clave = places.query_key(query)
+
+    with get_db() as conn:
+        ya_vistos = {row["p"] for row in conn.execute(
+            "SELECT lower(place_id) p FROM places_seen WHERE query_key=?", (clave,))}
+        en_base = {row["p"] for row in conn.execute(
+            "SELECT lower(place_id) p FROM contacts WHERE place_id IS NOT NULL")}
+
+    r = await places.search(query, max_results=n, skip_ids=ya_vistos | en_base)
     if r.get("error") and not r["places"]:
         return JSONResponse({"error": r["error"], "places": []}, status_code=400)
 
@@ -370,21 +389,31 @@ async def api_places_search(query: str = Form(...), max_results: str = Form("20"
             conn.execute(
                 "INSERT INTO places_usage (query, requests, results) VALUES (?,?,?)",
                 (query.strip()[:200], r["pages"], len(r["places"])))
+            # Todo lo que vino queda registrado contra esta búsqueda, se guarde
+            # o no: la próxima vez arranca donde terminó esta.
+            conn.executemany(
+                "INSERT OR IGNORE INTO places_seen (query_key, place_id) VALUES (?,?)",
+                [(clave, p["place_id"]) for p in (r["places"] + r.get("seen", []))
+                 if p.get("place_id")])
 
     _PENDING_PLACES.clear()
     _PENDING_PLACES.update({"query": query.strip(), "places": r["places"]})
 
-    with get_db() as conn:
-        ya = {row["p"] for row in conn.execute(
-            "SELECT lower(place_id) p FROM contacts WHERE place_id IS NOT NULL")}
-    repetidos = sum(1 for p in r["places"] if (p.get("place_id") or "").lower() in ya)
-
+    conocidos = r.get("seen", [])
     return {
         "query": query.strip(),
         "total": len(r["places"]),
         "with_site": sum(1 for p in r["places"] if p.get("domain")),
         "with_phone": sum(1 for p in r["places"] if p.get("phone")),
-        "already": repetidos,
+        # Cuántos salteó por conocidos, y de esos cuántos ya son contactos.
+        "already": len(conocidos),
+        "already_saved": sum(1 for p in conocidos
+                             if (p.get("place_id") or "").lower() in en_base),
+        "seen": conocidos,
+        # Google se quedó sin resultados para este texto: pedirlo otra vez no
+        # va a traer nada nuevo, hay que cambiar la búsqueda.
+        "exhausted": bool(r.get("exhausted")) ,
+        "repeat": bool(ya_vistos),
         "places": r["places"],
         "warning": r.get("error"),
         "requests": r.get("pages", 0),

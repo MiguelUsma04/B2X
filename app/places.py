@@ -10,6 +10,8 @@ calificación. El email sale después, del sitio web (ver website.py).
 """
 import asyncio
 import os
+import re
+import unicodedata
 
 import httpx
 
@@ -48,6 +50,17 @@ FIELDS = ",".join([
 
 PAGE_SIZE = 20          # máximo que acepta la API por página
 MAX_RESULTS = 60        # máximo que la API entrega para una búsqueda
+
+
+def query_key(query: str) -> str:
+    """Clave para reconocer la misma búsqueda escrita distinto.
+
+    'Rentadoras de Carros en Calí' y 'rentadoras de carros en cali' son la
+    misma consulta para Google y tienen que serlo también para la memoria.
+    """
+    t = unicodedata.normalize("NFKD", (query or "").strip().lower())
+    t = "".join(c for c in t if not unicodedata.combining(c))
+    return re.sub(r"\s+", " ", t)
 
 
 def configured() -> bool:
@@ -106,31 +119,42 @@ def normalize(place: dict) -> dict:
 
 
 async def search(query: str, max_results: int = MAX_RESULTS,
-                 language: str = "es", region: str | None = None) -> dict:
-    """Busca negocios por texto libre, paginando hasta max_results.
+                 language: str = "es", region: str | None = None,
+                 skip_ids: set[str] | None = None) -> dict:
+    """Busca negocios por texto libre, paginando hasta juntar max_results NUEVOS.
 
-    Devuelve {"places": [...], "error": str|None, "pages": int}. Los errores se
-    devuelven, no se levantan: la búsqueda es una acción del usuario y el
-    mensaje tiene que llegarle a la pantalla.
+    skip_ids son los que ya se vieron antes: se siguen pidiendo páginas hasta
+    juntar los nuevos pedidos o hasta que Google se queda sin resultados (corta
+    en 60 por búsqueda, no hay forma de pasar de ahí con el mismo texto).
+
+    Devuelve {"places": nuevos, "seen": ya conocidos, "error", "pages",
+    "exhausted": bool}. Los errores se devuelven, no se levantan: la búsqueda
+    es una acción del usuario y el mensaje tiene que llegarle a la pantalla.
     """
+    vacio = {"places": [], "seen": [], "pages": 0, "exhausted": False}
     if not configured():
-        return {"places": [], "error": "Falta GOOGLE_MAPS_API_KEY en el .env.", "pages": 0}
+        return {**vacio, "error": "Falta GOOGLE_MAPS_API_KEY en el .env."}
     query = (query or "").strip()
     if not query:
-        return {"places": [], "error": "Escribí qué querés buscar.", "pages": 0}
+        return {**vacio, "error": "Escribí qué querés buscar."}
 
+    skip_ids = {s.lower() for s in (skip_ids or set())}
     max_results = max(1, min(int(max_results or MAX_RESULTS), MAX_RESULTS))
     encontrados: list[dict] = []
+    conocidos: list[dict] = []
     vistos: set[str] = set()
     token: str | None = None
     paginas = 0
+    agotado = False
 
     async with httpx.AsyncClient(timeout=30.0) as client:
         while len(encontrados) < max_results:
+            # Se pide la página entera aunque falten pocos: los repetidos no
+            # ocupan lugar y cortar la página no abarata la consulta.
             cuerpo: dict = {
                 "textQuery": query,
                 "languageCode": language,
-                "pageSize": min(PAGE_SIZE, max_results - len(encontrados)),
+                "pageSize": PAGE_SIZE,
             }
             if region:
                 cuerpo["regionCode"] = region
@@ -140,9 +164,9 @@ async def search(query: str, max_results: int = MAX_RESULTS,
             try:
                 resp = await client.post(SEARCH_URL, json=cuerpo, headers=_headers())
             except Exception as exc:
-                return {"places": encontrados,
-                        "error": f"No se pudo hablar con Google: {type(exc).__name__}",
-                        "pages": paginas}
+                return {"places": encontrados, "seen": conocidos, "pages": paginas,
+                        "exhausted": agotado,
+                        "error": f"No se pudo hablar con Google: {type(exc).__name__}"}
 
             try:
                 body = resp.json()
@@ -150,19 +174,26 @@ async def search(query: str, max_results: int = MAX_RESULTS,
                 body = {}
 
             if resp.status_code != 200:
-                return {"places": encontrados, "error": _explicar(resp.status_code, body),
-                        "pages": paginas}
+                return {"places": encontrados, "seen": conocidos, "pages": paginas,
+                        "exhausted": agotado,
+                        "error": _explicar(resp.status_code, body)}
 
             paginas += 1
             for p in body.get("places") or []:
                 n = normalize(p)
-                if n["place_id"] and n["place_id"] not in vistos and n["name"]:
-                    vistos.add(n["place_id"])
+                if not n["place_id"] or not n["name"] or n["place_id"] in vistos:
+                    continue
+                vistos.add(n["place_id"])
+                if n["place_id"].lower() in skip_ids:
+                    conocidos.append(n)
+                else:
                     encontrados.append(n)
 
             token = body.get("nextPageToken")
             if not token:
+                agotado = True     # Google no tiene más para este texto
                 break
             await asyncio.sleep(0.4)   # cortesía entre páginas
 
-    return {"places": encontrados[:max_results], "error": None, "pages": paginas}
+    return {"places": encontrados[:max_results], "seen": conocidos,
+            "error": None, "pages": paginas, "exhausted": agotado}

@@ -572,6 +572,14 @@ async function loadUsage() {
   }
 }
 
+const MESES = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio',
+               'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
+function fecha(iso) {
+  if (!iso) return '1 del mes que viene';
+  const [a, m, d] = iso.split('-').map(Number);
+  return `${d} de ${MESES[m - 1]}`;
+}
+
 function renderUsage(u) {
   const box = $('p-usage');
   if (!box) return;
@@ -587,7 +595,8 @@ function renderUsage(u) {
     </div>
     <div class="bar"><i style="width:${pct}%"></i></div>
     <div>${u.searches} búsqueda(s) · ${u.results} negocios traídos · cada consulta
-      trae hasta 20 y cuesta US$${u.usd_per_request} recién pasado el tramo gratis</div>`;
+      trae hasta 20 y cuesta US$${u.usd_per_request} recién pasado el tramo gratis.
+      El cupo se renueva el ${fecha(u.resets_on)}.</div>`;
 }
 
 
@@ -613,8 +622,16 @@ async function searchPlaces() {
     return;
   }
   if (!d.total) {
-    $('p-alert').innerHTML = `<div class="alert info">Google no devolvió negocios para
-      “${esc(q)}”. Probá con otras palabras o una zona más amplia.</div>`;
+    // Sin nada nuevo hay dos motivos muy distintos, y la salida es distinta.
+    $('p-alert').innerHTML = d.already
+      ? `<div class="alert info"><b>Nada nuevo por acá.</b>
+         Los ${d.already} negocios que Google devuelve para “${esc(q)}” ya los
+         habías visto. Google corta en 60 resultados por búsqueda, así que para
+         seguir hay que cambiar el texto: acotá la zona (un barrio, una avenida)
+         o probá otro nombre del rubro.</div>`
+      : `<div class="alert info">Google no devolvió negocios para “${esc(q)}”.
+         Probá con otras palabras o una zona más amplia.</div>`;
+    if (d.usage) renderUsage(d.usage);
     return;
   }
   $('p-alert').innerHTML = d.warning ? `<div class="alert warn">${esc(d.warning)}</div>` : '';
@@ -633,15 +650,30 @@ async function searchPlaces() {
       : '<span class="sub dash">—</span>'}</td>
     <td data-label="Dirección" class="sub">${esc(p.address || '—')}</td></tr>`).join('');
 
+  const salteados = (d.seen || []).map((p) => `<tr>
+    <td class="c-main">${esc(p.name)}</td>
+    <td data-label="Teléfono" class="sub">${esc(p.phone || '—')}</td>
+    <td data-label="Sitio" class="sub">${esc(p.domain || '—')}</td></tr>`).join('');
+
   $('p-box').innerHTML = `
     <div class="card list">
-      <h2>${d.total} negocios encontrados</h2>
+      <h2>${d.total} negocio${d.total === 1 ? '' : 's'}
+        ${d.repeat ? 'nuevo' + (d.total === 1 ? '' : 's') : 'encontrado' + (d.total === 1 ? '' : 's')}</h2>
       <div class="body" style="padding-bottom:0">
         <div class="statline">
           <span><b>${d.with_phone}</b> con teléfono</span>
           <span><b>${d.with_site}</b> con sitio web</span>
-          ${d.already ? `<span class="sub"><b>${d.already}</b> ya los tenés</span>` : ''}
+          ${d.already ? `<span class="sub"><b>${d.already}</b> ya vistos, salteados</span>` : ''}
         </div>
+        ${d.exhausted && d.already ? `<p class="help">Google ya no tiene más para
+          este texto. La próxima vez vas a tener que acotar la zona o cambiar
+          las palabras para encontrar otros.</p>` : ''}
+        ${salteados ? `<details class="tip" style="margin:12px 0 0">
+          <summary>Los ${d.already} que se saltearon${d.already_saved
+            ? ` (${d.already_saved} ya son contactos tuyos)` : ''}</summary>
+          <div class="tip-b"><div class="tbl-scroll"><table class="rtable">
+            <thead><tr><th>Negocio</th><th>Teléfono</th><th>Sitio</th></tr></thead>
+            <tbody>${salteados}</tbody></table></div></div></details>` : ''}
       </div>
       <div class="tbl-scroll"><table class="rtable">
         <thead><tr><th>Negocio</th><th>Teléfono</th><th>Sitio</th>

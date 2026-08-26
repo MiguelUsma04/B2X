@@ -78,6 +78,16 @@ CREATE TABLE IF NOT EXISTS places_usage (
 );
 CREATE INDEX IF NOT EXISTS idx_places_usage_ts ON places_usage(timestamp);
 
+-- Qué negocios devolvió cada búsqueda. Google contesta siempre lo mismo para
+-- el mismo texto, así que sin esta memoria repetir una búsqueda no aporta
+-- nada: con ella se saltean los ya vistos y se va a buscar más adelante.
+CREATE TABLE IF NOT EXISTS places_seen (
+    query_key  TEXT NOT NULL,
+    place_id   TEXT NOT NULL,
+    first_seen TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (query_key, place_id)
+);
+
 CREATE TABLE IF NOT EXISTS enrichment_log (
     id               INTEGER PRIMARY KEY AUTOINCREMENT,
     contact_id       INTEGER NOT NULL REFERENCES contacts(id) ON DELETE CASCADE,
