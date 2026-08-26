@@ -1,4 +1,8 @@
 .env
+# El .env sin punto tambien: si se cuela en un commit, las keys quedan
+# en el historial del repo publico aunque despues se borre el archivo.
+env
+*.env
 data/*.db
 data/*.db-journal
 __pycache__/
