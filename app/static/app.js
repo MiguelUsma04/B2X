@@ -705,7 +705,11 @@ async function sendToGHL() {
     const oppErrs = (d.results || []).filter((x) => x.opportunity_error).slice(0, 5);
     const parts = [`<b>${d.sent} contacto(s) enviados al CRM.</b>`];
     if (d.already_in_crm) {
-      parts.push(`${d.already_in_crm} ya estaban y no se volvieron a subir.`);
+      parts.push(`${d.already_in_crm} ya estaban y no se volvieron a subir`
+        + (d.not_verified ? `, ${d.not_verified} de ellos sin poder confirmarlo contra el CRM.` : '.'));
+    }
+    if (d.recreated) {
+      parts.push(`${d.recreated} estaban marcados como enviados pero ya no figuraban en el CRM: se volvieron a crear.`);
     }
     if (d.pipeline_configured) {
       const opp = [`Se crearon ${d.opportunities} oportunidad(es) en el embudo.`];

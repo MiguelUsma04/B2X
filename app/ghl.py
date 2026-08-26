@@ -16,6 +16,7 @@ from .db import get_db
 
 BASE = "https://services.leadconnectorhq.com"
 UPSERT_URL = f"{BASE}/contacts/upsert"
+CONTACT_URL = f"{BASE}/contacts/"
 PIPELINES_URL = f"{BASE}/opportunities/pipelines"
 OPPORTUNITY_URL = f"{BASE}/opportunities/"
 API_VERSION = "2021-07-28"
@@ -64,6 +65,24 @@ def build_payload(contact: dict, tag: str | None = None) -> dict:
     return {k: v for k, v in payload.items() if v not in (None, "")}
 
 
+async def contact_exists(client, ghl_contact_id: str) -> bool | None:
+    """¿El contacto sigue en el CRM?
+
+    True = está, False = lo borraron allá, None = no se pudo averiguar (token
+    caído, rate limit, red). El None se trata como "está": ante la duda no se
+    reenvía, que duplicar un contacto es peor que no actualizarlo.
+    """
+    try:
+        resp = await client.get(f"{CONTACT_URL}{ghl_contact_id}", headers=_headers())
+    except Exception:
+        return None
+    if resp.status_code == 404:
+        return False
+    if resp.status_code in (200, 201):
+        return True
+    return None
+
+
 async def send_contacts(contact_ids: list[int], tag: str | None = None) -> dict:
     """Envía contactos a GHL uno por uno. Sin reintento automático: si falla,
     queda en ghl_status='error' y el usuario decide reintentar."""
@@ -78,17 +97,35 @@ async def send_contacts(contact_ids: list[int], tag: str | None = None) -> dict:
             f"SELECT * FROM contacts WHERE id IN ({placeholders})", contact_ids)]
 
     sent = failed = skipped = opportunities = 0
-    already = opp_existing = opp_failed = 0
+    already = recreated = unverified = opp_existing = opp_failed = 0
     results = []
     async with httpx.AsyncClient(timeout=30.0) as client:
         for contact in rows:
             # Ya está en el CRM: no se vuelve a subir. El upsert lo aceptaría,
-            # pero no aporta nada y hace ruido en el reporte.
+            # pero no aporta nada y hace ruido en el reporte. Antes de saltearlo
+            # se confirma con el CRM: si lo borraron allá, la marca local miente
+            # y el contacto quedaría afuera para siempre.
             if contact.get("ghl_contact_id"):
-                already += 1
-                results.append({"id": contact["id"], "status": "already",
-                                "message": "Ya estaba en el CRM."})
-                continue
+                existe = await contact_exists(client, contact["ghl_contact_id"])
+                if existe is not False:
+                    already += 1
+                    if existe is None:
+                        unverified += 1
+                    results.append({
+                        "id": contact["id"], "status": "already",
+                        "message": "Ya estaba en el CRM." if existe else
+                                   "Ya figuraba en el CRM pero no se pudo "
+                                   "confirmar; no se reenvía para no duplicarlo."})
+                    continue
+                # Lo borraron del CRM: se olvida lo que sabíamos y se crea de nuevo.
+                recreated += 1
+                contact["ghl_contact_id"] = None
+                contact["ghl_opportunity_id"] = None
+                with get_db() as conn:
+                    conn.execute(
+                        """UPDATE contacts SET ghl_contact_id=NULL,
+                           ghl_opportunity_id=NULL, ghl_status='pending',
+                           updated_at=datetime('now') WHERE id=?""", (contact["id"],))
 
             # Alcanza con email O teléfono, del tipo que sea: el conmutador de
             # la empresa es un dato más flojo que el celular, pero permite
@@ -169,6 +206,8 @@ async def send_contacts(contact_ids: list[int], tag: str | None = None) -> dict:
 
     return {"sent": sent, "failed": failed, "skipped": skipped,
             "already_in_crm": already,
+            "recreated": recreated,
+            "not_verified": unverified,
             "opportunities": opportunities,
             "opportunities_existing": opp_existing,
             "opportunities_failed": opp_failed,
