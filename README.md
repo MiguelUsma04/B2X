@@ -7,6 +7,11 @@ email probando proveedores en cascada, y los manda a GoHighLevel.
 CSV Apollo (People) → importar/dedupe → enriquecer (waterfall) → revisar → GHL
 ```
 
+## ¿Nuevo en el proyecto?
+
+Empezá por [ONBOARDING.md](ONBOARDING.md): qué es, cómo correrlo, y las
+trampas que ya encontramos.
+
 ## Arranque
 
 ```bash
