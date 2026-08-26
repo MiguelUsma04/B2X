@@ -1,0 +1,9 @@
+{
+  "liveshare.excludeFiles": [
+    ".env",
+    ".env.*",
+    "data/*.db",
+    "data/*.db-wal",
+    "data/*.db-shm"
+  ]
+}
