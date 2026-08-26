@@ -231,6 +231,124 @@ async def run_enrichment(limit: int | None = None, batch_id: int | None = None) 
             PROGRESS.current_provider = None
 
 
+# ------------------------------------------------------- sitio web del negocio
+WEB_PROGRESS = EnrichProgress()
+_WEB_LOCK = asyncio.Lock()
+
+
+def contacts_with_site(contact_ids: list[int]) -> list[dict]:
+    """De los marcados, los que tienen un dominio para visitar."""
+    if not contact_ids:
+        return []
+    ph = ",".join("?" * len(contact_ids))
+    with get_db() as conn:
+        return [dict(r) for r in conn.execute(
+            f"""SELECT * FROM contacts
+                 WHERE id IN ({ph})
+                   AND company_domain IS NOT NULL AND company_domain <> ''
+                 ORDER BY id""", contact_ids)]
+
+
+async def run_website_scrape(contact_ids: list[int]) -> None:
+    """Visita el sitio de cada contacto y guarda el contacto publicado.
+
+    No consume créditos de ningún proveedor: son visitas al sitio del propio
+    negocio. Por eso puede correr sobre toda la lista, a diferencia de la
+    búsqueda de móviles.
+    """
+    global WEB_PROGRESS
+    if _WEB_LOCK.locked():
+        return
+    async with _WEB_LOCK:
+        from . import website
+
+        contactos = contacts_with_site(contact_ids)
+        WEB_PROGRESS = EnrichProgress(running=True, total=len(contactos))
+
+        try:
+            async with httpx.AsyncClient(timeout=website.TIMEOUT) as client:
+                for c in contactos:
+                    WEB_PROGRESS.current_contact = c.get("full_name") or f"#{c['id']}"
+                    WEB_PROGRESS.current_provider = c.get("company_domain")
+                    try:
+                        r = await website.scrape(client, c["company_domain"])
+                    except Exception as exc:
+                        r = {"emails": [], "phones": [], "people": [], "pages": [],
+                             "error": f"{type(exc).__name__}: {exc}"[:300]}
+
+                    # Dos negocios distintos publican a veces el mismo email
+                    # (una cadena, o la misma agencia listada dos veces). El
+                    # índice único lo rechaza, así que se busca el mejor que
+                    # todavía no sea de otro contacto en vez de reventar.
+                    email, ocupado = None, None
+                    for cand in r["emails"]:
+                        with get_db() as conn:
+                            duenio = conn.execute(
+                                "SELECT id FROM contacts WHERE lower(email)=lower(?) AND id<>?",
+                                (cand["email"], c["id"])).fetchone()
+                        if duenio is None:
+                            email = cand["email"]
+                            break
+                        ocupado = ocupado or f"{cand['email']} ya es de #{duenio['id']}"
+
+                    # El mejor teléfono del sitio: WhatsApp primero, que es el
+                    # canal por el que un negocio chico realmente contesta.
+                    tel = r["phones"][0] if r["phones"] else None
+
+                    with get_db() as conn:
+                        conn.execute(
+                            """INSERT INTO enrichment_log
+                               (contact_id, provider, success, request_payload,
+                                response_payload, error_message)
+                               VALUES (?, 'web', ?, ?, ?, ?)""",
+                            (c["id"], 1 if (email or tel) else 0,
+                             json.dumps({"domain": c["company_domain"],
+                                         "pages": r["pages"]}, ensure_ascii=False)[:20000],
+                             json.dumps({"emails": r["emails"], "phones": r["phones"],
+                                         "people": r["people"]},
+                                        ensure_ascii=False)[:20000],
+                             r.get("error") or ocupado))
+
+                        if email and not c.get("email"):
+                            # 'unverified': está publicado, nadie lo validó.
+                            conn.execute(
+                                """UPDATE contacts SET email=?, email_status='unverified',
+                                   email_source='web', updated_at=datetime('now')
+                                   WHERE id=?""", (email, c["id"]))
+                            WEB_PROGRESS.found += 1
+                            WEB_PROGRESS.by_provider["email"] =                                 WEB_PROGRESS.by_provider.get("email", 0) + 1
+                            WEB_PROGRESS.found_items.append(
+                                {"name": c.get("full_name"), "company": c.get("company_name"),
+                                 "value": email, "provider": "web"})
+                        elif email:
+                            WEB_PROGRESS.not_found += 1   # ya tenía email
+
+                        # El teléfono solo mejora: un WhatsApp le gana al número
+                        # general, pero nunca se pisa un directo ya conocido.
+                        mejora = tel and (
+                            not c.get("phone")
+                            or (tel["kind"] == "whatsapp"
+                                and c.get("phone_type") not in ("personal", "whatsapp")))
+                        if mejora:
+                            conn.execute(
+                                """UPDATE contacts SET phone=?, phone_type=?,
+                                   updated_at=datetime('now') WHERE id=?""",
+                                (tel["value"],
+                                 "whatsapp" if tel["kind"] == "whatsapp" else "company",
+                                 c["id"]))
+                            WEB_PROGRESS.by_provider["telefono"] =                                 WEB_PROGRESS.by_provider.get("telefono", 0) + 1
+
+                    WEB_PROGRESS.processed += 1
+                    await asyncio.sleep(0.3)      # cortesía entre sitios
+        except Exception as exc:
+            WEB_PROGRESS.error = f"{type(exc).__name__}: {exc}"[:500]
+        finally:
+            WEB_PROGRESS.running = False
+            WEB_PROGRESS.finished = True
+            WEB_PROGRESS.current_contact = None
+            WEB_PROGRESS.current_provider = None
+
+
 # --------------------------------------------------------------- móviles
 MOBILE_PROGRESS = EnrichProgress()
 _MOBILE_LOCK = asyncio.Lock()

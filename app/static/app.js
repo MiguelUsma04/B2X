@@ -19,7 +19,7 @@ const STATUS_TXT = {
 const GHL_TXT = { pending: 'Sin enviar', sent: 'En el CRM', error: 'Falló' };
 const SOURCE_TXT = {
   apollo: 'Venía en el archivo', prospeo: 'Prospeo',
-  icypeas: 'Icypeas', hunter: 'Hunter',
+  icypeas: 'Icypeas', hunter: 'Hunter', web: 'Del sitio web',
 };
 
 const pill = (val, dict) => val
@@ -131,10 +131,9 @@ async function loadMetrics() {
       <i class="sw ${cls}"></i>${label} <b>${n}</b></button>`;
 
   const src = m.by_source || {};
-  const srcTotal = ['apollo', 'prospeo', 'icypeas', 'hunter']
-    .reduce((a, k) => a + (src[k] || 0), 0);
-  const srcDefs = [['apollo', 'Archivo'], ['prospeo', 'Prospeo'],
+  const srcDefs = [['apollo', 'Archivo'], ['web', 'Sitio web'], ['prospeo', 'Prospeo'],
                    ['icypeas', 'Icypeas'], ['hunter', 'Hunter']];
+  const srcTotal = srcDefs.reduce((a, [k]) => a + (src[k] || 0), 0);
 
   $('metrics').innerHTML = `
     <div class="hero">
@@ -327,9 +326,7 @@ async function loadContacts() {
       <td data-label="Email">${c.email
         ? esc(c.email) : '<span class="sub dash">—</span>'}</td>
       <td data-label="Teléfono">${c.phone
-        ? esc(c.phone) + (c.phone_type === 'company'
-            ? '<div class="sub" title="Es el conmutador de la empresa, no el número directo">conmutador</div>'
-            : '')
+        ? esc(c.phone) + telNota(c)
         : '<span class="sub dash">—</span>'}</td>
       <td class="c-tag" data-label="Estado">${pill(c.email_status, STATUS_TXT)}
         ${c.mobile_available && !c.phone
@@ -355,6 +352,20 @@ async function loadContacts() {
          <br><button onclick="resetFilters()">Limpiar filtros</button></div>`;
   }
   updateSelInfo();
+}
+
+/* De dónde salió el teléfono. Al vendedor le cambia cómo lo usa: al WhatsApp
+   le escribe, al conmutador lo llama sabiendo que atiende recepción. */
+function telNota(c) {
+  if (c.phone_type === 'whatsapp') {
+    return '<div class="sub" title="Publicado como WhatsApp: se le escribe directo">WhatsApp</div>';
+  }
+  if (c.phone_type === 'company') {
+    return c.place_id
+      ? '<div class="sub" title="El número que el negocio publica en Google Maps">del negocio</div>'
+      : '<div class="sub" title="Es el conmutador de la empresa, no el número directo">conmutador</div>';
+  }
+  return '';
 }
 
 /* ======================= selección ======================= */
@@ -392,8 +403,10 @@ function updateSelInfo() {
   $('selhint').textContent = n ? 'listos para enviar' : '';
   $('selbar').classList.toggle('show', n > 0);
   $('btn-ghl').disabled = n === 0;
-  const mb = $('btn-mobile');
-  if (mb) mb.disabled = n === 0;
+  for (const id of ['btn-mobile', 'btn-web']) {
+    const b = $(id);
+    if (b) b.disabled = n === 0;
+  }
 }
 
 /* ======================= enviar al CRM ======================= */
@@ -534,6 +547,154 @@ function foundList(items, label) {
   return `<details class="tip" style="margin:12px 0 0">
       <summary>${esc(label)} (${items.length})</summary>
       <div class="tip-b"><table style="font-size:13.5px">${rows}</table></div></details>`;
+}
+
+/* ======================= buscar en Google Maps ======================= */
+async function searchPlaces() {
+  const q = $('p-q').value.trim();
+  if (!q) { toast('Escribí qué negocios buscar y dónde', 'warn'); return; }
+
+  $('btn-places').disabled = true;
+  $('p-alert').innerHTML =
+    '<div class="alert info"><span class="pulse">●</span> Buscando en Google Maps…</div>';
+  $('p-box').innerHTML = '';
+
+  const fd = new FormData();
+  fd.append('query', q);
+  fd.append('max_results', $('p-max').value);
+  const r = await fetch('/api/places/search', { method: 'POST', body: fd });
+  const d = await r.json();
+  $('btn-places').disabled = false;
+
+  if (!r.ok || d.error) {
+    $('p-alert').innerHTML =
+      `<div class="alert err">${esc(d.error || d.detail || 'No se pudo buscar.')}</div>`;
+    return;
+  }
+  if (!d.total) {
+    $('p-alert').innerHTML = `<div class="alert info">Google no devolvió negocios para
+      “${esc(q)}”. Probá con otras palabras o una zona más amplia.</div>`;
+    return;
+  }
+  $('p-alert').innerHTML = d.warning ? `<div class="alert warn">${esc(d.warning)}</div>` : '';
+
+  const filas = d.places.map((p) => `<tr>
+    <td class="c-main"><b>${esc(p.name)}</b>
+      ${p.category ? `<div class="sub">${esc(p.category)}</div>` : ''}</td>
+    <td data-label="Teléfono">${p.phone ? esc(p.phone) : '<span class="sub dash">—</span>'}</td>
+    <td data-label="Sitio">${p.domain
+      ? esc(p.domain)
+      : (p.social_url ? '<span class="sub">solo redes</span>'
+                      : '<span class="sub dash">—</span>')}</td>
+    <td data-label="Google">${p.rating
+      ? `${p.rating} <span class="sub">(${p.rating_count || 0})</span>`
+      : '<span class="sub dash">—</span>'}</td>
+    <td data-label="Dirección" class="sub">${esc(p.address || '—')}</td></tr>`).join('');
+
+  $('p-box').innerHTML = `
+    <div class="card list">
+      <h2>${d.total} negocios encontrados</h2>
+      <div class="body" style="padding-bottom:0">
+        <div class="statline">
+          <span><b>${d.with_phone}</b> con teléfono</span>
+          <span><b>${d.with_site}</b> con sitio web</span>
+          ${d.already ? `<span class="sub"><b>${d.already}</b> ya los tenés</span>` : ''}
+        </div>
+      </div>
+      <div class="tbl-scroll"><table class="rtable">
+        <thead><tr><th>Negocio</th><th>Teléfono</th><th>Sitio</th>
+          <th>Google</th><th>Dirección</th></tr></thead>
+        <tbody>${filas}</tbody></table></div>
+    </div>
+    <div class="card"><div class="body">
+      <div class="row">
+        <div class="field">
+          <label class="fld" for="p-tag">Nombre de la carga (opcional)</label>
+          <input id="p-tag" value="${esc(q)}">
+        </div>
+        <button class="primary" id="btn-p-import" onclick="importPlaces()">
+          Guardar ${d.total} negocios</button>
+      </div>
+      <p class="help">Los que ya tenés no se duplican${d.with_site
+        ? '. Después podés leerles el sitio para sacarles el email' : ''}.</p>
+      <div id="p-result" style="margin-top:14px"></div>
+    </div></div>`;
+}
+
+async function importPlaces() {
+  const btn = $('btn-p-import');
+  if (btn) btn.disabled = true;                 // la búsqueda ya se consumió
+  const fd = new FormData();
+  fd.append('icp_tag', ($('p-tag') && $('p-tag').value.trim()) || '');
+  const r = await fetch('/api/places/import', { method: 'POST', body: fd });
+  const d = await r.json();
+  if (!r.ok) {
+    if (btn) btn.disabled = false;
+    toast(esc(d.detail || 'Error'), 'err');
+    return;
+  }
+
+  const dup = d.duplicate_contacts ? ` Se descartaron ${d.duplicate_contacts} repetidos.` : '';
+  $('p-result').innerHTML = `<div class="alert ok">
+    <b>${d.new_contacts} negocios agregados.</b>${dup}
+    <div class="rowend">
+      <button class="primary" onclick="goToStep('contacts')">Ver la lista →</button>
+    </div></div>`;
+  toast(`${d.new_contacts} negocios agregados`, 'ok');
+  await loadMetrics(); await loadContacts();
+}
+
+/* ======================= leer el sitio web ======================= */
+let WPOLL = null;
+
+async function startWebsite() {
+  const ids = [...SELECTED];
+  if (!ids.length) return;
+
+  const fd = new FormData();
+  fd.append('contact_ids', JSON.stringify(ids));
+  const r = await fetch('/api/website/start', { method: 'POST', body: fd });
+  const d = await r.json();
+  if (!r.ok) { toast(esc(d.detail || 'Error'), 'err'); return; }
+  if (!d.started) { toast(esc(d.message), 'info'); return; }
+
+  $('btn-web').disabled = true;
+  toast(`Leyendo ${d.queued} sitio(s)…`, 'info', 2600);
+  if (WPOLL) clearInterval(WPOLL);
+  WPOLL = setInterval(pollWebsite, 900);
+  pollWebsite();
+}
+
+async function pollWebsite() {
+  const p = await (await fetch('/api/website/progress')).json();
+  const pct = p.total ? Math.round((p.processed / p.total) * 100) : 0;
+  const tel = (p.by_provider || {}).telefono || 0;
+
+  if (p.error) {
+    $('web-progress').innerHTML = `<div class="alert err">${esc(p.error)}</div>`;
+  } else if (p.running) {
+    $('web-progress').innerHTML = `
+      <div class="bignum"><span class="pulse">●</span> ${p.processed} / ${p.total}</div>
+      <div class="bar live"><i style="width:${pct}%"></i></div>
+      <p class="sub">${p.current_provider ? `Leyendo ${esc(p.current_provider)}` : 'Arrancando…'}</p>
+      <div class="statline">
+        <span style="color:var(--ok)"><b>${p.found}</b> emails</span>
+        <span><b>${tel}</b> teléfonos</span>
+      </div>`;
+  } else if (p.finished) {
+    $('web-progress').innerHTML = `<div class="alert ${p.found || tel ? 'ok' : 'info'}">
+      <b>Lectura terminada.</b> ${p.found} email(s) y ${tel} teléfono(s) nuevos
+      de ${p.total} sitio(s).
+      ${foundList(p.found_items, 'Emails encontrados')}</div>`;
+  }
+
+  if (!p.running && p.finished) {
+    clearInterval(WPOLL); WPOLL = null;
+    $('btn-web').disabled = SELECTED.size === 0;
+    toast(`${p.found} email(s) y ${tel} teléfono(s) del sitio`,
+          p.found || tel ? 'ok' : 'info');
+    await loadMetrics(); await loadContacts();
+  }
 }
 
 /* ======================= importar ======================= */
@@ -760,6 +921,14 @@ async function showDetail(id) {
       <dt>LinkedIn</dt><dd>${c.linkedin_url
         ? `<a href="${esc(c.linkedin_url)}" target="_blank" rel="noopener"
              style="color:var(--brand)">Ver perfil</a>` : '—'}</dd>
+      ${c.address ? `<dt>Dirección</dt><dd>${esc(c.address)}</dd>` : ''}
+      ${c.rating ? `<dt>Google</dt><dd>${c.rating} de 5
+        <span class="sub">(${c.rating_count || 0} reseñas)</span>
+        ${c.maps_url ? ` · <a href="${esc(c.maps_url)}" target="_blank" rel="noopener"
+          style="color:var(--brand)">Ver en Maps</a>` : ''}</dd>` : ''}
+      ${c.category ? `<dt>Rubro</dt><dd>${esc(c.category)}</dd>` : ''}
+      ${c.social_url ? `<dt>Redes</dt><dd><a href="${esc(c.social_url)}" target="_blank"
+        rel="noopener" style="color:var(--brand)">${esc(c.social_url.slice(0, 60))}</a></dd>` : ''}
       <dt>En el CRM</dt><dd>${pill(c.ghl_status, GHL_TXT)}</dd>
       ${c.ghl_error_message
         ? `<dt>Error del CRM</dt><dd style="color:var(--danger)">${esc(c.ghl_error_message)}</dd>`

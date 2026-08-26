@@ -98,6 +98,73 @@ def import_contacts(conn: sqlite3.Connection, filename: str, raw: bytes,
     }
 
 
+def import_places(conn: sqlite3.Connection, query: str, lugares: list[dict],
+                  icp_tag: str | None = None) -> dict:
+    """Guarda como contactos los negocios que devolvió Google Maps.
+
+    Un negocio no es una persona: se guarda con el nombre del comercio y su
+    teléfono publicado, que ya alcanza para llamarlo. El email sale después,
+    del sitio web. Dedupe por place_id —el identificador de Google— y, si el
+    negocio no lo trae, por nombre + dominio como en el CSV.
+    """
+    ya = {r["p"] for r in conn.execute(
+        "SELECT lower(place_id) p FROM contacts WHERE place_id IS NOT NULL AND place_id <> ''")}
+    _, ya_nd = _existing_keys(conn)
+
+    nombre = f"Maps · {query}"[:150]
+    cur = conn.execute(
+        "INSERT INTO import_batches (filename, total_rows, icp_tag) VALUES (?,?,?)",
+        (nombre, len(lugares), icp_tag or None))
+    batch_id = cur.lastrowid
+
+    nuevos = repetidos = sin_nombre = 0
+    for l in lugares:
+        if not (l.get("name") or "").strip():
+            sin_nombre += 1
+            continue
+
+        pid = (l.get("place_id") or "").lower()
+        nd = None
+        if l.get("domain"):
+            nd = (l["name"].lower(), l["domain"].lower())
+
+        if pid and pid in ya:
+            repetidos += 1
+            continue
+        if not pid and nd and nd in ya_nd:
+            repetidos += 1
+            continue
+
+        try:
+            conn.execute(
+                """INSERT INTO contacts
+                   (full_name, company_name, company_domain, phone, phone_type,
+                    email_status, place_id, address, rating, rating_count,
+                    maps_url, category, social_url, import_batch_id)
+                   VALUES (?,?,?,?,?,'pending',?,?,?,?,?,?,?,?)""",
+                (l["name"], l["name"], l.get("domain"), l.get("phone"),
+                 "company" if l.get("phone") else None,
+                 l.get("place_id"), l.get("address"), l.get("rating"),
+                 l.get("rating_count"), l.get("maps_url"), l.get("category"),
+                 l.get("social_url"), batch_id))
+        except sqlite3.IntegrityError:
+            repetidos += 1
+            continue
+
+        nuevos += 1
+        if pid:
+            ya.add(pid)
+        if nd:
+            ya_nd.add(nd)
+
+    conn.execute(
+        "UPDATE import_batches SET new_contacts=?, duplicate_contacts=? WHERE id=?",
+        (nuevos, repetidos, batch_id))
+    return {"batch_id": batch_id, "filename": nombre, "total_rows": len(lugares),
+            "new_contacts": nuevos, "duplicate_contacts": repetidos,
+            "skipped_no_name": sin_nombre}
+
+
 def preview_csv(raw: bytes, limit: int = 10) -> dict:
     """Vista previa previa a confirmar: mapeo detectado + primeras filas."""
     headers, rows = read_csv_bytes(raw)

@@ -30,8 +30,9 @@ def _load_env() -> None:
 _load_env()
 
 from .db import get_db, init_db          # noqa: E402
-from .importer import delete_batch, import_contacts, preview_csv  # noqa: E402
-from . import auth, enrichment, ghl     # noqa: E402
+from .importer import (delete_batch, import_contacts,      # noqa: E402
+                       import_places, preview_csv)
+from . import auth, enrichment, ghl, places   # noqa: E402
 from .providers import build_chain       # noqa: E402
 
 app = FastAPI(title="B2X", docs_url="/api/docs")
@@ -65,6 +66,9 @@ def do_logout():
 
 # Caché en memoria del archivo subido, entre la vista previa y la confirmación.
 _PENDING_UPLOAD: dict = {}
+# La búsqueda de Maps se guarda acá entre el "buscar" y el "guardar": repetir
+# la consulta para confirmar la cobraría dos veces.
+_PENDING_PLACES: dict = {}
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -111,12 +115,13 @@ def api_contacts(email_status: str = "", email_source: str = "",
     # "Con celular" sigue significando número directo; "contactable" es más
     # amplio: cualquier teléfono sirve para enviarlo al CRM y trabajarlo.
     HAS_EMAIL = "email IS NOT NULL AND email <> ''"
-    HAS_PHONE = "phone IS NOT NULL AND phone <> '' AND phone_type = 'personal'"
+    HAS_PHONE = "phone IS NOT NULL AND phone <> '' AND phone_type IN ('personal','whatsapp')"
     HAS_ANY_PHONE = "phone IS NOT NULL AND phone <> ''"
     # phone_type quedó en NULL en los contactos cargados antes de que existiera
     # la columna. 'phone_type <> personal' daría NULL para ellos y los dejaría
     # fuera de todos los cortes: IS NOT compara sin arrastrar el NULL.
-    NOT_PERSONAL = "phone_type IS NOT 'personal'"
+    NOT_PERSONAL = ("phone_type IS NOT 'personal' "
+                    "AND phone_type IS NOT 'whatsapp'")
     REACH_SQL = {
         "contactable": f"(({HAS_EMAIL}) OR ({HAS_ANY_PHONE}))",
         "email":       f"({HAS_EMAIL})",
@@ -191,9 +196,10 @@ def api_metrics():
         # empresa vale menos que el celular —por eso se cuenta aparte— pero
         # igual permite trabajar el contacto, así que suma y se envía al CRM.
         HAS_EMAIL = "email IS NOT NULL AND email <> ''"
-        HAS_PHONE = "phone IS NOT NULL AND phone <> '' AND phone_type = 'personal'"
+        HAS_PHONE = "phone IS NOT NULL AND phone <> '' AND phone_type IN ('personal','whatsapp')"
         HAS_ANY_PHONE = "phone IS NOT NULL AND phone <> ''"
-        NOT_PERSONAL = "phone_type IS NOT 'personal'"  # NULL-safe, ver /api/contacts
+        NOT_PERSONAL = ("phone_type IS NOT 'personal' "
+                        "AND phone_type IS NOT 'whatsapp'")
         counts = conn.execute(f"""
             SELECT
               SUM(CASE WHEN {HAS_EMAIL} THEN 1 ELSE 0 END)                          AS with_email,
@@ -222,7 +228,8 @@ def api_metrics():
         "pct_contactable": round(contactable / total * 100, 1) if total else 0.0,
         "by_status": by_status, "by_source": by_source, "by_ghl": by_ghl,
         "batches": batches,
-        "providers": [{"name": p.name, "enabled": p.enabled} for p in build_chain()],
+        "providers": ([{"name": p.name, "enabled": p.enabled} for p in build_chain()]
+                      + [{"name": "maps", "enabled": places.configured()}]),
         "ghl_configured": bool(__import__("os").getenv("GHL_API_TOKEN")
                                and __import__("os").getenv("GHL_LOCATION_ID")),
     }
@@ -305,6 +312,71 @@ async def api_mobile_start(contact_ids: str = Form(...)):
 @app.get("/api/mobile/progress")
 def api_mobile_progress():
     return enrichment.MOBILE_PROGRESS.as_dict()
+
+
+# ------------------------------------------------------------- Google Maps
+@app.post("/api/places/search")
+async def api_places_search(query: str = Form(...), max_results: str = Form("20")):
+    """Busca negocios por ubicación. No guarda nada: primero se miran."""
+    n = int(max_results) if str(max_results).strip().isdigit() else 20
+    r = await places.search(query, max_results=n)
+    if r.get("error") and not r["places"]:
+        return JSONResponse({"error": r["error"], "places": []}, status_code=400)
+
+    _PENDING_PLACES.clear()
+    _PENDING_PLACES.update({"query": query.strip(), "places": r["places"]})
+
+    with get_db() as conn:
+        ya = {row["p"] for row in conn.execute(
+            "SELECT lower(place_id) p FROM contacts WHERE place_id IS NOT NULL")}
+    repetidos = sum(1 for p in r["places"] if (p.get("place_id") or "").lower() in ya)
+
+    return {
+        "query": query.strip(),
+        "total": len(r["places"]),
+        "with_site": sum(1 for p in r["places"] if p.get("domain")),
+        "with_phone": sum(1 for p in r["places"] if p.get("phone")),
+        "already": repetidos,
+        "places": r["places"],
+        "warning": r.get("error"),
+    }
+
+
+@app.post("/api/places/import")
+def api_places_import(icp_tag: str = Form("")):
+    if not _PENDING_PLACES.get("places"):
+        raise HTTPException(400, "No hay una búsqueda pendiente. Buscá de nuevo.")
+    with get_db() as conn:
+        resumen = import_places(conn, _PENDING_PLACES["query"],
+                                _PENDING_PLACES["places"], icp_tag)
+    _PENDING_PLACES.clear()
+    return resumen
+
+
+# ------------------------------------------------------- sitio web del negocio
+@app.post("/api/website/start")
+async def api_website_start(contact_ids: str = Form(...)):
+    """Visita el sitio de los contactos marcados. Gratis: no usa proveedores."""
+    if enrichment.WEB_PROGRESS.running:
+        raise HTTPException(409, "Ya hay una lectura de sitios en curso.")
+    try:
+        ids = [int(i) for i in json.loads(contact_ids)]
+    except Exception:
+        raise HTTPException(400, "contact_ids debe ser un array JSON de enteros.")
+    if not ids:
+        raise HTTPException(400, "No se seleccionó ningún contacto.")
+
+    con_sitio = enrichment.contacts_with_site(ids)
+    if not con_sitio:
+        return {"started": False,
+                "message": "Ninguno de los marcados tiene sitio web para visitar."}
+    asyncio.create_task(enrichment.run_website_scrape(ids))
+    return {"started": True, "queued": len(con_sitio)}
+
+
+@app.get("/api/website/progress")
+def api_website_progress():
+    return enrichment.WEB_PROGRESS.as_dict()
 
 
 # ------------------------------------------------------------------------ GHL

@@ -36,16 +36,20 @@
   <div class="metrics" id="metrics"></div>
 
   <nav class="steps" aria-label="Secciones">
+    <button class="step" data-panel="places">
+      <span class="ico" aria-hidden="true">◎</span><span class="num">1</span>
+      <span><span class="t">Buscar</span><span class="d">Negocios por ubicación</span></span>
+    </button>
     <button class="step" data-panel="import">
-      <span class="ico" aria-hidden="true">⬆</span><span class="num">1</span>
+      <span class="ico" aria-hidden="true">⬆</span><span class="num">2</span>
       <span><span class="t">Cargar</span><span class="d">Subí el CSV de Apollo</span></span>
     </button>
     <button class="step" data-panel="enrich">
-      <span class="ico" aria-hidden="true">✉</span><span class="num">2</span>
+      <span class="ico" aria-hidden="true">✉</span><span class="num">3</span>
       <span><span class="t">Emails</span><span class="d">Buscá los que faltan</span></span>
     </button>
     <button class="step active" data-panel="contacts" aria-current="page">
-      <span class="ico" aria-hidden="true">◆</span><span class="num">3</span>
+      <span class="ico" aria-hidden="true">◆</span><span class="num">4</span>
       <span><span class="t">Enviar</span><span class="d">Revisá y mandá al CRM</span></span>
     </button>
     <button class="step" data-panel="batches">
@@ -101,6 +105,7 @@
                 <option value="prospeo">Prospeo</option>
                 <option value="icypeas">Icypeas</option>
                 <option value="hunter">Hunter</option>
+                <option value="web">Del sitio web</option>
               </select>
             </div>
             <div class="field">
@@ -160,6 +165,27 @@
     </div>
 
     <div class="card">
+      <h2>Leer los sitios web <span class="hint">gratis</span></h2>
+      <div class="body">
+        <p class="lede">Entra al sitio de los marcados y saca el email y el
+          teléfono publicados, incluido el WhatsApp.</p>
+        <details class="tip">
+          <summary>Cómo lo hace</summary>
+          <div class="tip-b">
+            <p>Visita la home y hasta tres páginas de contacto por sitio,
+              respetando el robots.txt. No consume créditos de ningún
+              proveedor, así que podés correrlo sobre toda la lista.</p>
+            <p>Prefiere el email de una persona antes que el buzón de área
+              (info@, ventas@), y el WhatsApp antes que el número general.</p>
+          </div>
+        </details>
+        <button id="btn-web" class="block primary" onclick="startWebsite()" disabled>
+          Leer el sitio de los marcados</button>
+        <div id="web-progress" style="margin-top:14px"></div>
+      </div>
+    </div>
+
+    <div class="card">
       <h2>Buscar teléfonos <span class="hint">10× más caro</span></h2>
       <div class="body">
         <p class="lede">Solo para los contactos que de verdad vas a llamar.</p>
@@ -178,6 +204,44 @@
         <div id="mobile-progress" style="margin-top:14px"></div>
       </div>
     </div>
+  </section>
+
+  <!-- ========================= BUSCAR EN MAPS ========================= -->
+  <section class="panel" id="panel-places">
+    <div class="card">
+      <h2>Buscar negocios por ubicación <span class="hint">Google Maps</span></h2>
+      <div class="body">
+        <p class="lede">Escribilo como lo buscarías en Maps: qué y dónde.</p>
+        <details class="tip">
+          <summary>Qué trae y qué no</summary>
+          <div class="tip-b">
+            <p>Google devuelve el <b>negocio</b>: nombre, teléfono, sitio,
+              dirección y calificación. Nunca personas ni emails.</p>
+            <p>El email sale del paso siguiente: B2X entra al sitio de cada uno
+              y saca el contacto publicado. Eso es gratis.</p>
+            <p>Cada búsqueda le cuesta plata a tu cuenta de Google, así que
+              primero se muestran los resultados y vos decidís si guardarlos.</p>
+          </div>
+        </details>
+        <div class="row">
+          <div class="search">
+            <input id="p-q" placeholder="Ej: agencias de viaje en Bogotá"
+                   aria-label="Qué negocios buscar">
+          </div>
+          <div class="field" style="flex:0 0 130px">
+            <label class="fld" for="p-max">Cuántos</label>
+            <select id="p-max">
+              <option value="20">20</option>
+              <option value="40">40</option>
+              <option value="60">60 (máximo)</option>
+            </select>
+          </div>
+          <button class="primary" id="btn-places" onclick="searchPlaces()">Buscar</button>
+        </div>
+        <div id="p-alert" style="margin-top:14px"></div>
+      </div>
+    </div>
+    <div id="p-box"></div>
   </section>
 
   <!-- ========================= CARGAR ========================= -->

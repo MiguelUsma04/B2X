@@ -1,4 +1,5 @@
 """Capa de acceso a SQLite. Sin ORM: el esquema es chico y las queries son directas."""
+import re
 import sqlite3
 from pathlib import Path
 from contextlib import contextmanager
@@ -25,14 +26,24 @@ CREATE TABLE IF NOT EXISTS contacts (
     email_status      TEXT NOT NULL DEFAULT 'pending'
                       CHECK (email_status IN ('verified','unverified','not_found','pending')),
     email_source      TEXT
-                      CHECK (email_source IN ('apollo','prospeo','icypeas','hunter') OR email_source IS NULL),
+                      CHECK (email_source IN ('apollo','prospeo','icypeas','hunter','web')
+                             OR email_source IS NULL),
     phone             TEXT,
-    -- 'personal' = directo o móvil de la persona; 'company' = conmutador.
+    -- 'personal' = directo o móvil de la persona; 'company' = conmutador;
+    -- 'whatsapp' = número publicado como WhatsApp, se le escribe directo.
     phone_type        TEXT,
     job_title         TEXT,
     company_name      TEXT,
     company_domain    TEXT,
     linkedin_url      TEXT,
+    -- Datos del negocio cuando el contacto viene de Google Maps.
+    place_id          TEXT,
+    address           TEXT,
+    rating            REAL,
+    rating_count      INTEGER,
+    maps_url          TEXT,
+    category          TEXT,
+    social_url        TEXT,
     import_batch_id   INTEGER REFERENCES import_batches(id) ON DELETE SET NULL,
     ghl_status        TEXT NOT NULL DEFAULT 'pending'
                       CHECK (ghl_status IN ('pending','sent','error')),
@@ -70,6 +81,14 @@ CREATE INDEX IF NOT EXISTS idx_enrichlog_contact ON enrichment_log(contact_id);
 """
 
 
+# Índices sobre columnas que se agregan en _migrate: corren después de ella,
+# porque en una base vieja la columna todavía no existe cuando se crea el resto.
+SCHEMA_POST_MIGRATE = """
+-- Un mismo negocio de Maps no se importa dos veces.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_contacts_place
+    ON contacts(place_id) WHERE place_id IS NOT NULL AND place_id <> '';
+"""
+
 _schema_ready = False
 
 
@@ -88,6 +107,7 @@ def connect() -> sqlite3.Connection:
     if not _schema_ready:
         conn.executescript(SCHEMA)
         _migrate(conn)
+        conn.executescript(SCHEMA_POST_MIGRATE)
         conn.commit()
         _schema_ready = True
     return conn
@@ -106,18 +126,71 @@ def get_db():
         conn.close()
 
 
+# Columnas agregadas después de la primera versión, en orden de aparición.
+_NEW_COLUMNS = [
+    ("phone_type", "TEXT"),
+    ("ghl_opportunity_id", "TEXT"),
+    ("mobile_available", "INTEGER NOT NULL DEFAULT 0"),
+    ("place_id", "TEXT"),
+    ("address", "TEXT"),
+    ("rating", "REAL"),
+    ("rating_count", "INTEGER"),
+    ("maps_url", "TEXT"),
+    ("category", "TEXT"),
+    ("social_url", "TEXT"),
+]
+
+
 def _migrate(conn) -> None:
     """Agrega columnas nuevas a bases que ya existen."""
     cols = {r["name"] for r in conn.execute("PRAGMA table_info(contacts)")}
-    if "phone_type" not in cols:
-        conn.execute("ALTER TABLE contacts ADD COLUMN phone_type TEXT")
-    if "ghl_opportunity_id" not in cols:
-        conn.execute("ALTER TABLE contacts ADD COLUMN ghl_opportunity_id TEXT")
-    if "mobile_available" not in cols:
-        conn.execute("ALTER TABLE contacts ADD COLUMN mobile_available INTEGER NOT NULL DEFAULT 0")
+    for name, ddl in _NEW_COLUMNS:
+        if name not in cols:
+            conn.execute(f"ALTER TABLE contacts ADD COLUMN {name} {ddl}")
+    _allow_web_as_source(conn)
+
+
+def _allow_web_as_source(conn) -> None:
+    """Suma 'web' a los valores permitidos de email_source.
+
+    El CHECK viaja dentro del CREATE TABLE y SQLite no lo deja modificar: hay
+    que rehacer la tabla. Se toma el DDL que la base tiene hoy —ya con las
+    columnas que se agregaron por ALTER— y solo se le amplía la lista, así no
+    queda una segunda copia del esquema que se desincronice con la de arriba.
+    """
+    row = conn.execute(
+        "SELECT sql FROM sqlite_master WHERE type='table' AND name='contacts'").fetchone()
+    if not row or not row["sql"] or "'web'" in row["sql"]:
+        return
+
+    viejo = "'apollo','prospeo','icypeas','hunter'"
+    if viejo not in row["sql"]:
+        return  # esquema inesperado: mejor no tocarlo
+    ddl = row["sql"].replace(viejo, viejo + ",'web'")
+    ddl = re.sub(r"CREATE TABLE\s+(IF NOT EXISTS\s+)?[\"'`\[]?contacts[\"'`\]]?",
+                 "CREATE TABLE contacts_nueva", ddl, count=1)
+
+    conn.commit()                              # el rebuild va en su propia transacción
+    conn.execute("PRAGMA foreign_keys=OFF")    # si no, el DROP arrastra el log
+    try:
+        conn.executescript(f"""
+            BEGIN;
+            {ddl};
+            INSERT INTO contacts_nueva SELECT * FROM contacts;
+            DROP TABLE contacts;
+            ALTER TABLE contacts_nueva RENAME TO contacts;
+            COMMIT;""")
+        conn.executescript(SCHEMA)             # los índices se fueron con la tabla vieja
+        rotas = conn.execute("PRAGMA foreign_key_check").fetchall()
+        if rotas:
+            raise sqlite3.IntegrityError(
+                f"La migración dejó {len(rotas)} referencia(s) rotas.")
+    finally:
+        conn.execute("PRAGMA foreign_keys=ON")
 
 
 def init_db() -> None:
     with get_db() as conn:
         conn.executescript(SCHEMA)
         _migrate(conn)
+        conn.executescript(SCHEMA_POST_MIGRATE)
