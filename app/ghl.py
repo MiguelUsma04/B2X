@@ -78,10 +78,18 @@ async def send_contacts(contact_ids: list[int], tag: str | None = None) -> dict:
             f"SELECT * FROM contacts WHERE id IN ({placeholders})", contact_ids)]
 
     sent = failed = skipped = opportunities = 0
-    opp_existing = opp_failed = 0
+    already = opp_existing = opp_failed = 0
     results = []
     async with httpx.AsyncClient(timeout=30.0) as client:
         for contact in rows:
+            # Ya está en el CRM: no se vuelve a subir. El upsert lo aceptaría,
+            # pero no aporta nada y hace ruido en el reporte.
+            if contact.get("ghl_contact_id"):
+                already += 1
+                results.append({"id": contact["id"], "status": "already",
+                                "message": "Ya estaba en el CRM."})
+                continue
+
             # Alcanza con email O teléfono, del tipo que sea: el conmutador de
             # la empresa es un dato más flojo que el celular, pero permite
             # trabajar el contacto desde el CRM, así que no es motivo de
@@ -119,6 +127,8 @@ async def send_contacts(contact_ids: list[int], tag: str | None = None) -> dict:
                         opp = await create_opportunity(client, contact, ghl_id)
                         if opp["ok"]:
                             opportunities += 1
+                        elif opp.get("duplicate"):
+                            opp_existing += 1
                         elif opp["error"]:
                             opp_failed += 1
 
@@ -158,6 +168,7 @@ async def send_contacts(contact_ids: list[int], tag: str | None = None) -> dict:
                 results.append({"id": contact["id"], "status": "error", "message": msg})
 
     return {"sent": sent, "failed": failed, "skipped": skipped,
+            "already_in_crm": already,
             "opportunities": opportunities,
             "opportunities_existing": opp_existing,
             "opportunities_failed": opp_failed,
@@ -232,4 +243,8 @@ async def create_opportunity(client, contact: dict, ghl_contact_id: str) -> dict
     msg = body.get("message") or body.get("error") or f"HTTP {resp.status_code}"
     if isinstance(msg, list):
         msg = "; ".join(str(m) for m in msg)
+    # GHL contesta "duplicate opportunity" cuando el contacto ya tiene una en
+    # este embudo. No hay nada que arreglar: el embudo ya está como queremos.
+    if "duplicate opportunity" in str(msg).lower():
+        return {"ok": False, "id": None, "error": None, "duplicate": True}
     return {"ok": False, "id": None, "error": f"Oportunidad: {msg}"[:300]}

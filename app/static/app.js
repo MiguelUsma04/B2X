@@ -704,10 +704,13 @@ async function sendToGHL() {
     const errs = (d.results || []).filter((x) => x.status === 'error').slice(0, 5);
     const oppErrs = (d.results || []).filter((x) => x.opportunity_error).slice(0, 5);
     const parts = [`<b>${d.sent} contacto(s) enviados al CRM.</b>`];
+    if (d.already_in_crm) {
+      parts.push(`${d.already_in_crm} ya estaban y no se volvieron a subir.`);
+    }
     if (d.pipeline_configured) {
       const opp = [`Se crearon ${d.opportunities} oportunidad(es) en el embudo.`];
       if (d.opportunities_existing) {
-        opp.push(`${d.opportunities_existing} ya tenían la suya de un envío anterior.`);
+        opp.push(`${d.opportunities_existing} ya tenían la suya en el embudo.`);
       }
       if (d.opportunities_failed) {
         opp.push(`<b>${d.opportunities_failed} contacto(s) entraron al CRM pero se quedaron sin oportunidad.</b>`);
