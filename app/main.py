@@ -113,11 +113,15 @@ def api_contacts(email_status: str = "", email_source: str = "",
     HAS_EMAIL = "email IS NOT NULL AND email <> ''"
     HAS_PHONE = "phone IS NOT NULL AND phone <> '' AND phone_type = 'personal'"
     HAS_ANY_PHONE = "phone IS NOT NULL AND phone <> ''"
+    # phone_type quedó en NULL en los contactos cargados antes de que existiera
+    # la columna. 'phone_type <> personal' daría NULL para ellos y los dejaría
+    # fuera de todos los cortes: IS NOT compara sin arrastrar el NULL.
+    NOT_PERSONAL = "phone_type IS NOT 'personal'"
     REACH_SQL = {
         "contactable": f"(({HAS_EMAIL}) OR ({HAS_ANY_PHONE}))",
         "email":       f"({HAS_EMAIL})",
         "phone":       f"({HAS_PHONE})",
-        "switchboard": f"(NOT ({HAS_EMAIL}) AND ({HAS_ANY_PHONE}) AND NOT ({HAS_PHONE}))",
+        "switchboard": f"(NOT ({HAS_EMAIL}) AND ({HAS_ANY_PHONE}) AND {NOT_PERSONAL})",
         "both":        f"(({HAS_EMAIL}) AND ({HAS_PHONE}))",
         "none":        f"(NOT ({HAS_EMAIL}) AND NOT ({HAS_ANY_PHONE}))",
     }
@@ -189,6 +193,7 @@ def api_metrics():
         HAS_EMAIL = "email IS NOT NULL AND email <> ''"
         HAS_PHONE = "phone IS NOT NULL AND phone <> '' AND phone_type = 'personal'"
         HAS_ANY_PHONE = "phone IS NOT NULL AND phone <> ''"
+        NOT_PERSONAL = "phone_type IS NOT 'personal'"  # NULL-safe, ver /api/contacts
         counts = conn.execute(f"""
             SELECT
               SUM(CASE WHEN {HAS_EMAIL} THEN 1 ELSE 0 END)                          AS with_email,
@@ -196,7 +201,7 @@ def api_metrics():
               SUM(CASE WHEN {HAS_EMAIL} AND {HAS_PHONE} THEN 1 ELSE 0 END)          AS with_both,
               SUM(CASE WHEN {HAS_EMAIL} OR  {HAS_ANY_PHONE} THEN 1 ELSE 0 END)      AS contactable,
               SUM(CASE WHEN NOT ({HAS_EMAIL}) AND ({HAS_ANY_PHONE})
-                        AND NOT ({HAS_PHONE}) THEN 1 ELSE 0 END)                    AS only_switchboard,
+                        AND {NOT_PERSONAL} THEN 1 ELSE 0 END)                       AS only_switchboard,
               SUM(CASE WHEN NOT ({HAS_EMAIL}) AND NOT ({HAS_ANY_PHONE})
                         AND mobile_available = 1 THEN 1 ELSE 0 END)                 AS mobile_available
             FROM contacts""").fetchone()

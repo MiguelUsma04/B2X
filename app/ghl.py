@@ -78,6 +78,7 @@ async def send_contacts(contact_ids: list[int], tag: str | None = None) -> dict:
             f"SELECT * FROM contacts WHERE id IN ({placeholders})", contact_ids)]
 
     sent = failed = skipped = opportunities = 0
+    opp_existing = opp_failed = 0
     results = []
     async with httpx.AsyncClient(timeout=30.0) as client:
         for contact in rows:
@@ -108,15 +109,24 @@ async def send_contacts(contact_ids: list[int], tag: str | None = None) -> dict:
                     # El contacto ya está en el CRM; si la oportunidad falla,
                     # se reporta pero el contacto sigue contando como enviado.
                     opp = {"ok": False, "id": None, "error": None}
-                    if ghl_id:
+                    if contact.get("ghl_opportunity_id"):
+                        # Reenvío: ya tiene oportunidad. Pedir otra devuelve un
+                        # error del CRM que no dice nada y ensucia el reporte.
+                        opp = {"ok": False, "id": contact["ghl_opportunity_id"],
+                               "error": None}
+                        opp_existing += 1
+                    elif ghl_id:
                         opp = await create_opportunity(client, contact, ghl_id)
-                    if opp["ok"]:
-                        opportunities += 1
+                        if opp["ok"]:
+                            opportunities += 1
+                        elif opp["error"]:
+                            opp_failed += 1
 
                     with get_db() as conn:
                         conn.execute(
                             """UPDATE contacts SET ghl_status='sent', ghl_contact_id=?,
-                               ghl_opportunity_id=?, ghl_error_message=?,
+                               ghl_opportunity_id=COALESCE(?, ghl_opportunity_id),
+                               ghl_error_message=?,
                                updated_at=datetime('now')
                                WHERE id=?""",
                             (ghl_id, opp["id"], opp["error"], contact["id"]))
@@ -149,6 +159,8 @@ async def send_contacts(contact_ids: list[int], tag: str | None = None) -> dict:
 
     return {"sent": sent, "failed": failed, "skipped": skipped,
             "opportunities": opportunities,
+            "opportunities_existing": opp_existing,
+            "opportunities_failed": opp_failed,
             "pipeline_configured": bool(os.getenv("GHL_PIPELINE_ID")),
             "results": results}
 

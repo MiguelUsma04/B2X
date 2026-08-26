@@ -81,7 +81,7 @@ async function loadMetrics() {
         <div class="srcline"><span>Email y celular</span><span>${m.with_both}</span></div>
         <div class="srcline"><span>Solo email</span><span>${soloEmail}</span></div>
         <div class="srcline"><span>Solo celular</span><span>${soloTel}</span></div>
-        <div class="srcline" title="Sin email ni celular: solo el conmutador de la empresa. Se envía igual al CRM."><span>Solo conmutador</span><span>${soloConmutador}</span></div>
+        <div class="srcline" title="Sin email y con un teléfono que no consta como directo: el conmutador de la empresa, o un número viejo que se cargó sin tipo. Se envía igual al CRM."><span>Solo teléfono no directo</span><span>${soloConmutador}</span></div>
         <div class="srcline" style="border-top:1px solid var(--line);margin-top:4px;padding-top:6px">
           <span style="color:var(--ink-3)">Sin ningún dato</span>
           <span>${m.total - m.contactable}</span></div>
@@ -702,15 +702,25 @@ async function sendToGHL() {
     $('ghl-result').innerHTML = `<div class="alert err">${esc(d.error)}</div>`;
   } else {
     const errs = (d.results || []).filter((x) => x.status === 'error').slice(0, 5);
+    const oppErrs = (d.results || []).filter((x) => x.opportunity_error).slice(0, 5);
     const parts = [`<b>${d.sent} contacto(s) enviados al CRM.</b>`];
     if (d.pipeline_configured) {
-      parts.push(`Se crearon ${d.opportunities} oportunidad(es) en el embudo.`);
+      const opp = [`Se crearon ${d.opportunities} oportunidad(es) en el embudo.`];
+      if (d.opportunities_existing) {
+        opp.push(`${d.opportunities_existing} ya tenían la suya de un envío anterior.`);
+      }
+      if (d.opportunities_failed) {
+        opp.push(`<b>${d.opportunities_failed} contacto(s) entraron al CRM pero se quedaron sin oportunidad.</b>`);
+      }
+      parts.push(opp.join(' '));
     }
     if (d.skipped) parts.push(`${d.skipped} no se enviaron porque no tienen email ni teléfono: el CRM no acepta un contacto sin ningún dato.`);
     if (d.failed) parts.push(`${d.failed} fallaron.`);
-    $('ghl-result').innerHTML = `<div class="alert ${d.failed ? 'warn' : 'ok'}">
+    const detalle = errs.map((e) => esc(e.message))
+      .concat(oppErrs.map((e) => esc(e.opportunity_error)));
+    $('ghl-result').innerHTML = `<div class="alert ${d.failed || d.opportunities_failed ? 'warn' : 'ok'}">
       ${parts.join(' ')}
-      ${errs.length ? '<br><br>' + errs.map((e) => esc(e.message)).join('<br>') : ''}</div>`;
+      ${detalle.length ? '<br><br>' + detalle.join('<br>') : ''}</div>`;
   }
   $('btn-ghl').disabled = false;
   clearSelection();
