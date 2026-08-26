@@ -36,20 +36,16 @@
   <div class="metrics" id="metrics"></div>
 
   <nav class="steps" aria-label="Secciones">
-    <button class="step" data-panel="places">
-      <span class="ico" aria-hidden="true">◎</span><span class="num">1</span>
-      <span><span class="t">Buscar</span><span class="d">Negocios por ubicación</span></span>
-    </button>
     <button class="step" data-panel="import">
-      <span class="ico" aria-hidden="true">⬆</span><span class="num">2</span>
-      <span><span class="t">Cargar</span><span class="d">Subí el CSV de Apollo</span></span>
+      <span class="ico" aria-hidden="true">⬆</span><span class="num">1</span>
+      <span><span class="t">Cargar</span><span class="d">De Maps o de un CSV</span></span>
     </button>
     <button class="step" data-panel="enrich">
-      <span class="ico" aria-hidden="true">✉</span><span class="num">3</span>
+      <span class="ico" aria-hidden="true">✉</span><span class="num">2</span>
       <span><span class="t">Emails</span><span class="d">Buscá los que faltan</span></span>
     </button>
     <button class="step active" data-panel="contacts" aria-current="page">
-      <span class="ico" aria-hidden="true">◆</span><span class="num">4</span>
+      <span class="ico" aria-hidden="true">◆</span><span class="num">3</span>
       <span><span class="t">Enviar</span><span class="d">Revisá y mandá al CRM</span></span>
     </button>
     <button class="step" data-panel="batches">
@@ -206,9 +202,19 @@
     </div>
   </section>
 
-  <!-- ========================= BUSCAR EN MAPS ========================= -->
-  <section class="panel" id="panel-places">
-    <div class="card">
+  <!-- ========================= CARGAR ========================= -->
+  <section class="panel" id="panel-import">
+    <div class="segmented" role="tablist" aria-label="De dónde traer los contactos">
+      <button class="seg active" id="seg-maps" role="tab" aria-selected="true"
+              onclick="switchSource('maps')">
+        <b>Buscar en Maps</b><span>negocios por ubicación</span></button>
+      <button class="seg" id="seg-csv" role="tab" aria-selected="false"
+              onclick="switchSource('csv')">
+        <b>Subir un CSV</b><span>export de Apollo</span></button>
+    </div>
+
+    <div id="src-maps">
+<div class="card">
       <h2>Buscar negocios por ubicación <span class="hint">Google Maps</span></h2>
       <div class="body">
         <p class="lede">Escribilo como lo buscarías en Maps: qué y dónde.</p>
@@ -238,15 +244,15 @@
           </div>
           <button class="primary" id="btn-places" onclick="searchPlaces()">Buscar</button>
         </div>
+        <div id="p-usage" class="usage"></div>
         <div id="p-alert" style="margin-top:14px"></div>
       </div>
     </div>
     <div id="p-box"></div>
-  </section>
+    </div>
 
-  <!-- ========================= CARGAR ========================= -->
-  <section class="panel" id="panel-import">
-    <div class="card">
+    <div id="src-csv" hidden>
+<div class="card">
       <h2>Subí tu archivo de Apollo</h2>
       <div class="body">
         <p class="lede">CSV exportado desde la pestaña <b>People</b>. Vas a poder
@@ -265,6 +271,7 @@
       </div>
     </div>
     <div id="prev-box"></div>
+    </div>
   </section>
 
   <!-- ========================= BUSCAR EMAILS ========================= -->

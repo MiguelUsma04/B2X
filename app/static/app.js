@@ -550,6 +550,47 @@ function foundList(items, label) {
 }
 
 /* ======================= buscar en Google Maps ======================= */
+/* Maps y CSV son dos formas de lo mismo —traer contactos— y comparten sección. */
+function switchSource(cual) {
+  const esMaps = cual === 'maps';
+  $('src-maps').hidden = !esMaps;
+  $('src-csv').hidden = esMaps;
+  for (const [id, on] of [['seg-maps', esMaps], ['seg-csv', !esMaps]]) {
+    $(id).classList.toggle('active', on);
+    $(id).setAttribute('aria-selected', String(on));
+  }
+  if (esMaps) loadUsage();
+}
+
+/* Google cobra por consulta, no por negocio, y regala las primeras 1.000 del
+   mes. Sin este contador no hay forma de saber cuánto queda de ese tramo. */
+async function loadUsage() {
+  try {
+    renderUsage(await (await fetch('/api/places/usage')).json());
+  } catch (e) {
+    /* el contador nunca puede tumbar la pantalla de búsqueda */
+  }
+}
+
+function renderUsage(u) {
+  const box = $('p-usage');
+  if (!box) return;
+  const pct = Math.min(100, (u.requests / u.free_limit) * 100);
+  box.className = 'usage ' + (u.billable ? 'over'
+    : (u.remaining <= u.free_limit * 0.1 ? 'tight' : ''));
+  box.innerHTML = `
+    <div class="top">
+      <span><b>${u.requests}</b> de ${u.free_limit} consultas gratis este mes</span>
+      <span>${u.billable
+        ? `<b style="color:var(--danger)">US$${u.estimated_cost}</b> a facturar`
+        : `quedan <b>${u.remaining}</b>`}</span>
+    </div>
+    <div class="bar"><i style="width:${pct}%"></i></div>
+    <div>${u.searches} búsqueda(s) · ${u.results} negocios traídos · cada consulta
+      trae hasta 20 y cuesta US$${u.usd_per_request} recién pasado el tramo gratis</div>`;
+}
+
+
 async function searchPlaces() {
   const q = $('p-q').value.trim();
   if (!q) { toast('Escribí qué negocios buscar y dónde', 'warn'); return; }
@@ -577,6 +618,7 @@ async function searchPlaces() {
     return;
   }
   $('p-alert').innerHTML = d.warning ? `<div class="alert warn">${esc(d.warning)}</div>` : '';
+  if (d.usage) renderUsage(d.usage);
 
   const filas = d.places.map((p) => `<tr>
     <td class="c-main"><b>${esc(p.name)}</b>
@@ -1074,6 +1116,7 @@ $('f-q').addEventListener('input', () => {
 FILTERS.forEach(([id]) => { $(id).addEventListener('change', loadContacts); });
 
 (async () => {
+  loadUsage();
   await loadMetrics();
   await loadContacts();
   await refreshPending();

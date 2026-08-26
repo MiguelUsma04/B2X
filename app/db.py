@@ -67,6 +67,17 @@ CREATE INDEX IF NOT EXISTS idx_contacts_email_status ON contacts(email_status);
 CREATE INDEX IF NOT EXISTS idx_contacts_ghl_status   ON contacts(ghl_status);
 CREATE INDEX IF NOT EXISTS idx_contacts_batch        ON contacts(import_batch_id);
 
+-- Consumo de la API de Google Maps. Google cobra por CONSULTA, y una
+-- consulta trae hasta 20 negocios: por eso se guardan las dos cifras.
+CREATE TABLE IF NOT EXISTS places_usage (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    query      TEXT,
+    requests   INTEGER NOT NULL DEFAULT 1,
+    results    INTEGER NOT NULL DEFAULT 0,
+    timestamp  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_places_usage_ts ON places_usage(timestamp);
+
 CREATE TABLE IF NOT EXISTS enrichment_log (
     id               INTEGER PRIMARY KEY AUTOINCREMENT,
     contact_id       INTEGER NOT NULL REFERENCES contacts(id) ON DELETE CASCADE,

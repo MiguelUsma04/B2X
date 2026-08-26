@@ -315,6 +315,46 @@ def api_mobile_progress():
 
 
 # ------------------------------------------------------------- Google Maps
+# Tramo gratis y precio del SKU que usa nuestra búsqueda: "Text Search
+# Enterprise + Atmosphere" (pide teléfono, sitio y calificación).
+# https://developers.google.com/maps/billing-and-pricing/pricing
+PLACES_FREE = 1000
+PLACES_USD_1000 = 40.0
+
+
+def _places_usage() -> dict:
+    """Cuánto se consumió este mes calendario.
+
+    Es una estimación propia: cuenta lo que esta app le pidió a Google. La
+    cifra que factura Google está en su consola, y puede diferir si la misma
+    key se usa desde otro lado.
+    """
+    with get_db() as conn:
+        r = conn.execute("""
+            SELECT COALESCE(SUM(requests), 0) AS consultas,
+                   COALESCE(SUM(results), 0)  AS negocios,
+                   COUNT(*)                   AS busquedas
+              FROM places_usage
+             WHERE strftime('%Y-%m', timestamp) = strftime('%Y-%m', 'now')""").fetchone()
+
+    consultas = r["consultas"] or 0
+    cobrables = max(0, consultas - PLACES_FREE)
+    return {
+        "month": __import__("datetime").date.today().strftime("%Y-%m"),
+        "searches": r["busquedas"] or 0,
+        "requests": consultas,
+        "results": r["negocios"] or 0,
+        "free_limit": PLACES_FREE,
+        "remaining": max(0, PLACES_FREE - consultas),
+        "billable": cobrables,
+        "estimated_cost": round(cobrables * PLACES_USD_1000 / 1000, 2),
+        "usd_per_request": round(PLACES_USD_1000 / 1000, 3),
+    }
+
+
+@app.get("/api/places/usage")
+def api_places_usage():
+    return _places_usage()
 @app.post("/api/places/search")
 async def api_places_search(query: str = Form(...), max_results: str = Form("20")):
     """Busca negocios por ubicación. No guarda nada: primero se miran."""
@@ -322,6 +362,14 @@ async def api_places_search(query: str = Form(...), max_results: str = Form("20"
     r = await places.search(query, max_results=n)
     if r.get("error") and not r["places"]:
         return JSONResponse({"error": r["error"], "places": []}, status_code=400)
+
+    # Se anota lo que Google efectivamente respondió: las páginas que
+    # fallaron no se facturan, así que tampoco se cuentan.
+    if r.get("pages"):
+        with get_db() as conn:
+            conn.execute(
+                "INSERT INTO places_usage (query, requests, results) VALUES (?,?,?)",
+                (query.strip()[:200], r["pages"], len(r["places"])))
 
     _PENDING_PLACES.clear()
     _PENDING_PLACES.update({"query": query.strip(), "places": r["places"]})
@@ -339,6 +387,8 @@ async def api_places_search(query: str = Form(...), max_results: str = Form("20"
         "already": repetidos,
         "places": r["places"],
         "warning": r.get("error"),
+        "requests": r.get("pages", 0),
+        "usage": _places_usage(),
     }
 
 
