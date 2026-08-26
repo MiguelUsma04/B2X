@@ -2,29 +2,36 @@
 <html lang="es">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
 <title>B2X — Ingresar</title>
 <link rel="stylesheet" href="/static/style.css">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='13' font-size='13'>◆</text></svg>">
+<script>
+  try {
+    var t = localStorage.getItem('b2x-theme');
+    if (t) document.documentElement.setAttribute('data-theme', t);
+  } catch (e) {}
+</script>
 <style>
-  body{display:flex;align-items:center;justify-content:center;min-height:100vh;padding:24px}
-  .login{width:100%;max-width:420px}
-  .login .brand{font-size:44px;margin-bottom:2px}
-  .login .tag{font-size:16px;color:var(--ink-2);margin-bottom:26px}
-  .login input{width:100%;margin-bottom:14px}
-  .login button{width:100%}
+  body{display:grid;place-items:center;min-height:100dvh;padding:24px}
+  .login{width:100%;max-width:400px}
+  .login .brand{font-size:40px;margin-bottom:2px}
+  .login .tag{font-size:15px;color:var(--ink-3);margin-bottom:22px}
+  .login .card{margin:0}
+  .login input{margin-bottom:14px}
 </style>
 </head>
 <body>
   <main class="login">
     <div class="brand">B2X<span>//</span></div>
-    <p class="tag">Buscador de emails para prospección</p>
+    <p class="tag">Prospección B2B</p>
     <div class="card"><div class="body">
       <form method="post" action="/api/login">
         <label class="fld" for="pw">Contraseña</label>
         <input type="password" id="pw" name="password" autofocus
                autocomplete="current-password" required>
-        <button class="primary" type="submit">Ingresar</button>
+        <button class="primary block" type="submit">Ingresar</button>
       </form>
       <div id="msg"></div>
     </div></div>
@@ -32,8 +39,8 @@
 <script>
   if (new URLSearchParams(location.search).get('error')) {
     document.getElementById('msg').innerHTML =
-      '<div class="alert err" style="margin:16px 0 0">La contraseña no es correcta. ' +
-      'Revisá que no tengas activado el bloqueo de mayúsculas.</div>';
+      '<div class="alert err" style="margin:16px 0 0">Contraseña incorrecta. ' +
+      'Revisá el bloqueo de mayúsculas.</div>';
   }
 </script>
 </body>

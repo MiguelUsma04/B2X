@@ -2,20 +2,32 @@
 <html lang="es">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
+<meta name="theme-color" content="#1b4dd8">
 <title>B2X — Buscador de contactos B2B</title>
 <link rel="stylesheet" href="/static/style.css">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='13' font-size='13'>◆</text></svg>">
+<script>
+  /* Antes de pintar, para que no haya un flash claro en modo oscuro. */
+  try {
+    var t = localStorage.getItem('b2x-theme');
+    if (t) document.documentElement.setAttribute('data-theme', t);
+  } catch (e) {}
+</script>
 </head>
 <body>
 
 <header class="top">
   <div class="brand">B2X<span>//</span></div>
-  <div class="sub">Buscador de emails para prospección</div>
+  <div class="sub">Prospección B2B</div>
   <div class="spacer"></div>
   <div class="provstat" id="provstat"></div>
+  <button class="iconbtn" id="btn-theme" onclick="toggleTheme()"
+          title="Cambiar entre claro y oscuro" aria-label="Cambiar tema">◐</button>
   <form method="post" action="/api/logout" style="margin:0">
-    <button class="sm" type="submit">Cerrar sesión</button>
+    <button class="iconbtn" type="submit" title="Cerrar sesión"
+            aria-label="Cerrar sesión">⏻</button>
   </form>
 </header>
 
@@ -23,208 +35,216 @@
 
   <div class="metrics" id="metrics"></div>
 
-  <nav class="steps" aria-label="Pasos del proceso">
+  <nav class="steps" aria-label="Secciones">
     <button class="step" data-panel="import">
-      <span class="num">1</span>
-      <span><span class="t">Cargar contactos</span><span class="d">Subí el archivo de Apollo</span></span>
+      <span class="ico" aria-hidden="true">⬆</span><span class="num">1</span>
+      <span><span class="t">Cargar</span><span class="d">Subí el CSV de Apollo</span></span>
     </button>
     <button class="step" data-panel="enrich">
-      <span class="num">2</span>
-      <span><span class="t">Buscar emails</span><span class="d">Encontrá los que faltan</span></span>
+      <span class="ico" aria-hidden="true">✉</span><span class="num">2</span>
+      <span><span class="t">Emails</span><span class="d">Buscá los que faltan</span></span>
     </button>
     <button class="step active" data-panel="contacts" aria-current="page">
-      <span class="num">3</span>
-      <span><span class="t">Revisar y enviar</span><span class="d">Aprobá y mandá al CRM</span></span>
+      <span class="ico" aria-hidden="true">◆</span><span class="num">3</span>
+      <span><span class="t">Enviar</span><span class="d">Revisá y mandá al CRM</span></span>
     </button>
     <button class="step" data-panel="batches">
-      <span class="num">·</span>
+      <span class="ico" aria-hidden="true">≡</span><span class="num">·</span>
       <span><span class="t">Historial</span><span class="d">Cargas anteriores</span></span>
     </button>
   </nav>
 
-  <!-- ======================= REVISAR Y ENVIAR ======================= -->
+  <!-- ========================= REVISAR Y ENVIAR ========================= -->
   <section class="panel active" id="panel-contacts">
 
     <div class="card">
-      <h2>Buscar en tu lista</h2>
       <div class="body">
-        <div class="row">
-          <div>
-            <label class="fld" for="f-q">Nombre, empresa o email</label>
-            <input id="f-q" placeholder="Escribí para buscar…" style="width:250px">
+        <div class="filterbar">
+          <div class="search">
+            <input id="f-q" type="search" placeholder="Buscar por nombre, empresa o email…"
+                   aria-label="Buscar contactos">
           </div>
-          <div>
-            <label class="fld" for="f-reach">¿Cómo podés llegarle?</label>
-            <select id="f-reach">
-              <option value="">Todos</option>
-              <option value="contactable">Contactables (email o teléfono)</option>
-              <option value="both">Email y celular</option>
-              <option value="email">Con email</option>
-              <option value="phone">Con celular</option>
-              <option value="switchboard">Solo teléfono no directo</option>
-              <option value="none">Sin ningún dato</option>
-            </select>
-          </div>
-          <div>
-            <label class="fld" for="f-status">¿Tiene email?</label>
-            <select id="f-status">
-              <option value="">Todos</option>
-              <option value="verified">Sí, verificado</option>
-              <option value="unverified">Sí, sin verificar</option>
-              <option value="pending">Todavía no se buscó</option>
-              <option value="not_found">No se encontró</option>
-            </select>
-          </div>
-          <div>
-            <label class="fld" for="f-source">¿Quién lo encontró?</label>
-            <select id="f-source">
-              <option value="">Cualquiera</option>
-              <option value="apollo">Ya venía en el archivo</option>
-              <option value="prospeo">Prospeo</option>
-              <option value="icypeas">Icypeas</option>
-              <option value="hunter">Hunter</option>
-            </select>
-          </div>
-          <div>
-            <label class="fld" for="f-ghl">¿Ya está en el CRM?</label>
-            <select id="f-ghl">
-              <option value="">Todos</option>
-              <option value="pending">Todavía no</option>
-              <option value="sent">Ya enviado</option>
-              <option value="error">Falló el envío</option>
-            </select>
-          </div>
-          <div>
-            <label class="fld" for="f-batch">Carga</label>
-            <select id="f-batch"><option value="">Todas</option></select>
-          </div>
-          <button class="primary" onclick="loadContacts()">Aplicar filtros</button>
-          <button onclick="resetFilters()">Limpiar</button>
+          <button class="ghost" id="btn-filters" onclick="toggleFilters()" aria-expanded="false">
+            Filtros <span class="count-badge" id="fcount" hidden>0</span>
+          </button>
         </div>
+
+        <div id="fpanel" hidden style="margin-top:14px">
+          <div class="row">
+            <div class="field">
+              <label class="fld" for="f-reach">Cómo llegarle</label>
+              <select id="f-reach">
+                <option value="">Todos</option>
+                <option value="contactable">Contactables</option>
+                <option value="both">Email y celular</option>
+                <option value="email">Con email</option>
+                <option value="phone">Con celular</option>
+                <option value="switchboard">Solo teléfono no directo</option>
+                <option value="none">Sin ningún dato</option>
+              </select>
+            </div>
+            <div class="field">
+              <label class="fld" for="f-status">Email</label>
+              <select id="f-status">
+                <option value="">Todos</option>
+                <option value="verified">Verificado</option>
+                <option value="unverified">Sin verificar</option>
+                <option value="pending">Falta buscar</option>
+                <option value="not_found">No se encontró</option>
+              </select>
+            </div>
+            <div class="field">
+              <label class="fld" for="f-source">Fuente</label>
+              <select id="f-source">
+                <option value="">Cualquiera</option>
+                <option value="apollo">Venía en el archivo</option>
+                <option value="prospeo">Prospeo</option>
+                <option value="icypeas">Icypeas</option>
+                <option value="hunter">Hunter</option>
+              </select>
+            </div>
+            <div class="field">
+              <label class="fld" for="f-ghl">CRM</label>
+              <select id="f-ghl">
+                <option value="">Todos</option>
+                <option value="pending">Sin enviar</option>
+                <option value="sent">Ya enviado</option>
+                <option value="error">Falló</option>
+              </select>
+            </div>
+            <div class="field">
+              <label class="fld" for="f-batch">Carga</label>
+              <select id="f-batch"><option value="">Todas</option></select>
+            </div>
+          </div>
+        </div>
+
+        <div class="fchips" id="fchips"></div>
       </div>
     </div>
 
-    <div class="card">
-      <h2>Enviar al CRM <span class="hint">— GoHighLevel</span></h2>
-      <div class="body">
-        <p class="lede">
-          Marcá los contactos que quieras en la tabla de abajo y enviálos a tu CRM.
-          Se envían los que tengan email <b>o</b> teléfono: con cualquiera de los
-          dos ya se pueden trabajar desde GoHighLevel. Los que ya están en el
-          CRM se saltean, así que podés marcar toda la lista sin duplicar nada.
-        </p>
-        <div class="row">
-          <button onclick="selectAllFiltered()">Marcar todos los de la lista</button>
-          <button onclick="clearSelection()">Desmarcar</button>
-          <div>
-            <label class="fld" for="ghl-tag">Etiqueta en el CRM</label>
-            <input id="ghl-tag" placeholder="piloto-prospeccion" style="width:210px">
-          </div>
-          <button class="go" id="btn-ghl" onclick="sendToGHL()">Enviar al CRM</button>
-          <span id="selinfo" style="color:var(--ink-2)">Ninguno marcado</span>
-        </div>
-        <div id="ghl-result" style="margin-top:14px"></div>
-        <div id="pipeline-box" style="margin-top:18px;padding-top:18px;
-             border-top:1px solid var(--line)"></div>
-      </div>
-    </div>
-
-    <div class="card">
-      <h2>Buscar teléfonos <span class="hint">— opcional, consume más créditos</span></h2>
-      <div class="body">
-        <p class="lede">
-          Marcá contactos en la tabla y buscales el celular. Se hace aparte porque
-          <b>cuesta 10 veces más que buscar un email</b>: conviene usarlo solo con
-          los contactos que de verdad vas a llamar.<br><br>
-          Los teléfonos marcados como <b>conmutador</b> son el número general de la
-          empresa, no el del contacto: si llamás ahí te atiende recepción. A esos
-          igual les podés buscar el celular.
-        </p>
-        <div class="row">
-          <button id="btn-mobile" onclick="startMobile()">Buscar teléfono de los marcados</button>
-          <span id="mobinfo" style="color:var(--ink-2)"></span>
-        </div>
-        <div id="mobile-progress" style="margin-top:14px"></div>
-      </div>
-    </div>
-
-    <div class="card">
-      <h2>Tus contactos <span class="hint" id="ccount"></span></h2>
+    <div class="card list">
+      <h2>Contactos <span class="hint" id="ccount"></span>
+        <span class="spacer"></span>
+        <button class="ghost sm" onclick="selectAllFiltered()">Marcar todos</button>
+      </h2>
       <div class="tbl-scroll">
-        <table>
+        <table class="rtable">
           <thead><tr>
             <th style="width:44px"><input type="checkbox" id="chk-all" onclick="togglePage(this)"
-                aria-label="Marcar todos los de esta página"></th>
+                aria-label="Marcar los de esta página"></th>
             <th>Persona</th><th>Empresa</th><th>Email</th><th>Teléfono</th>
-            <th>Estado</th><th>Encontrado por</th><th>CRM</th><th></th>
+            <th>Estado</th><th>Fuente</th><th>CRM</th><th></th>
           </tr></thead>
           <tbody id="ctbody"></tbody>
         </table>
       </div>
       <div id="cempty"></div>
     </div>
+
+    <div class="card">
+      <h2>Envío al CRM <span class="hint">GoHighLevel</span></h2>
+      <div class="body">
+        <p class="lede">Marcá contactos arriba y enviálos. Van los que tengan email
+          o teléfono; los que ya están en el CRM se saltean.</p>
+        <div class="row">
+          <div class="field">
+            <label class="fld" for="ghl-tag">Etiqueta</label>
+            <input id="ghl-tag" placeholder="piloto-prospeccion">
+          </div>
+          <button class="go" id="btn-ghl" onclick="sendToGHL()" disabled>Enviar al CRM</button>
+        </div>
+        <div id="pipeline-box" style="margin-top:14px"></div>
+        <div id="ghl-result" style="margin-top:14px"></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Buscar teléfonos <span class="hint">10× más caro</span></h2>
+      <div class="body">
+        <p class="lede">Solo para los contactos que de verdad vas a llamar.</p>
+        <details class="tip">
+          <summary>Cuándo conviene</summary>
+          <div class="tip-b">
+            <p>Cada teléfono cuesta unos <b>10 créditos</b>, contra 1 de un email.
+              Por eso va sobre los que marcás, nunca sobre toda la base.</p>
+            <p>El teléfono marcado como <b>conmutador</b> es el número general de la
+              empresa: si llamás ahí te atiende recepción. A esos igual les podés
+              buscar el celular directo.</p>
+          </div>
+        </details>
+        <button id="btn-mobile" class="block" onclick="startMobile()" disabled>
+          Buscar teléfono de los marcados</button>
+        <div id="mobile-progress" style="margin-top:14px"></div>
+      </div>
+    </div>
   </section>
 
-  <!-- ======================= CARGAR ======================= -->
+  <!-- ========================= CARGAR ========================= -->
   <section class="panel" id="panel-import">
     <div class="card">
-      <h2>Paso 1 — Subí tu archivo de Apollo</h2>
+      <h2>Subí tu archivo de Apollo</h2>
       <div class="body">
-        <p class="lede">
-          Exportá tus contactos desde Apollo (la pestaña <b>People</b>, no Accounts) y
-          subí el archivo CSV acá. B2X reconoce las columnas solo y descarta los
-          contactos repetidos que ya tengas cargados.
-        </p>
+        <p class="lede">CSV exportado desde la pestaña <b>People</b>. Vas a poder
+          revisarlo antes de guardar nada.</p>
+        <details class="tip">
+          <summary>Cómo exportar desde Apollo</summary>
+          <div class="tip-b">
+            <p>Entrá a <b>People</b> (no Accounts), aplicá tus filtros y exportá.
+              B2X reconoce las columnas solo.</p>
+            <p>Los contactos repetidos que ya tengas cargados se descartan.</p>
+          </div>
+        </details>
         <input type="file" id="csvfile" accept=".csv,text/csv" onchange="doPreview()"
                aria-label="Elegir archivo CSV">
-        <p class="help">
-          Antes de guardar nada vas a poder ver cómo quedó, así que podés probar tranquilo.
-        </p>
         <div id="prev-alert" style="margin-top:14px"></div>
       </div>
     </div>
     <div id="prev-box"></div>
   </section>
 
-  <!-- ======================= BUSCAR EMAILS ======================= -->
+  <!-- ========================= BUSCAR EMAILS ========================= -->
   <section class="panel" id="panel-enrich">
     <div class="card">
-      <h2>Paso 2 — Buscar los emails que faltan</h2>
+      <h2>Buscar los emails que faltan</h2>
       <div class="body">
-        <p class="lede">
-          Para cada contacto sin email, B2X consulta tres servicios, uno después del otro,
-          hasta encontrarlo: primero <b>Prospeo</b>, si no aparece prueba <b>Icypeas</b>,
-          y por último <b>Hunter</b>. Así se paga solo por lo que hace falta.
-        </p>
-        <div id="enrich-warn"></div>
-        <div class="alert warn">
-          <b>Cada búsqueda consume créditos.</b> La primera vez probá con 5 contactos
-          para confirmar que todo funciona bien antes de lanzar la lista completa.
-        </div>
-        <div class="row">
-          <div>
-            <label class="fld" for="e-limit">¿Cuántos buscar?</label>
-            <input id="e-limit" type="number" min="1" placeholder="Todos" style="width:130px">
+        <p class="lede">Se consulta un servicio por vez hasta encontrarlo, así se
+          paga solo lo necesario.</p>
+        <details class="tip">
+          <summary>El orden de la cascada</summary>
+          <div class="tip-b">
+            <p>Primero <b>Prospeo</b>. Si no aparece, <b>Icypeas</b>. Y al final
+              <b>Hunter</b>. Cada consulta consume créditos.</p>
+            <p>La primera vez probá con 5 contactos para confirmar que todo
+              funciona antes de lanzar la lista completa.</p>
           </div>
-          <div>
-            <label class="fld" for="e-batch">Solo de una carga</label>
+        </details>
+        <div id="enrich-warn"></div>
+        <div class="row">
+          <div class="field">
+            <label class="fld" for="e-limit">Cuántos</label>
+            <input id="e-limit" type="number" min="1" placeholder="Todos"
+                   inputmode="numeric">
+          </div>
+          <div class="field">
+            <label class="fld" for="e-batch">De la carga</label>
             <select id="e-batch"><option value="">Todas</option></select>
           </div>
-          <button class="primary" id="btn-enrich" onclick="startEnrich()">Empezar búsqueda</button>
-          <span id="pendinfo" style="color:var(--ink-2)"></span>
+          <button class="primary" id="btn-enrich" onclick="startEnrich()">Empezar</button>
         </div>
+        <p class="help" id="pendinfo"></p>
         <div id="retry-box" style="margin-top:14px"></div>
-        <div id="progress-box" style="margin-top:18px"></div>
+        <div id="progress-box" style="margin-top:14px"></div>
       </div>
     </div>
   </section>
 
-  <!-- ======================= HISTORIAL ======================= -->
+  <!-- ========================= HISTORIAL ========================= -->
   <section class="panel" id="panel-batches">
-    <div class="card">
+    <div class="card list">
       <h2>Cargas anteriores</h2>
       <div class="tbl-scroll">
-        <table>
+        <table class="rtable">
           <thead><tr>
             <th>#</th><th>Archivo</th><th>Fecha</th><th>Filas</th>
             <th>Agregados</th><th>Repetidos</th><th>Segmento</th><th></th>
@@ -236,14 +256,31 @@
   </section>
 </div>
 
+<!-- barra de acciones sobre la selección -->
+<div class="selbar" id="selbar">
+  <div class="n"><span id="selcount">0</span> marcados<small id="selhint"></small></div>
+  <button class="ghost sm" onclick="clearSelection()">Quitar</button>
+  <button class="go sm" onclick="sendToGHL()">Enviar al CRM</button>
+</div>
+
+<div class="toasts" id="toasts" aria-live="polite"></div>
+
 <div class="modal" id="modal" onclick="if(event.target===this)closeModal()">
   <div class="modal-box" role="dialog" aria-modal="true" aria-labelledby="modal-title">
     <div class="modal-head">
       <h3 id="modal-title">Detalle</h3>
       <div class="spacer"></div>
-      <button class="sm" onclick="closeModal()">Cerrar</button>
+      <button class="iconbtn" onclick="closeModal()" aria-label="Cerrar">✕</button>
     </div>
     <div class="modal-body" id="modal-body"></div>
+  </div>
+</div>
+
+<div class="modal sm" id="ask" onclick="if(event.target===this)askClose(null)">
+  <div class="modal-box" role="dialog" aria-modal="true" aria-labelledby="ask-title">
+    <div class="modal-head"><h3 id="ask-title"></h3></div>
+    <div class="modal-body" id="ask-body"></div>
+    <div class="modal-foot" id="ask-foot"></div>
   </div>
 </div>
 
