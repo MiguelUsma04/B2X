@@ -67,12 +67,13 @@ async function loadMetrics() {
 
   const soloEmail = m.with_email - m.with_both;
   const soloTel = m.with_phone - m.with_both;
+  const soloConmutador = m.only_switchboard || 0;
 
   $('metrics').innerHTML = `
     <div class="metric hero">
       <div class="k">Contactables</div>
       <div class="v">${m.contactable}</div>
-      <div class="n">${m.pct_contactable}% de ${m.total} · tienen email o celular</div>
+      <div class="n">${m.pct_contactable}% de ${m.total} · tienen email o teléfono</div>
     </div>
     <div class="metric">
       <div class="k">Cómo podés llegarles</div>
@@ -80,6 +81,7 @@ async function loadMetrics() {
         <div class="srcline"><span>Email y celular</span><span>${m.with_both}</span></div>
         <div class="srcline"><span>Solo email</span><span>${soloEmail}</span></div>
         <div class="srcline"><span>Solo celular</span><span>${soloTel}</span></div>
+        <div class="srcline" title="Sin email ni celular: solo el conmutador de la empresa. Se envía igual al CRM."><span>Solo conmutador</span><span>${soloConmutador}</span></div>
         <div class="srcline" style="border-top:1px solid var(--line);margin-top:4px;padding-top:6px">
           <span style="color:var(--ink-3)">Sin ningún dato</span>
           <span>${m.total - m.contactable}</span></div>
@@ -704,7 +706,7 @@ async function sendToGHL() {
     if (d.pipeline_configured) {
       parts.push(`Se crearon ${d.opportunities} oportunidad(es) en el embudo.`);
     }
-    if (d.skipped) parts.push(`${d.skipped} no se enviaron porque todavía no tienen email.`);
+    if (d.skipped) parts.push(`${d.skipped} no se enviaron porque no tienen email ni teléfono: el CRM no acepta un contacto sin ningún dato.`);
     if (d.failed) parts.push(`${d.failed} fallaron.`);
     $('ghl-result').innerHTML = `<div class="alert ${d.failed ? 'warn' : 'ok'}">
       ${parts.join(' ')}

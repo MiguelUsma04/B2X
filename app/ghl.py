@@ -81,14 +81,16 @@ async def send_contacts(contact_ids: list[int], tag: str | None = None) -> dict:
     results = []
     async with httpx.AsyncClient(timeout=30.0) as client:
         for contact in rows:
-            # Alcanza con email O teléfono personal: un contacto con celular
-            # se puede trabajar por llamada o WhatsApp desde el CRM.
-            has_phone = (contact.get("phone")
-                         and contact.get("phone_type") == "personal")
-            if not contact.get("email") and not has_phone:
+            # Alcanza con email O teléfono, del tipo que sea: el conmutador de
+            # la empresa es un dato más flojo que el celular, pero permite
+            # trabajar el contacto desde el CRM, así que no es motivo de
+            # descarte. Solo se omite al que no tiene ningún dato: GHL exige
+            # email o teléfono para crear el contacto y lo rechazaría igual.
+            if not contact.get("email") and not contact.get("phone"):
                 skipped += 1
                 results.append({"id": contact["id"], "status": "skipped",
-                                "message": "Sin email ni celular — no se envía a GHL."})
+                                "message": "Sin email ni teléfono — el CRM no "
+                                           "acepta un contacto sin ningún dato."})
                 continue
 
             payload = build_payload(contact, tag)
