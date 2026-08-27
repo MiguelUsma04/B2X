@@ -116,6 +116,8 @@ img,svg{max-width:100%}
   padding:5px 10px;border-radius:999px;
 }
 .chip .lbl{display:none}
+.solo-chico{display:inline}
+@media (min-width:700px){.solo-chico{display:none}}
 .dot{width:8px;height:8px;border-radius:50%;flex:none;background:var(--line-strong)}
 .dot.on{background:var(--ok)}
 
@@ -265,7 +267,7 @@ button.tile:hover{transform:translateY(-2px);box-shadow:var(--shadow-md);
 
 /* ============================== controles ============================== */
 button,.btn{
-  font-family:var(--sans);font-size:14.5px;font-weight:600;
+  font-family:var(--sans);font-size:14.5px;font-weight:600;text-decoration:none;
   padding:11px 16px;min-height:44px;
   background:var(--surface);color:var(--ink);
   border:1px solid var(--line-strong);border-radius:var(--r-sm);

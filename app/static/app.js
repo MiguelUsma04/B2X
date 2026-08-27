@@ -26,6 +26,20 @@ const pill = (val, dict) => val
   ? `<span class="pill ${esc(val)}">${esc((dict && dict[val]) || val)}</span>`
   : '<span class="sub dash">—</span>';
 
+/* ======================= quién entró ======================= */
+async function loadMe() {
+  try {
+    const m = await (await fetch('/api/me')).json();
+    if (!m.email) return;
+    const el = $('quien');
+    el.hidden = false;
+    el.title = m.email;
+    // En el teléfono no entra el mail completo: se muestra el usuario.
+    el.innerHTML = `<span class="lbl">${esc(m.email)}</span>
+      <span class="solo-chico">${esc(m.email.split('@')[0])}</span>`;
+  } catch (e) { /* saber quién entró no puede tumbar la pantalla */ }
+}
+
 /* ======================= tema ======================= */
 function toggleTheme() {
   const cur = document.documentElement.getAttribute('data-theme');
@@ -1381,6 +1395,7 @@ $('f-q').addEventListener('input', () => {
 FILTERS.forEach(([id]) => { $(id).addEventListener('change', loadContacts); });
 
 (async () => {
+  loadMe();
   loadUsage();
   loadAiUsage();
   await loadMetrics();

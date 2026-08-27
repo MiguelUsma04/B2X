@@ -6,6 +6,10 @@ import os
 from pathlib import Path
 
 from dotenv import dotenv_values
+import secrets
+from urllib.parse import quote
+
+import httpx
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
@@ -47,7 +51,23 @@ app.middleware("http")(auth.auth_middleware)
 
 @app.get("/login", response_class=HTMLResponse)
 def login_page():
-    return (BASE_DIR / "templates" / "login.html").read_text(encoding="utf-8")
+    """La pantalla se arma según lo que esté configurado: no tiene sentido
+    ofrecer un botón de Google sin credenciales, ni pedir una contraseña que
+    nadie definió."""
+    html = (BASE_DIR / "templates" / "login.html").read_text(encoding="utf-8")
+    if not auth.google_configured():
+        html = _sacar_bloque(html, "GOOGLE")
+    if not auth.password():
+        html = _sacar_bloque(html, "PASSWORD")
+    return html.replace("{{DOMINIO}}", auth.dominio_permitido() or "tu equipo")
+
+
+def _sacar_bloque(html: str, nombre: str) -> str:
+    inicio, fin = f"<!--{nombre}-->", f"<!--/{nombre}-->"
+    while inicio in html and fin in html:
+        a, b = html.index(inicio), html.index(fin) + len(fin)
+        html = html[:a] + html[b:]
+    return html
 
 
 @app.post("/api/login")
@@ -57,6 +77,75 @@ def do_login(password: str = Form(...)):
     resp = RedirectResponse("/", status_code=303)
     auth.issue_cookie(resp)
     return resp
+
+
+# ------------------------------------------------------------ login Google
+@app.get("/auth/google/start")
+def google_start(request: Request):
+    """Manda al usuario a Google con un state firmado para evitar CSRF."""
+    if not auth.google_configured():
+        return RedirectResponse("/login?error=nogoogle", status_code=303)
+    estado, nonce = secrets.token_urlsafe(24), secrets.token_urlsafe(16)
+    resp = RedirectResponse(auth.url_de_google(request, estado, nonce), status_code=303)
+    auth.guardar_estado(resp, estado, nonce)
+    return resp
+
+
+@app.get("/auth/google/callback", name="google_callback")
+async def google_callback(request: Request, code: str = "", state: str = "",
+                          error: str = ""):
+    """Vuelta de Google: se canjea el código y se decide si esa cuenta entra."""
+    if error or not code:
+        return RedirectResponse(f"/login?error={quote(error or 'cancelado')}",
+                                status_code=303)
+
+    guardado = auth.leer_estado(request)
+    # Sin este chequeo, cualquiera podría hacerle abrir a un usuario un
+    # callback armado por otro y dejarlo logueado con una cuenta ajena.
+    if not guardado or not secrets.compare_digest(guardado.get("estado", ""), state):
+        return RedirectResponse("/login?error=estado", status_code=303)
+
+    datos = {
+        "code": code,
+        "client_id": os.getenv("GOOGLE_CLIENT_ID", ""),
+        "client_secret": os.getenv("GOOGLE_CLIENT_SECRET", ""),
+        "redirect_uri": auth.redirect_uri(request),
+        "grant_type": "authorization_code",
+    }
+    try:
+        async with httpx.AsyncClient(timeout=20.0) as client:
+            r = await client.post(auth.GOOGLE_TOKEN, data=datos)
+        cuerpo = r.json()
+    except Exception as exc:
+        return RedirectResponse(f"/login?error={quote(type(exc).__name__)}",
+                                status_code=303)
+
+    if r.status_code != 200 or not cuerpo.get("id_token"):
+        detalle = cuerpo.get("error_description") or cuerpo.get("error") or "token"
+        return RedirectResponse(f"/login?error={quote(str(detalle)[:120])}",
+                                status_code=303)
+
+    try:
+        email = auth.validar_id_token(auth.payload_del_id_token(cuerpo["id_token"]),
+                                      guardado.get("nonce", ""))
+    except PermissionError as exc:
+        return RedirectResponse(f"/login?error={quote(str(exc)[:160])}", status_code=303)
+    except Exception:
+        return RedirectResponse("/login?error=token", status_code=303)
+
+    resp = RedirectResponse("/", status_code=303)
+    auth.issue_cookie(resp, email)
+    resp.delete_cookie(auth.ESTADO_COOKIE, path="/")
+    return resp
+
+
+@app.get("/api/me")
+def api_me(request: Request):
+    """Quién está usando la app, para mostrarlo en el encabezado."""
+    s = auth.sesion(request) or {}
+    return {"email": s.get("email"),
+            "google": auth.google_configured(),
+            "domain": auth.dominio_permitido()}
 
 
 @app.post("/api/logout")
