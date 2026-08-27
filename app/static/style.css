@@ -1,4 +1,4 @@
-/* B2X — sistema visual. Mobile-first: lo que está arriba es el teléfono y los
+/* B2K — sistema visual. Mobile-first: lo que está arriba es el teléfono y los
    @media agrandan. Todo el color sale de tokens, así el modo oscuro es cambiar
    variables y no repintar componentes. */
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Source+Serif+4:opsz,wght@8..60,600;8..60,700&display=swap');

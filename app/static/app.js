@@ -1,4 +1,4 @@
-/* B2X frontend. Vanilla JS, sin build step.
+/* B2K frontend. Vanilla JS, sin build step.
    Los textos hablan en términos del negocio, no de la implementación.
    Lo largo se cuenta plegado (details.tip) y lo urgente en toasts. */
 'use strict';
