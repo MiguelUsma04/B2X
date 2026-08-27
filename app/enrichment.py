@@ -269,7 +269,7 @@ async def run_ai_profile(contact_ids: list[int], rehacer: bool = False) -> None:
         if not ai.configured():
             AI_PROGRESS.running = False
             AI_PROGRESS.finished = True
-            AI_PROGRESS.error = ("Falta GEMINI_API_KEY en el .env. Sin eso no se "
+            AI_PROGRESS.error = ("Falta OPENAI_API_KEY en el .env. Sin eso no se "
                                  "puede leer ningún sitio con IA.")
             return
 

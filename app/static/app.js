@@ -838,8 +838,9 @@ async function loadAiUsage() {
       ? `<div class="top"><span><b>${u.profiles}</b> ficha(s) este mes</span>
          <span>${(u.tokens_in + u.tokens_out).toLocaleString('es')} tokens</span></div>
          <div>modelo ${esc(u.model)}</div>`
-      : `<div>Falta <b>GEMINI_API_KEY</b> en el .env: sin eso no se puede
-         armar ninguna ficha.</div>`;
+      : `<div>Falta <b>OPENAI_API_KEY</b> en el .env: sin eso no se puede
+         armar ninguna ficha. La key sale de platform.openai.com y necesita
+         crédito cargado.</div>`;
   } catch (e) { /* el contador no puede tumbar la pantalla */ }
 }
 
