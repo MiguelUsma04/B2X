@@ -231,6 +231,122 @@ async def run_enrichment(limit: int | None = None, batch_id: int | None = None) 
             PROGRESS.current_provider = None
 
 
+# ------------------------------------------------------------- ficha con IA
+AI_PROGRESS = EnrichProgress()
+_AI_LOCK = asyncio.Lock()
+
+
+def contacts_for_ai(contact_ids: list[int], rehacer: bool = False) -> list[dict]:
+    """De los marcados, los que tienen sitio y todavía no tienen ficha."""
+    if not contact_ids:
+        return []
+    ph = ",".join("?" * len(contact_ids))
+    extra = "" if rehacer else " AND (ai_profile IS NULL OR ai_profile = '')"
+    with get_db() as conn:
+        return [dict(r) for r in conn.execute(
+            f"""SELECT * FROM contacts
+                 WHERE id IN ({ph})
+                   AND company_domain IS NOT NULL AND company_domain <> ''
+                       {extra}
+                 ORDER BY id""", contact_ids)]
+
+
+async def run_ai_profile(contact_ids: list[int], rehacer: bool = False) -> None:
+    """Lee el sitio de cada contacto y le arma la ficha con IA.
+
+    Esto sí cuesta plata por contacto, así que va sobre una selección explícita
+    y no sobre toda la base. El sitio se baja una sola vez: el mismo texto que
+    se usa para sacar emails con reglas es el que después lee el modelo.
+    """
+    global AI_PROGRESS
+    if _AI_LOCK.locked():
+        return
+    async with _AI_LOCK:
+        from . import ai, website
+
+        contactos = contacts_for_ai(contact_ids, rehacer)
+        AI_PROGRESS = EnrichProgress(running=True, total=len(contactos))
+        if not ai.configured():
+            AI_PROGRESS.running = False
+            AI_PROGRESS.finished = True
+            AI_PROGRESS.error = ("Falta GEMINI_API_KEY en el .env. Sin eso no se "
+                                 "puede leer ningún sitio con IA.")
+            return
+
+        try:
+            async with httpx.AsyncClient(timeout=90.0) as client:
+                for c in contactos:
+                    AI_PROGRESS.current_contact = c.get("full_name") or f"#{c['id']}"
+                    AI_PROGRESS.current_provider = c.get("company_domain")
+
+                    leido = await website.scrape(client, c["company_domain"])
+                    texto = leido.get("text") or ""
+                    if not texto.strip():
+                        AI_PROGRESS.not_found += 1
+                        AI_PROGRESS.processed += 1
+                        with get_db() as conn:
+                            conn.execute(
+                                """INSERT INTO enrichment_log (contact_id, provider,
+                                   success, request_payload, error_message)
+                                   VALUES (?, 'ia', 0, ?, ?)""",
+                                (c["id"],
+                                 json.dumps({"domain": c["company_domain"]},
+                                            ensure_ascii=False),
+                                 leido.get("error") or "No se pudo leer el sitio."))
+                        continue
+
+                    r = await ai.analizar(client, c, texto)
+                    tok = r.get("tokens") or {}
+
+                    with get_db() as conn:
+                        conn.execute(
+                            """INSERT INTO ai_usage (contact_id, model, tokens_in,
+                               tokens_out, ok) VALUES (?,?,?,?,?)""",
+                            (c["id"], ai.modelo(), tok.get("entrada", 0),
+                             tok.get("salida", 0), 1 if r["perfil"] else 0))
+                        conn.execute(
+                            """INSERT INTO enrichment_log (contact_id, provider,
+                               success, request_payload, response_payload, error_message)
+                               VALUES (?, 'ia', ?, ?, ?, ?)""",
+                            (c["id"], 1 if r["perfil"] else 0,
+                             json.dumps({"domain": c["company_domain"],
+                                         "pages": leido.get("pages"),
+                                         "model": ai.modelo()},
+                                        ensure_ascii=False)[:20000],
+                             json.dumps(r.get("perfil") or r.get("body"),
+                                        ensure_ascii=False)[:20000],
+                             r.get("error")))
+
+                        if r["perfil"]:
+                            conn.execute(
+                                """UPDATE contacts SET ai_profile=?, ai_summary=?,
+                                   ai_updated_at=datetime('now'),
+                                   updated_at=datetime('now') WHERE id=?""",
+                                (json.dumps(r["perfil"], ensure_ascii=False),
+                                 (r["perfil"].get("resumen") or "")[:400], c["id"]))
+
+                    if r["perfil"]:
+                        AI_PROGRESS.found += 1
+                        AI_PROGRESS.found_items.append(
+                            {"name": c.get("full_name"), "company": c.get("company_name"),
+                             "value": (r["perfil"].get("resumen") or "")[:120],
+                             "provider": "ia"})
+                    else:
+                        AI_PROGRESS.not_found += 1
+                        if r.get("error") and not AI_PROGRESS.error:
+                            AI_PROGRESS.error = r["error"]
+
+                    AI_PROGRESS.processed += 1
+                    await asyncio.sleep(0.2)
+        except Exception as exc:
+            AI_PROGRESS.error = f"{type(exc).__name__}: {exc}"[:500]
+        finally:
+            AI_PROGRESS.running = False
+            AI_PROGRESS.finished = True
+            AI_PROGRESS.current_contact = None
+            AI_PROGRESS.current_provider = None
+
+
 # ------------------------------------------------------- sitio web del negocio
 WEB_PROGRESS = EnrichProgress()
 _WEB_LOCK = asyncio.Lock()

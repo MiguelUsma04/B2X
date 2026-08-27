@@ -18,6 +18,7 @@ import httpx
 UA = "B2X/1.0 (prospeccion B2B; contacto por el sitio)"
 TIMEOUT = 12.0
 MAX_PAGES = 4            # la home + 3 candidatas
+TEXT_PER_PAGE = 12_000   # texto que se guarda por página para que lo lea la IA
 PAGE_BYTES = 600_000     # más que esto no es una página, es una descarga
 
 # Páginas donde vive el contacto, en español y en inglés.
@@ -188,13 +189,14 @@ async def scrape(client: httpx.AsyncClient, dominio: str, max_pages: int = MAX_P
     """
     dominio = (dominio or "").strip().lower().rstrip("/")
     if not dominio:
-        return {"emails": [], "phones": [], "people": [], "pages": [],
+        return {"text": "", "emails": [], "phones": [], "people": [], "pages": [],
                 "error": "El contacto no tiene sitio web."}
     if "://" in dominio:
         dominio = urllib.parse.urlparse(dominio).netloc or dominio
     dominio = dominio.replace("www.", "")
 
     cache_robots: dict = {}
+    textos: list[str] = []                     # lo leído, para que lo analice la IA
     emails: dict[str, tuple[int, bool]] = {}   # email -> (puntaje, en un mailto)
     telefonos: dict[str, str] = {}     # valor -> tipo
     visitadas: list[str] = []
@@ -207,7 +209,7 @@ async def scrape(client: httpx.AsyncClient, dominio: str, max_pages: int = MAX_P
             home, home_html = candidata, html
             break
     if not home:
-        return {"emails": [], "phones": [], "people": [], "pages": [],
+        return {"text": "", "emails": [], "phones": [], "people": [], "pages": [],
                 "error": f"No se pudo abrir {dominio}."}
 
     base = f"{urllib.parse.urlparse(home).scheme}://{urllib.parse.urlparse(home).netloc}"
@@ -252,6 +254,8 @@ async def scrape(client: httpx.AsyncClient, dominio: str, max_pages: int = MAX_P
                     pendientes.append(limpia)
 
         texto = pg.texto
+        if texto.strip():
+            textos.append("--- " + url + chr(10) + texto[:TEXT_PER_PAGE])
         for e in EMAIL_RE.findall(texto):
             if _email_valido(e, dominio) and e.lower() not in emails:
                 emails[e.lower()] = (_puntaje(e, dominio), False)
@@ -279,6 +283,7 @@ async def scrape(client: httpx.AsyncClient, dominio: str, max_pages: int = MAX_P
             personas.append(n)
 
     return {
+        "text": (chr(10) * 2).join(textos)[:40_000],
         "emails": [{"email": e, "score": s, "explicit": expl,
                     "kind": "persona" if s == 4 else ("area" if s == 3 else "externo")}
                    for e, (s, expl) in ordenados],

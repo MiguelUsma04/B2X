@@ -44,6 +44,11 @@ CREATE TABLE IF NOT EXISTS contacts (
     maps_url          TEXT,
     category          TEXT,
     social_url        TEXT,
+    -- Ficha que arma la IA leyendo el sitio: JSON completo y un resumen
+    -- corto para poder mostrarlo en la lista sin abrir el detalle.
+    ai_profile        TEXT,
+    ai_summary        TEXT,
+    ai_updated_at     TEXT,
     import_batch_id   INTEGER REFERENCES import_batches(id) ON DELETE SET NULL,
     ghl_status        TEXT NOT NULL DEFAULT 'pending'
                       CHECK (ghl_status IN ('pending','sent','error')),
@@ -87,6 +92,18 @@ CREATE TABLE IF NOT EXISTS places_seen (
     first_seen TEXT NOT NULL DEFAULT (datetime('now')),
     PRIMARY KEY (query_key, place_id)
 );
+
+-- Consumo de la IA, para saber cuánto se está gastando en leer sitios.
+CREATE TABLE IF NOT EXISTS ai_usage (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    contact_id INTEGER,
+    model      TEXT,
+    tokens_in  INTEGER NOT NULL DEFAULT 0,
+    tokens_out INTEGER NOT NULL DEFAULT 0,
+    ok         INTEGER NOT NULL DEFAULT 1,
+    timestamp  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_ai_usage_ts ON ai_usage(timestamp);
 
 CREATE TABLE IF NOT EXISTS enrichment_log (
     id               INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -159,6 +176,9 @@ _NEW_COLUMNS = [
     ("maps_url", "TEXT"),
     ("category", "TEXT"),
     ("social_url", "TEXT"),
+    ("ai_profile", "TEXT"),
+    ("ai_summary", "TEXT"),
+    ("ai_updated_at", "TEXT"),
 ]
 
 

@@ -19,7 +19,7 @@ const STATUS_TXT = {
 const GHL_TXT = { pending: 'Sin enviar', sent: 'En el CRM', error: 'Falló' };
 const SOURCE_TXT = {
   apollo: 'Venía en el archivo', prospeo: 'Prospeo',
-  icypeas: 'Icypeas', hunter: 'Hunter', web: 'Del sitio web',
+  icypeas: 'Icypeas', hunter: 'Hunter', web: 'Del sitio web', ia: 'IA',
 };
 
 const pill = (val, dict) => val
@@ -320,7 +320,10 @@ async function loadContacts() {
           aria-label="Marcar ${esc(c.full_name)}"></td>
       <td class="c-main">
         <button class="linkish" onclick="showDetail(${c.id})">${esc(c.full_name)}</button>
-        ${c.job_title ? `<div class="sub">${esc(c.job_title)}</div>` : ''}</td>
+        ${c.job_title ? `<div class="sub">${esc(c.job_title)}</div>` : ''}
+        ${c.ai_summary ? `<div class="sub" title="${esc(c.ai_summary)}"
+          style="margin-top:3px">${esc(c.ai_summary.slice(0, 70))}${
+          c.ai_summary.length > 70 ? '…' : ''}</div>` : ''}</td>
       <td data-label="Empresa">${esc(c.company_name || '—')}
         ${c.company_domain ? `<div class="sub">${esc(c.company_domain)}</div>` : ''}</td>
       <td data-label="Email">${c.email
@@ -403,7 +406,7 @@ function updateSelInfo() {
   $('selhint').textContent = n ? 'listos para enviar' : '';
   $('selbar').classList.toggle('show', n > 0);
   $('btn-ghl').disabled = n === 0;
-  for (const id of ['btn-mobile', 'btn-web']) {
+  for (const id of ['btn-mobile', 'btn-web', 'btn-ai']) {
     const b = $(id);
     if (b) b.disabled = n === 0;
   }
@@ -822,6 +825,130 @@ async function importPlaces() {
   await loadMetrics(); await loadContacts();
 }
 
+/* ======================= ficha con IA ======================= */
+let AIPOLL = null;
+
+async function loadAiUsage() {
+  const box = $('ai-usage');
+  if (!box) return;
+  try {
+    const u = await (await fetch('/api/ai/usage')).json();
+    box.className = 'usage';
+    box.innerHTML = u.configured
+      ? `<div class="top"><span><b>${u.profiles}</b> ficha(s) este mes</span>
+         <span>${(u.tokens_in + u.tokens_out).toLocaleString('es')} tokens</span></div>
+         <div>modelo ${esc(u.model)}</div>`
+      : `<div>Falta <b>GEMINI_API_KEY</b> en el .env: sin eso no se puede
+         armar ninguna ficha.</div>`;
+  } catch (e) { /* el contador no puede tumbar la pantalla */ }
+}
+
+async function startAI() {
+  const ids = [...SELECTED];
+  if (!ids.length) return;
+
+  const ok = await ask('Armar la ficha con IA',
+    `<p>Se va a leer el sitio de <b>${ids.length} contacto(s)</b> y armar su ficha.</p>
+     <p class="help">Solo se analizan los que tengan sitio web y no tengan ficha
+     todavía. Esto sí consume de tu cuenta de IA.</p>`,
+    [{ label: 'Cancelar', value: false },
+     { label: 'Analizar', value: true, cls: 'primary' }]);
+  if (!ok) return;
+
+  const fd = new FormData();
+  fd.append('contact_ids', JSON.stringify(ids));
+  const r = await fetch('/api/ai/start', { method: 'POST', body: fd });
+  const d = await r.json();
+  if (!r.ok) { toast(esc(d.detail || 'Error'), 'err'); return; }
+  if (!d.started) { toast(esc(d.message), 'info'); return; }
+
+  $('btn-ai').disabled = true;
+  if (AIPOLL) clearInterval(AIPOLL);
+  AIPOLL = setInterval(pollAI, 1200);
+  pollAI();
+}
+
+async function pollAI() {
+  const p = await (await fetch('/api/ai/progress')).json();
+  const pct = p.total ? Math.round((p.processed / p.total) * 100) : 0;
+
+  if (p.error && !p.running && !p.processed) {
+    $('ai-progress').innerHTML = `<div class="alert err">${esc(p.error)}</div>`;
+  } else if (p.running) {
+    $('ai-progress').innerHTML = `
+      <div class="bignum"><span class="pulse">●</span> ${p.processed} / ${p.total}</div>
+      <div class="bar live"><i style="width:${pct}%"></i></div>
+      <p class="sub">${p.current_provider ? `Leyendo ${esc(p.current_provider)}` : 'Arrancando…'}</p>
+      <div class="statline">
+        <span style="color:var(--ok)"><b>${p.found}</b> fichas</span>
+        <span class="sub"><b>${p.not_found}</b> sin resultado</span>
+      </div>`;
+  } else if (p.finished) {
+    $('ai-progress').innerHTML = `<div class="alert ${p.found ? 'ok' : 'warn'}">
+      <b>Análisis terminado.</b> ${p.found} ficha(s) de ${p.total} sitio(s).
+      ${p.error ? `<br><br>${esc(p.error)}` : ''}
+      ${foundList(p.found_items, 'Fichas armadas')}</div>`;
+  }
+
+  if (!p.running && p.finished) {
+    clearInterval(AIPOLL); AIPOLL = null;
+    $('btn-ai').disabled = SELECTED.size === 0;
+    toast(`${p.found} ficha(s) armada(s)`, p.found ? 'ok' : 'warn');
+    await loadAiUsage(); await loadContacts();
+  }
+}
+
+/* La ficha en el detalle. El JSON viene del modelo, así que nada se da por
+   supuesto: cada bloque aparece solo si trae algo. */
+const VENDE_A = {
+  empresas: 'a empresas', consumidor_final: 'al consumidor final',
+  ambos: 'a empresas y a consumidor final', no_esta_claro: 'no queda claro',
+};
+
+function renderPerfil(c) {
+  let p;
+  try { p = JSON.parse(c.ai_profile); } catch (e) { return ''; }
+  if (!p || typeof p !== 'object') return '';
+
+  const lista = (v) => (Array.isArray(v) ? v.filter(Boolean) : []);
+  const bloque = (titulo, cuerpo) => (cuerpo
+    ? `<dt>${titulo}</dt><dd>${cuerpo}</dd>` : '');
+  const chips = (arr) => lista(arr).map((x) =>
+    `<span class="pill pending">${esc(String(x))}</span>`).join(' ');
+
+  const personas = lista(p.personas).map((q) => `
+    <div style="margin-bottom:6px"><b>${esc(q.nombre || '—')}</b>
+      ${q.cargo ? `<span class="sub"> · ${esc(q.cargo)}</span>` : ''}
+      ${q.email ? `<div class="sub">${esc(q.email)}</div>` : ''}
+      ${q.telefono ? `<div class="sub">${esc(q.telefono)}</div>` : ''}</div>`).join('');
+
+  const conf = { alta: 'verified', media: 'unverified', baja: 'not_found' };
+  return `
+    <h3 style="font-size:15px;font-weight:700;margin:20px 0 10px">
+      Ficha del negocio
+      <span class="pill ${conf[p.confianza] || 'pending'}">confianza ${esc(p.confianza || '?')}</span>
+    </h3>
+    ${p.resumen ? `<p class="lede">${esc(p.resumen)}</p>` : ''}
+    <dl class="kv">
+      ${bloque('Qué vende', chips(p.que_vende))}
+      ${bloque('Le vende', p.vende_a ? esc(VENDE_A[p.vende_a] || p.vende_a) : '')}
+      ${bloque('Se diferencia por', p.propuesta_de_valor ? esc(p.propuesta_de_valor) : '')}
+      ${bloque('Personas', personas)}
+      ${bloque('Antigüedad', p.anios_en_el_mercado ? esc(p.anios_en_el_mercado) : '')}
+      ${bloque('Tamaño', p.tamanio ? esc(p.tamanio) : '')}
+      ${bloque('Opera en', chips(p.ciudades))}
+      ${bloque('Marcas', chips(p.marcas_o_certificaciones))}
+      ${bloque('Idiomas', chips(p.idiomas))}
+      ${bloque('Vende online', p.vende_online === true ? 'sí'
+        : (p.vende_online === false ? 'no' : ''))}
+      ${bloque('Redes', lista(p.redes).map((u) =>
+        `<a href="${esc(u)}" target="_blank" rel="noopener"
+           style="color:var(--brand);display:block">${esc(String(u).slice(0, 60))}</a>`).join(''))}
+    </dl>
+    ${p.gancho ? `<div class="alert info"><b>Por dónde entrarle.</b>
+      ${esc(p.gancho)}</div>` : ''}`;
+}
+
 /* ======================= leer el sitio web ======================= */
 let WPOLL = null;
 
@@ -1112,7 +1239,8 @@ async function showDetail(id) {
         ? `<dt>Error del CRM</dt><dd style="color:var(--danger)">${esc(c.ghl_error_message)}</dd>`
         : ''}
     </dl>
-    <h3 style="font-size:15px;font-weight:700;margin-bottom:10px">Cómo se buscó su email</h3>
+    ${c.ai_profile ? renderPerfil(c) : ''}
+    <h3 style="font-size:15px;font-weight:700;margin:20px 0 10px">Cómo se buscó su email</h3>
     ${logs}`;
   $('modal').classList.add('open');
 }
@@ -1253,6 +1381,7 @@ FILTERS.forEach(([id]) => { $(id).addEventListener('change', loadContacts); });
 
 (async () => {
   loadUsage();
+  loadAiUsage();
   await loadMetrics();
   await loadContacts();
   await refreshPending();

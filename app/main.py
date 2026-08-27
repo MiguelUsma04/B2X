@@ -33,7 +33,7 @@ _load_env()
 from .db import get_db, init_db          # noqa: E402
 from .importer import (delete_batch, import_contacts,      # noqa: E402
                        import_places, preview_csv)
-from . import auth, enrichment, ghl, places   # noqa: E402
+from . import ai, auth, enrichment, ghl, places   # noqa: E402
 from .providers import build_chain       # noqa: E402
 
 app = FastAPI(title="B2X", docs_url="/api/docs")
@@ -230,7 +230,8 @@ def api_metrics():
         "by_status": by_status, "by_source": by_source, "by_ghl": by_ghl,
         "batches": batches,
         "providers": ([{"name": p.name, "enabled": p.enabled} for p in build_chain()]
-                      + [{"name": "maps", "enabled": places.configured()}]),
+                      + [{"name": "maps", "enabled": places.configured()},
+                         {"name": "IA", "enabled": ai.configured()}]),
         "ghl_configured": bool(__import__("os").getenv("GHL_API_TOKEN")
                                and __import__("os").getenv("GHL_LOCATION_ID")),
     }
@@ -456,6 +457,53 @@ async def api_website_start(contact_ids: str = Form(...)):
 @app.get("/api/website/progress")
 def api_website_progress():
     return enrichment.WEB_PROGRESS.as_dict()
+
+
+# ------------------------------------------------------------------ ficha IA
+@app.post("/api/ai/start")
+async def api_ai_start(contact_ids: str = Form(...), redo: str = Form("")):
+    """Arma la ficha del negocio leyendo su sitio con IA. Cuesta por contacto."""
+    if enrichment.AI_PROGRESS.running:
+        raise HTTPException(409, "Ya hay un análisis en curso.")
+    try:
+        ids = [int(i) for i in json.loads(contact_ids)]
+    except Exception:
+        raise HTTPException(400, "contact_ids debe ser un array JSON de enteros.")
+    if not ids:
+        raise HTTPException(400, "No se seleccionó ningún contacto.")
+
+    rehacer = str(redo).lower() in ("1", "true", "yes", "on")
+    pendientes = enrichment.contacts_for_ai(ids, rehacer)
+    if not pendientes:
+        return {"started": False,
+                "message": "Los marcados ya tienen ficha, o no tienen sitio web."}
+    asyncio.create_task(enrichment.run_ai_profile(ids, rehacer))
+    return {"started": True, "queued": len(pendientes)}
+
+
+@app.get("/api/ai/progress")
+def api_ai_progress():
+    return enrichment.AI_PROGRESS.as_dict()
+
+
+@app.get("/api/ai/usage")
+def api_ai_usage():
+    """Cuánto se leyó con IA este mes, en fichas y en tokens."""
+    with get_db() as conn:
+        r = conn.execute("""
+            SELECT COUNT(*) AS fichas,
+                   COALESCE(SUM(tokens_in), 0)  AS entrada,
+                   COALESCE(SUM(tokens_out), 0) AS salida
+              FROM ai_usage
+             WHERE ok = 1
+               AND strftime('%Y-%m', timestamp, 'localtime')
+                   = strftime('%Y-%m', 'now', 'localtime')""").fetchone()
+    return {"month": datetime.date.today().strftime("%Y-%m"),
+            "profiles": r["fichas"] or 0,
+            "tokens_in": r["entrada"] or 0,
+            "tokens_out": r["salida"] or 0,
+            "model": ai.modelo(),
+            "configured": ai.configured()}
 
 
 # ------------------------------------------------------------------------ GHL

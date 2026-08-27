@@ -406,6 +406,7 @@ tbody tr.sel{background:var(--brand-soft)}
 .pill.icypeas{background:var(--info-soft);color:var(--info);border-color:var(--info-line)}
 .pill.hunter{background:var(--ok-soft);color:var(--ok);border-color:var(--ok-line)}
 .pill.web{background:var(--brand-soft);color:var(--brand-dark);border-color:var(--brand-line)}
+.pill.ia{background:var(--violet-soft);color:var(--violet);border-color:var(--violet-line)}
 .pill.maps{background:var(--brand-soft);color:var(--brand-dark);border-color:var(--brand-line)}
 
 /* ============================== barra de selección ============================== */

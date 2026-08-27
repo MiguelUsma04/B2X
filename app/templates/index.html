@@ -166,6 +166,33 @@
     </div>
 
     <div class="card">
+      <h2>Ficha del negocio con IA <span class="hint">cuesta por contacto</span></h2>
+      <div class="body">
+        <p class="lede">Lee el sitio de los marcados y arma la ficha: qué vende,
+          a quién, quién manda ahí y hace cuánto existe.</p>
+        <details class="tip">
+          <summary>Qué saca y qué no</summary>
+          <div class="tip-b">
+            <p>Emails, teléfonos y WhatsApp los saca el paso de arriba con
+              reglas, gratis. Acá entra la IA solo para lo que hay que
+              entender leyendo: el resumen del negocio, los servicios, a qué
+              mercado apunta, las personas nombradas con su cargo, la
+              antigüedad, las ciudades donde opera y un gancho para arrancar
+              la conversación.</p>
+            <p>Solo reporta lo que el sitio dice. Si un dato no está, queda
+              vacío: es preferible un hueco a un dato inventado.</p>
+            <p>El sitio se baja una sola vez, así que armar la ficha no
+              duplica las visitas ni el tiempo.</p>
+          </div>
+        </details>
+        <button id="btn-ai" class="block primary" onclick="startAI()" disabled>
+          Armar la ficha de los marcados</button>
+        <div id="ai-usage" class="usage"></div>
+        <div id="ai-progress" style="margin-top:14px"></div>
+      </div>
+    </div>
+
+    <div class="card">
       <h2>Leer los sitios web <span class="hint">gratis</span></h2>
       <div class="body">
         <p class="lede">Entra al sitio de los marcados y saca el email y el
