@@ -600,6 +600,47 @@ function renderUsage(u) {
 }
 
 
+let PMAP = null;   // instancia de Leaflet; se recrea en cada búsqueda
+
+function renderMap(places) {
+  const box = $('p-map');
+  if (!box) return;
+
+  const pts = (places || []).filter((p) => p.lat != null && p.lng != null);
+  if (!pts.length || typeof L === 'undefined') {
+    // Sin coordenadas (o sin Leaflet cargado) el mapa no aporta: se oculta.
+    box.style.display = 'none';
+    return;
+  }
+  box.style.display = '';
+
+  if (PMAP) { PMAP.remove(); PMAP = null; }
+  PMAP = L.map(box, { scrollWheelZoom: false });
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 19,
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+  }).addTo(PMAP);
+
+  const marks = pts.map((p) => {
+    // Verde = tiene sitio web (se le puede sacar el email gratis leyéndolo).
+    const color = p.domain ? '#0f7b3d' : (p.phone ? '#1b4dd8' : '#6b7688');
+    const m = L.circleMarker([p.lat, p.lng], {
+      radius: 8, color: '#fff', weight: 2, fillColor: color, fillOpacity: .95,
+    }).addTo(PMAP);
+    m.bindPopup(`<b>${esc(p.name)}</b>
+      ${p.category ? `<br><span style="color:#6b7688">${esc(p.category)}</span>` : ''}
+      ${p.phone ? `<br>${esc(p.phone)}` : ''}
+      ${p.domain ? `<br>${esc(p.domain)}` : ''}
+      ${p.address ? `<br><span style="color:#6b7688">${esc(p.address)}</span>` : ''}
+      ${p.maps_url ? `<br><a href="${esc(p.maps_url)}" target="_blank" rel="noopener">Ver en Google Maps</a>` : ''}`);
+    return m;
+  });
+
+  PMAP.fitBounds(L.featureGroup(marks).getBounds().pad(0.15));
+  // El contenedor nace oculto dentro de la tarjeta: sin esto el mapa sale gris.
+  setTimeout(() => PMAP.invalidateSize(), 60);
+}
+
 async function searchPlaces() {
   const q = $('p-q').value.trim();
   if (!q) { toast('Escribí qué negocios buscar y dónde', 'warn'); return; }
@@ -675,6 +716,7 @@ async function searchPlaces() {
             <thead><tr><th>Negocio</th><th>Teléfono</th><th>Sitio</th></tr></thead>
             <tbody>${salteados}</tbody></table></div></div></details>` : ''}
       </div>
+      <div id="p-map" class="map"></div>
       <div class="tbl-scroll"><table class="rtable">
         <thead><tr><th>Negocio</th><th>Teléfono</th><th>Sitio</th>
           <th>Google</th><th>Dirección</th></tr></thead>
@@ -693,6 +735,8 @@ async function searchPlaces() {
         ? '. Después podés leerles el sitio para sacarles el email' : ''}.</p>
       <div id="p-result" style="margin-top:14px"></div>
     </div></div>`;
+
+  renderMap(d.places);   // el contenedor ya existe en el DOM
 }
 
 async function importPlaces() {

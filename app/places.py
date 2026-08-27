@@ -45,6 +45,9 @@ FIELDS = ",".join([
     "places.businessStatus",
     "places.primaryTypeDisplayName",
     "places.googleMapsUri",
+    # Coordenadas para dibujar los resultados en el mapa. Va en el mismo tier
+    # básico que el resto, así que no encarece la consulta.
+    "places.location",
     "nextPageToken",
 ])
 
@@ -115,6 +118,8 @@ def normalize(place: dict) -> dict:
         "category": (place.get("primaryTypeDisplayName") or {}).get("text") or None,
         "maps_url": place.get("googleMapsUri") or None,
         "status": place.get("businessStatus") or None,
+        "lat": (place.get("location") or {}).get("latitude"),
+        "lng": (place.get("location") or {}).get("longitude"),
     }
 
 

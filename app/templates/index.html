@@ -7,6 +7,12 @@
 <meta name="theme-color" content="#1b4dd8">
 <title>B2X — Buscador de contactos B2B</title>
 <link rel="stylesheet" href="/static/style.css">
+<!-- Mapa de resultados: Leaflet + OpenStreetMap. No necesita API key, así que
+     la de Google nunca sale del servidor. -->
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+      integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
+<script defer src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+        integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='13' font-size='13'>◆</text></svg>">
 <script>
   /* Antes de pintar, para que no haya un flash claro en modo oscuro. */

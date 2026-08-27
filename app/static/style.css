@@ -589,3 +589,20 @@ pre{font-family:var(--mono);font-size:12px;background:var(--surface-2);
   *,*::before,*::after{animation-duration:.001ms!important;transition-duration:.001ms!important}
   html{scroll-behavior:auto}
 }
+
+/* ===================== mapa de resultados de Maps ===================== */
+.map{
+  height:300px;width:100%;
+  border-top:1px solid var(--line);border-bottom:1px solid var(--line);
+  background:var(--surface-2);
+  z-index:0;                      /* debajo del header y la barra de pasos */
+}
+@media (min-width:900px){ .map{height:380px} }
+/* Leaflet trae su propio blanco: se adapta al tema para que no encandile */
+:root[data-theme="dark"] .leaflet-tile,
+:root:not([data-theme="light"]) .leaflet-tile{ filter:brightness(.75) contrast(1.05) }
+@media (prefers-color-scheme:light){
+  :root:not([data-theme="dark"]) .leaflet-tile{ filter:none }
+}
+.leaflet-popup-content{font-family:var(--sans);font-size:13.5px;line-height:1.5}
+.leaflet-container{font-family:var(--sans)}
