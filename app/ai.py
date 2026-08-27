@@ -20,7 +20,11 @@ import httpx
 URL = "https://api.openai.com/v1/responses"
 MODELO_POR_DEFECTO = "gpt-5-nano"
 MAX_CHARS = 40_000          # el texto que se le manda; más que esto no aporta
-MAX_SALIDA = 3_000          # techo de la respuesta: la ficha no necesita más
+MAX_SALIDA = 4_000          # techo de la respuesta: la ficha no necesita más
+# Esto no es una tarea de razonamiento, es de extracción. Sin bajarle el
+# esfuerzo, gpt-5-nano se gastó los 3.000 tokens pensando y se quedó sin
+# espacio para escribir la ficha: 2.944 de razonamiento y cero de respuesta.
+ESFUERZO_POR_DEFECTO = "minimal"
 
 
 def configured() -> bool:
@@ -29,6 +33,10 @@ def configured() -> bool:
 
 def modelo() -> str:
     return os.getenv("OPENAI_MODEL", MODELO_POR_DEFECTO)
+
+
+def esfuerzo() -> str:
+    return os.getenv("OPENAI_EFFORT", ESFUERZO_POR_DEFECTO)
 
 
 def _texto(desc: str) -> dict:
@@ -110,8 +118,10 @@ INSTRUCCIONES = (
     "Reglas:\n"
     "- Solo lo que el sitio dice. Si un dato no está, poné null o dejá la lista "
     "vacía. No completes con lo que suele pasar en el rubro.\n"
-    "- En 'personas' va únicamente gente nombrada explícitamente. Nunca inventes "
-    "un nombre a partir de un email como info@ o ventas@.\n"
+    "- En 'personas' va únicamente gente nombrada explícitamente, con nombre "
+    "de persona. Si el sitio no nombra a nadie, devolvé la lista vacía: no "
+    "pongas 'null', ni 'ninguno', ni una frase explicando que no hay. Nunca "
+    "armes un nombre a partir de un email como info@, ventas@ o gerencia@.\n"
     "- Nada de relleno de marketing: si la propuesta de valor del sitio es "
     "'calidad y servicio', ese campo va en null.\n"
     "- Escribí en español, en el mismo tono en que le hablarías a un colega."
@@ -136,6 +146,7 @@ def _pedido(negocio: dict, texto: str) -> dict:
                                          f"{texto[:MAX_CHARS]}")},
         ],
         "max_output_tokens": MAX_SALIDA,
+        "reasoning": {"effort": esfuerzo()},
         "text": {
             "format": {
                 "type": "json_schema",
@@ -195,6 +206,47 @@ def _tokens_de(body: dict) -> dict:
     }
 
 
+# Lo que el modelo devuelve cuando en realidad no encontró a nadie. El esquema
+# obliga a que 'nombre' sea texto, así que en vez de dejar la lista vacía a
+# veces mete ahí la explicación de que no hay nadie.
+_NO_ES_NOMBRE = {
+    "null", "none", "ninguno", "ninguna", "n/a", "na", "no aplica", "-", "--",
+    "sin datos", "sin nombre", "no disponible", "desconocido", "no especificado",
+}
+_ES_BUZON = {
+    "info", "contacto", "ventas", "gerencia", "gerenciageneral", "administracion",
+    "admin", "soporte", "comercial", "recepcion", "atencion", "reservas",
+    "marketing", "rrhh", "facturacion", "gerente", "equipo", "staff",
+}
+
+
+def _limpiar_personas(perfil: dict) -> dict:
+    """Saca de 'personas' lo que no es una persona.
+
+    Pedirlo en el prompt no alcanza: el modelo igual devuelve 'null' o frases
+    como 'no hay nombres identificables' metidas en el campo del nombre, y eso
+    llegaba a la pantalla como si fuera un contacto real.
+    """
+    limpias = []
+    for q in perfil.get("personas") or []:
+        if not isinstance(q, dict):
+            continue
+        nombre = (q.get("nombre") or "").strip()
+        plano = nombre.lower().strip(" .:-")
+        if not nombre or plano in _NO_ES_NOMBRE:
+            continue
+        if plano.replace(" ", "") in _ES_BUZON or "@" in nombre:
+            continue
+        # Una explicación, no un nombre: nadie se llama con siete palabras.
+        if len(nombre) > 60 or len(nombre.split()) > 6:
+            continue
+        if plano.startswith(("no hay", "no se", "sin ", "no figura", "no aparece")):
+            continue
+        limpias.append(q)
+    perfil["personas"] = limpias
+    return perfil
+
+
 async def analizar(client: httpx.AsyncClient, negocio: dict, texto: str) -> dict:
     """Devuelve {"perfil": dict|None, "tokens": dict, "error": str|None}."""
     if not configured():
@@ -202,21 +254,33 @@ async def analizar(client: httpx.AsyncClient, negocio: dict, texto: str) -> dict
     if not (texto or "").strip():
         return {"perfil": None, "tokens": {}, "error": "No hay texto del sitio para leer."}
 
+    cabeceras = {"Authorization": f"Bearer {os.getenv('OPENAI_API_KEY', '')}",
+                 "Content-Type": "application/json"}
+    pedido = _pedido(negocio, texto)
+
+    async def enviar(cuerpo):
+        r = await client.post(URL, json=cuerpo, headers=cabeceras)
+        try:
+            b = r.json()
+        except Exception:
+            b = {}
+        if isinstance(b, list):
+            b = next((x for x in b if isinstance(x, dict)), {})
+        return r, b
+
     try:
-        resp = await client.post(
-            URL, json=_pedido(negocio, texto),
-            headers={"Authorization": f"Bearer {os.getenv('OPENAI_API_KEY', '')}",
-                     "Content-Type": "application/json"})
+        resp, body = await enviar(pedido)
+        # No todos los modelos aceptan el mismo nivel de esfuerzo, y los que no
+        # razonan no aceptan el parámetro. Si lo rechaza, se reintenta sin él en
+        # vez de obligar a tocar el .env para cambiar de modelo.
+        if resp.status_code == 400:
+            msg = ((body.get("error") or {}).get("message") or "").lower()
+            if "effort" in msg or "reasoning" in msg or esfuerzo() in msg:
+                pedido.pop("reasoning", None)
+                resp, body = await enviar(pedido)
     except Exception as exc:
         return {"perfil": None, "tokens": {},
                 "error": f"No se pudo hablar con OpenAI: {type(exc).__name__}"}
-
-    try:
-        body = resp.json()
-    except Exception:
-        body = {}
-    if isinstance(body, list):
-        body = next((x for x in body if isinstance(x, dict)), {})
 
     if resp.status_code != 200:
         err = body.get("error") if isinstance(body, dict) else None
@@ -254,4 +318,5 @@ async def analizar(client: httpx.AsyncClient, negocio: dict, texto: str) -> dict
     if not isinstance(perfil, dict):
         return {"perfil": None, "tokens": _tokens_de(body),
                 "error": "El JSON no es una ficha."}
-    return {"perfil": perfil, "tokens": _tokens_de(body), "error": None}
+    return {"perfil": _limpiar_personas(perfil), "tokens": _tokens_de(body),
+            "error": None}
