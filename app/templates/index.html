@@ -7,8 +7,8 @@
 <meta name="theme-color" content="#1b4dd8">
 <title>B2X — Buscador de contactos B2B</title>
 <link rel="stylesheet" href="/static/style.css">
-<!-- Mapa de resultados: Leaflet + OpenStreetMap. No necesita API key, así que
-     la de Google nunca sale del servidor. -->
+<!-- Mapa de resultados: Leaflet con teselas de Carto. No necesita API key, así
+     que la de Google nunca sale del servidor. -->
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
       integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
 <script defer src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
@@ -105,7 +105,6 @@
                 <option value="">Cualquiera</option>
                 <option value="apollo">Venía en el archivo</option>
                 <option value="prospeo">Prospeo</option>
-                <option value="icypeas">Icypeas</option>
                 <option value="hunter">Hunter</option>
                 <option value="web">Del sitio web</option>
               </select>
@@ -290,7 +289,7 @@
         <details class="tip">
           <summary>El orden de la cascada</summary>
           <div class="tip-b">
-            <p>Primero <b>Prospeo</b>. Si no aparece, <b>Icypeas</b>. Y al final
+            <p>Primero <b>Prospeo</b>. Y si no aparece,
               <b>Hunter</b>. Cada consulta consume créditos.</p>
             <p>La primera vez probá con 5 contactos para confirmar que todo
               funciona antes de lanzar la lista completa.</p>

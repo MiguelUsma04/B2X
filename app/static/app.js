@@ -132,7 +132,7 @@ async function loadMetrics() {
 
   const src = m.by_source || {};
   const srcDefs = [['apollo', 'Archivo'], ['web', 'Sitio web'], ['prospeo', 'Prospeo'],
-                   ['icypeas', 'Icypeas'], ['hunter', 'Hunter']];
+                   ['hunter', 'Hunter']];
   const srcTotal = srcDefs.reduce((a, [k]) => a + (src[k] || 0), 0);
 
   $('metrics').innerHTML = `
@@ -602,42 +602,101 @@ function renderUsage(u) {
 
 let PMAP = null;   // instancia de Leaflet; se recrea en cada búsqueda
 
+// Qué se puede hacer con cada negocio. El color va con los tokens del tema.
+const PIN_KINDS = {
+  site:  { css: 'pin-site',  label: 'Tiene sitio web',
+           hint: 'Se le puede sacar el email gratis' },
+  phone: { css: 'pin-phone', label: 'Solo teléfono',
+           hint: 'Para llamar o WhatsApp' },
+  none:  { css: 'pin-none',  label: 'Sin datos de contacto',
+           hint: 'Habría que buscarlos aparte' },
+};
+
+const pinKind = (p) => (p.domain ? 'site' : (p.phone ? 'phone' : 'none'));
+
+// Marcador con forma de pin, en SVG para que herede el color del CSS.
+function pinIcon(kind) {
+  return L.divIcon({
+    className: 'pin ' + PIN_KINDS[kind].css,
+    iconSize: [26, 34], iconAnchor: [13, 33], popupAnchor: [0, -30],
+    html: `<svg viewBox="0 0 26 34" width="26" height="34" aria-hidden="true">
+        <path d="M13 0C5.8 0 0 5.8 0 13c0 9.2 11.4 20 12 20.6.6-.6 14-11.4 14-20.6C26 5.8 20.2 0 13 0z"/>
+        <circle cx="13" cy="13" r="4.6" class="pin-dot"/>
+      </svg>`,
+  });
+}
+
+function placeCard(p) {
+  const k = PIN_KINDS[pinKind(p)];
+  return `<div class="pin-card">
+      <div class="pin-card-h">
+        <b>${esc(p.name)}</b>
+        <span class="tag ${esc(k.css)}">${esc(k.label)}</span>
+      </div>
+      ${p.category ? `<div class="sub">${esc(p.category)}</div>` : ''}
+      <dl class="pin-kv">
+        ${p.phone ? `<dt>Teléfono</dt><dd>${esc(p.phone)}</dd>` : ''}
+        ${p.domain ? `<dt>Sitio</dt><dd>${esc(p.domain)}</dd>` : ''}
+        ${p.rating ? `<dt>Google</dt><dd>${p.rating} <span class="sub">(${p.rating_count || 0})</span></dd>` : ''}
+        ${p.address ? `<dt>Dirección</dt><dd class="sub">${esc(p.address)}</dd>` : ''}
+      </dl>
+      ${p.maps_url ? `<a href="${esc(p.maps_url)}" target="_blank" rel="noopener"
+         class="pin-link">Ver en Google Maps →</a>` : ''}
+    </div>`;
+}
+
 function renderMap(places) {
   const box = $('p-map');
+  const legend = $('p-map-legend');
   if (!box) return;
 
   const pts = (places || []).filter((p) => p.lat != null && p.lng != null);
   if (!pts.length || typeof L === 'undefined') {
-    // Sin coordenadas (o sin Leaflet cargado) el mapa no aporta: se oculta.
+    // Sin coordenadas (o sin Leaflet) el mapa no aporta: se oculta entero.
     box.style.display = 'none';
+    if (legend) legend.style.display = 'none';
     return;
   }
   box.style.display = '';
 
+  // Leyenda: solo los tipos que realmente aparecen en este resultado.
+  if (legend) {
+    const usados = ['site', 'phone', 'none'].filter((k) => pts.some((p) => pinKind(p) === k));
+    legend.style.display = '';
+    legend.innerHTML = usados.map((k) => {
+      const n = pts.filter((p) => pinKind(p) === k).length;
+      return `<span class="lg-item">
+          <i class="lg-pin ${PIN_KINDS[k].css}"></i>
+          <span><b>${n}</b> ${esc(PIN_KINDS[k].label.toLowerCase())}</span>
+        </span>`;
+    }).join('');
+  }
+
   if (PMAP) { PMAP.remove(); PMAP = null; }
-  PMAP = L.map(box, { scrollWheelZoom: false });
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    maxZoom: 19,
-    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
-  }).addTo(PMAP);
+  PMAP = L.map(box, { scrollWheelZoom: false, attributionControl: false });
+
+  // OpenStreetMap: libre y sin API key. En modo oscuro se atenúa por CSS para
+  // que no encandile y los pines sigan destacando.
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+    { maxZoom: 19 }).addTo(PMAP);
+  L.control.attribution({ prefix: false })
+    .addAttribution('&copy; OpenStreetMap').addTo(PMAP);
 
   const marks = pts.map((p) => {
-    // Verde = tiene sitio web (se le puede sacar el email gratis leyéndolo).
-    const color = p.domain ? '#0f7b3d' : (p.phone ? '#1b4dd8' : '#6b7688');
-    const m = L.circleMarker([p.lat, p.lng], {
-      radius: 8, color: '#fff', weight: 2, fillColor: color, fillOpacity: .95,
+    const m = L.marker([p.lat, p.lng], {
+      icon: pinIcon(pinKind(p)), title: p.name, riseOnHover: true,
     }).addTo(PMAP);
-    m.bindPopup(`<b>${esc(p.name)}</b>
-      ${p.category ? `<br><span style="color:#6b7688">${esc(p.category)}</span>` : ''}
-      ${p.phone ? `<br>${esc(p.phone)}` : ''}
-      ${p.domain ? `<br>${esc(p.domain)}` : ''}
-      ${p.address ? `<br><span style="color:#6b7688">${esc(p.address)}</span>` : ''}
-      ${p.maps_url ? `<br><a href="${esc(p.maps_url)}" target="_blank" rel="noopener">Ver en Google Maps</a>` : ''}`);
+    m.bindPopup(placeCard(p), { closeButton: true, maxWidth: 280, autoPan: true });
+    // El popup se abre a mano en los dos casos: con divIcon el clic por
+    // defecto de Leaflet no siempre dispara, y así el táctil queda cubierto.
+    m.on('mouseover', () => m.openPopup());
+    m.on('click', (ev) => { L.DomEvent.stop(ev); m.openPopup(); });
     return m;
   });
 
-  PMAP.fitBounds(L.featureGroup(marks).getBounds().pad(0.15));
-  // El contenedor nace oculto dentro de la tarjeta: sin esto el mapa sale gris.
+  PMAP.fitBounds(L.featureGroup(marks).getBounds().pad(0.18));
+  // El contenedor nace dentro de una tarjeta recién insertada: sin esto,
+  // Leaflet mide 0 de alto y el mapa sale gris.
   setTimeout(() => PMAP.invalidateSize(), 60);
 }
 
@@ -716,6 +775,7 @@ async function searchPlaces() {
             <thead><tr><th>Negocio</th><th>Teléfono</th><th>Sitio</th></tr></thead>
             <tbody>${salteados}</tbody></table></div></div></details>` : ''}
       </div>
+      <div id="p-map-legend" class="map-legend"></div>
       <div id="p-map" class="map"></div>
       <div class="tbl-scroll"><table class="rtable">
         <thead><tr><th>Negocio</th><th>Teléfono</th><th>Sitio</th>
