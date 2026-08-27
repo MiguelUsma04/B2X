@@ -223,6 +223,9 @@ async def analizar(client: httpx.AsyncClient, negocio: dict, texto: str) -> dict
         body = resp.json()
     except Exception:
         body = {}
+    # La API a veces envuelve la respuesta en un array (los errores vienen así).
+    if isinstance(body, list):
+        body = next((x for x in body if isinstance(x, dict)), {})
 
     if resp.status_code != 200:
         msg = ((body.get("error") or {}).get("message")
@@ -231,7 +234,10 @@ async def analizar(client: httpx.AsyncClient, negocio: dict, texto: str) -> dict
             msg = ("Gemini rechazó la key. Revisá que la 'Generative Language API' "
                    "esté habilitada y que la key la tenga permitida.")
         elif resp.status_code == 429:
-            msg = "Gemini está limitando las consultas (429). Probá más tarde."
+            # El 429 tapa dos cosas muy distintas: quedarse sin crédito y
+            # pegarle demasiado rápido. El mensaje de Google distingue, el mío
+            # no, así que se conserva el suyo cuando dice algo.
+            msg = msg or "Gemini está limitando las consultas. Probá más tarde."
         return {"perfil": None, "tokens": {}, "error": str(msg)[:300]}
 
     crudo = _texto_de(body)
