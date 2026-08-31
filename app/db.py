@@ -105,6 +105,58 @@ CREATE TABLE IF NOT EXISTS ai_usage (
 );
 CREATE INDEX IF NOT EXISTS idx_ai_usage_ts ON ai_usage(timestamp);
 
+-- Servidor de salida. Una sola fila: es la cuenta desde la que escribe el
+-- equipo. La contraseña queda en claro, igual que las API keys del .env: la
+-- base vive en el servidor y no se versiona.
+CREATE TABLE IF NOT EXISTS smtp_config (
+    id         INTEGER PRIMARY KEY CHECK (id = 1),
+    host       TEXT,
+    port       INTEGER NOT NULL DEFAULT 587,
+    username   TEXT,
+    password   TEXT,
+    from_name  TEXT,
+    from_email TEXT,
+    security   TEXT NOT NULL DEFAULT 'starttls'
+               CHECK (security IN ('starttls', 'ssl', 'none')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- Un envío: el texto y el ritmo con que se suelta.
+CREATE TABLE IF NOT EXISTS email_campaigns (
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    name           TEXT,
+    subject        TEXT NOT NULL,
+    body           TEXT NOT NULL,
+    every_seconds  INTEGER NOT NULL DEFAULT 180,
+    jitter_seconds INTEGER NOT NULL DEFAULT 60,
+    daily_cap      INTEGER NOT NULL DEFAULT 50,
+    status         TEXT NOT NULL DEFAULT 'running'
+                   CHECK (status IN ('running', 'paused', 'done', 'cancelled')),
+    created_at     TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- La cola. Cada fila tiene su hora: el goteo vive acá y no en memoria, así
+-- reiniciar la app no pierde lo que faltaba mandar ni reenvía lo ya mandado.
+CREATE TABLE IF NOT EXISTS email_queue (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    campaign_id INTEGER NOT NULL REFERENCES email_campaigns(id) ON DELETE CASCADE,
+    contact_id  INTEGER NOT NULL REFERENCES contacts(id) ON DELETE CASCADE,
+    email       TEXT NOT NULL,
+    subject     TEXT NOT NULL,
+    body        TEXT NOT NULL,
+    send_after  TEXT NOT NULL,
+    status      TEXT NOT NULL DEFAULT 'pending'
+                CHECK (status IN ('pending', 'sent', 'error', 'cancelled')),
+    error       TEXT,
+    sent_at     TEXT,
+    created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_email_queue_pend
+    ON email_queue(status, send_after);
+-- Un contacto no puede estar dos veces en la misma campaña.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_email_queue_unico
+    ON email_queue(campaign_id, contact_id);
+
 CREATE TABLE IF NOT EXISTS enrichment_log (
     id               INTEGER PRIMARY KEY AUTOINCREMENT,
     contact_id       INTEGER NOT NULL REFERENCES contacts(id) ON DELETE CASCADE,

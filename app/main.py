@@ -37,7 +37,7 @@ _load_env()
 from .db import get_db, init_db          # noqa: E402
 from .importer import (delete_batch, import_contacts,      # noqa: E402
                        import_places, preview_csv)
-from . import ai, auth, enrichment, ghl, places   # noqa: E402
+from . import ai, auth, enrichment, ghl, mailer, places   # noqa: E402
 from .providers import build_chain       # noqa: E402
 
 app = FastAPI(title="B2X", docs_url="/api/docs")
@@ -546,6 +546,143 @@ async def api_website_start(contact_ids: str = Form(...)):
 @app.get("/api/website/progress")
 def api_website_progress():
     return enrichment.WEB_PROGRESS.as_dict()
+
+
+# --------------------------------------------------------------- correos
+@app.on_event("startup")
+async def _arrancar_goteo():
+    """El goteo tiene que seguir solo: si la app se reinicia a mitad de una
+    campaña, la cola sigue en la base y este obrero la retoma."""
+    mailer.arrancar_worker()
+
+
+@app.get("/api/mail/config")
+def api_mail_config():
+    cfg = mailer.get_config()
+    cfg["variables"] = mailer.VARIABLES
+    return cfg
+
+
+@app.post("/api/mail/config")
+def api_mail_config_save(host: str = Form(""), port: str = Form("587"),
+                         username: str = Form(""), password: str = Form(""),
+                         from_name: str = Form(""), from_email: str = Form(""),
+                         security: str = Form("starttls")):
+    if security not in ("starttls", "ssl", "none"):
+        raise HTTPException(400, "Modo de seguridad desconocido.")
+    return mailer.save_config({
+        "host": host, "port": port, "username": username, "password": password,
+        "from_name": from_name, "from_email": from_email, "security": security})
+
+
+@app.post("/api/mail/test")
+async def api_mail_test(to: str = Form(...)):
+    """Manda una prueba a una casilla propia. Es el paso previo obligado:
+    probar la configuración contra un cliente real no es una opción."""
+    if "@" not in to:
+        raise HTTPException(400, "Escribí una dirección válida.")
+    r = await mailer.enviar(
+        to, "Prueba de configuración — B2K",
+        "Si estás leyendo esto, el servidor de salida quedó bien configurado.\n\n"
+        "Este mensaje lo generó B2K desde la pantalla de correos.")
+    return r
+
+
+@app.post("/api/mail/preview")
+def api_mail_preview(contact_ids: str = Form(...), subject: str = Form(""),
+                     body: str = Form(""), repeat: str = Form("")):
+    """Cómo le va a llegar a los primeros, y a cuántos se le va a escribir."""
+    try:
+        ids = [int(i) for i in json.loads(contact_ids)]
+    except Exception:
+        raise HTTPException(400, "contact_ids debe ser un array JSON de enteros.")
+
+    repetir = str(repeat).lower() in ("1", "true", "yes", "on")
+    destinos = mailer.contactos_enviables(ids, repetir)
+    with get_db() as conn:
+        marcados = len(ids)
+        sin_email = conn.execute(
+            f"""SELECT COUNT(*) n FROM contacts
+                 WHERE id IN ({",".join("?" * len(ids))})
+                   AND (email IS NULL OR email = '')""", ids).fetchone()["n"] if ids else 0
+
+    muestras = [{
+        "email": c["email"],
+        "name": c.get("full_name"),
+        "subject": mailer.render(subject, c),
+        "body": mailer.render(body, c),
+    } for c in destinos[:3]]
+
+    return {
+        "selected": marcados,
+        "sendable": len(destinos),
+        "no_email": sin_email,
+        "already_written": marcados - sin_email - len(destinos),
+        "unknown_vars": mailer.variables_desconocidas(subject + " " + body),
+        "samples": muestras,
+    }
+
+
+@app.post("/api/mail/schedule")
+def api_mail_schedule(contact_ids: str = Form(...), subject: str = Form(...),
+                      body: str = Form(...), name: str = Form(""),
+                      limit: str = Form(""), every_seconds: str = Form("180"),
+                      jitter_seconds: str = Form("60"), daily_cap: str = Form("50"),
+                      repeat: str = Form("")):
+    """Arma la campaña y deja la cola lista. El obrero la va soltando."""
+    activa = mailer.estado()
+    if activa.get("campaign") and activa["campaign"]["status"] == "running" \
+            and activa.get("pending"):
+        raise HTTPException(409, "Ya hay un envío en curso. Pausalo o cancelalo antes.")
+
+    try:
+        ids = [int(i) for i in json.loads(contact_ids)]
+    except Exception:
+        raise HTTPException(400, "contact_ids debe ser un array JSON de enteros.")
+    if not subject.strip() or not body.strip():
+        raise HTTPException(400, "Falta el asunto o el cuerpo del correo.")
+    if not mailer.get_config()["configured"]:
+        raise HTTPException(400, "Configurá primero el servidor de salida.")
+
+    def entero(v, x, minimo=0):
+        try:
+            return max(minimo, int(str(v).strip() or x))
+        except ValueError:
+            return x
+
+    destinos = mailer.contactos_enviables(ids, str(repeat).lower() in ("1", "true", "on"))
+    tope = entero(limit, 0)
+    if tope:
+        destinos = destinos[:tope]
+    if not destinos:
+        return {"started": False,
+                "message": "Ninguno de los marcados tiene email o a todos ya se "
+                           "les escribió."}
+
+    r = mailer.crear_campania(
+        name.strip(), subject, body, destinos,
+        cada_segundos=entero(every_seconds, 180, 10),
+        jitter=entero(jitter_seconds, 60),
+        tope_diario=entero(daily_cap, 50))
+    mailer.arrancar_worker()
+    return {"started": True, **r}
+
+
+@app.get("/api/mail/status")
+def api_mail_status():
+    return mailer.estado()
+
+
+@app.post("/api/mail/control")
+def api_mail_control(campaign_id: str = Form(...), action: str = Form(...)):
+    acciones = {"pause": "paused", "resume": "running", "cancel": "cancelled"}
+    if action not in acciones:
+        raise HTTPException(400, "Acción desconocida.")
+    try:
+        cid = int(campaign_id)
+    except ValueError:
+        raise HTTPException(400, "campaign_id inválido.")
+    return mailer.cambiar_estado(cid, acciones[action])
 
 
 # ------------------------------------------------------------------ ficha IA

@@ -149,20 +149,149 @@
       <div id="cempty"></div>
     </div>
 
-    <div class="card">
-      <h2>Envío al CRM <span class="hint">GoHighLevel</span></h2>
-      <div class="body">
-        <p class="lede">Marcá contactos arriba y enviálos. Van los que tengan email
-          o teléfono; los que ya están en el CRM se saltean.</p>
-        <div class="row">
-          <div class="field">
-            <label class="fld" for="ghl-tag">Etiqueta</label>
-            <input id="ghl-tag" placeholder="piloto-prospeccion">
+    <div class="segmented" role="tablist" aria-label="Qué hacer con los marcados">
+      <button class="seg active" id="seg-crm" role="tab" aria-selected="true"
+              onclick="switchDestino('crm')">
+        <b>Al CRM</b><span>GoHighLevel</span></button>
+      <button class="seg" id="seg-mail" role="tab" aria-selected="false"
+              onclick="switchDestino('mail')">
+        <b>Por correo</b><span>envío en goteo</span></button>
+    </div>
+
+    <div id="dest-crm">
+      <div class="card">
+        <h2>Envío al CRM <span class="hint">GoHighLevel</span></h2>
+        <div class="body">
+          <p class="lede">Marcá contactos arriba y enviálos. Van los que tengan email
+            o teléfono; los que ya están en el CRM se saltean.</p>
+          <div class="row">
+            <div class="field">
+              <label class="fld" for="ghl-tag">Etiqueta</label>
+              <input id="ghl-tag" placeholder="piloto-prospeccion">
+            </div>
+            <button class="go" id="btn-ghl" onclick="sendToGHL()" disabled>Enviar al CRM</button>
           </div>
-          <button class="go" id="btn-ghl" onclick="sendToGHL()" disabled>Enviar al CRM</button>
+          <div id="pipeline-box" style="margin-top:14px"></div>
+          <div id="ghl-result" style="margin-top:14px"></div>
         </div>
-        <div id="pipeline-box" style="margin-top:14px"></div>
-        <div id="ghl-result" style="margin-top:14px"></div>
+      </div>
+    </div>
+
+    <div id="dest-mail" hidden>
+      <div class="card">
+        <h2>Servidor de salida <span class="hint" id="smtp-hint"></span></h2>
+        <div class="body">
+          <details class="tip" id="smtp-box">
+            <summary>Configurar desde qué cuenta se manda</summary>
+            <div class="tip-b">
+              <p style="margin-bottom:12px">Con Gmail o Workspace el servidor es
+                <b>smtp.gmail.com</b>, puerto <b>587</b>, y la contraseña tiene que
+                ser una <b>contraseña de aplicación</b> — la del correo no funciona.</p>
+              <div class="row">
+                <div class="field">
+                  <label class="fld" for="sm-host">Servidor</label>
+                  <input id="sm-host" placeholder="smtp.gmail.com">
+                </div>
+                <div class="field" style="flex:0 0 110px">
+                  <label class="fld" for="sm-port">Puerto</label>
+                  <input id="sm-port" type="number" inputmode="numeric" value="587">
+                </div>
+                <div class="field" style="flex:0 0 160px">
+                  <label class="fld" for="sm-sec">Seguridad</label>
+                  <select id="sm-sec">
+                    <option value="starttls">STARTTLS (587)</option>
+                    <option value="ssl">SSL (465)</option>
+                    <option value="none">Ninguna</option>
+                  </select>
+                </div>
+              </div>
+              <div class="row" style="margin-top:10px">
+                <div class="field">
+                  <label class="fld" for="sm-user">Usuario</label>
+                  <input id="sm-user" autocomplete="off" placeholder="vos@gmarketing.co">
+                </div>
+                <div class="field">
+                  <label class="fld" for="sm-pass">Contraseña de aplicación</label>
+                  <input id="sm-pass" type="password" autocomplete="new-password"
+                         placeholder="dejala vacía para no cambiarla">
+                </div>
+              </div>
+              <div class="row" style="margin-top:10px">
+                <div class="field">
+                  <label class="fld" for="sm-name">Nombre que ven</label>
+                  <input id="sm-name" placeholder="Equipo Gmarketing">
+                </div>
+                <div class="field">
+                  <label class="fld" for="sm-from">Correo que ven</label>
+                  <input id="sm-from" placeholder="ventas@gmarketing.co">
+                </div>
+                <button class="primary" onclick="saveSmtp()">Guardar</button>
+              </div>
+              <div class="row" style="margin-top:14px">
+                <div class="field">
+                  <label class="fld" for="sm-test">Probar mandándome uno a</label>
+                  <input id="sm-test" placeholder="vos@gmarketing.co">
+                </div>
+                <button onclick="testSmtp()">Enviar prueba</button>
+              </div>
+              <div id="smtp-result" style="margin-top:12px"></div>
+            </div>
+          </details>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>El correo</h2>
+        <div class="body">
+          <p class="lede">Se le manda a los contactos marcados que tengan email.
+            A quien ya se le escribió antes queda afuera.</p>
+          <div class="field" style="flex:1 1 100%">
+            <label class="fld" for="mail-subject">Asunto</label>
+            <input id="mail-subject" placeholder="Una idea para {{empresa}}">
+          </div>
+          <div class="field" style="flex:1 1 100%;margin-top:12px">
+            <label class="fld" for="mail-body">Mensaje</label>
+            <textarea id="mail-body" rows="9" style="resize:vertical"
+              placeholder="Hola {{nombre}},&#10;&#10;vi que {{empresa}} ..."></textarea>
+          </div>
+          <p class="help">Tocá una variable para insertarla donde está el cursor:</p>
+          <div class="fchips" id="mail-vars"></div>
+          <div class="row" style="margin-top:14px">
+            <button onclick="previewMail()">Ver cómo queda</button>
+          </div>
+          <div id="mail-preview" style="margin-top:14px"></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Ritmo del goteo</h2>
+        <div class="body">
+          <p class="lede">De a poco y a horas irregulares: mandar cien de golpe es
+            la forma más rápida de terminar en spam.</p>
+          <div class="row">
+            <div class="field" style="flex:0 1 150px">
+              <label class="fld" for="mail-limit">Cuántos</label>
+              <input id="mail-limit" type="number" inputmode="numeric" min="1"
+                     placeholder="todos">
+            </div>
+            <div class="field" style="flex:0 1 160px">
+              <label class="fld" for="mail-every">Uno cada (min)</label>
+              <input id="mail-every" type="number" inputmode="numeric" min="1" value="3">
+            </div>
+            <div class="field" style="flex:0 1 160px">
+              <label class="fld" for="mail-jitter">Variación (min)</label>
+              <input id="mail-jitter" type="number" inputmode="numeric" min="0" value="2">
+            </div>
+            <div class="field" style="flex:0 1 160px">
+              <label class="fld" for="mail-cap">Tope por día</label>
+              <input id="mail-cap" type="number" inputmode="numeric" min="1" value="50">
+            </div>
+          </div>
+          <p class="help" id="mail-estimate"></p>
+          <button class="go block" id="btn-mail" onclick="scheduleMail()" disabled
+                  style="margin-top:14px">Programar el envío</button>
+          <div id="mail-status" style="margin-top:14px"></div>
+        </div>
       </div>
     </div>
 
@@ -364,7 +493,7 @@
 <div class="selbar" id="selbar">
   <div class="n"><span id="selcount">0</span> marcados<small id="selhint"></small></div>
   <button class="ghost sm" onclick="clearSelection()">Quitar</button>
-  <button class="go sm" onclick="sendToGHL()">Enviar al CRM</button>
+  <button class="go sm" id="selbar-go" onclick="sendToGHL()">Enviar al CRM</button>
 </div>
 
 <div class="toasts" id="toasts" aria-live="polite"></div>

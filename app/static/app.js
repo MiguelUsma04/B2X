@@ -424,6 +424,7 @@ function updateSelInfo() {
     const b = $(id);
     if (b) b.disabled = n === 0;
   }
+  updateMailBtn();
 }
 
 /* ======================= enviar al CRM ======================= */
@@ -1017,6 +1018,244 @@ async function pollWebsite() {
   }
 }
 
+/* ======================= correos ======================= */
+/* Es lo único que sale hacia afuera y toca gente real: todo pasa por una
+   confirmación que dice a cuántos y desde qué cuenta. */
+let MAILPOLL = null;
+
+function switchDestino(cual) {
+  const esCrm = cual === 'crm';
+  $('dest-crm').hidden = !esCrm;
+  $('dest-mail').hidden = esCrm;
+  for (const [id, on] of [['seg-crm', esCrm], ['seg-mail', !esCrm]]) {
+    $(id).classList.toggle('active', on);
+    $(id).setAttribute('aria-selected', String(on));
+  }
+  const b = $('selbar-go');
+  if (b) {
+    b.textContent = esCrm ? 'Enviar al CRM' : 'Programar correo';
+    b.onclick = esCrm ? sendToGHL : scheduleMail;
+  }
+  if (!esCrm) { loadSmtp(true); pollMail(); }
+}
+
+async function loadSmtp(inicial) {
+  const c = await (await fetch('/api/mail/config')).json();
+  $('sm-host').value = c.host || '';
+  $('sm-port').value = c.port || 587;
+  $('sm-sec').value = c.security || 'starttls';
+  $('sm-user').value = c.username || '';
+  $('sm-name').value = c.from_name || '';
+  $('sm-from').value = c.from_email || '';
+  $('smtp-hint').textContent = c.configured
+    ? `desde ${c.from_email}` : 'sin configurar';
+  // Sin configurar arranca abierta, que es el primer paso obligado. Pero solo
+  // al entrar: cerrarla al guardar taparía el botón de prueba, que es
+  // justamente lo siguiente que uno quiere hacer.
+  if (inicial) $('smtp-box').open = !c.configured;
+
+  $('mail-vars').innerHTML = Object.entries(c.variables || {}).map(([k, desc]) =>
+    `<button class="fchip" title="${esc(desc)}" onclick="insertVar('${k}')"
+       style="cursor:pointer">{{${k}}}</button>`).join('');
+  updateMailBtn();
+}
+
+function insertVar(nombre) {
+  // Va donde está el cursor, que es donde el usuario lo está esperando.
+  const el = document.activeElement === $('mail-subject') ? $('mail-subject') : $('mail-body');
+  const t = `{{${nombre}}}`;
+  const i = el.selectionStart ?? el.value.length;
+  el.value = el.value.slice(0, i) + t + el.value.slice(el.selectionEnd ?? i);
+  el.focus();
+  el.selectionStart = el.selectionEnd = i + t.length;
+  updateMailBtn();
+}
+
+async function saveSmtp() {
+  const fd = new FormData();
+  for (const [campo, id] of [['host', 'sm-host'], ['port', 'sm-port'],
+                             ['security', 'sm-sec'], ['username', 'sm-user'],
+                             ['password', 'sm-pass'], ['from_name', 'sm-name'],
+                             ['from_email', 'sm-from']]) {
+    fd.append(campo, $(id).value.trim());
+  }
+  const r = await fetch('/api/mail/config', { method: 'POST', body: fd });
+  const d = await r.json();
+  if (!r.ok) { toast(esc(d.detail || 'Error'), 'err'); return; }
+  $('sm-pass').value = '';
+  toast(d.configured ? 'Servidor guardado' : 'Faltan datos del servidor',
+        d.configured ? 'ok' : 'warn');
+  loadSmtp();
+}
+
+async function testSmtp() {
+  const to = $('sm-test').value.trim();
+  if (!to) { toast('Escribí a qué dirección mandar la prueba', 'warn'); return; }
+  $('smtp-result').innerHTML =
+    '<div class="alert info"><span class="pulse">●</span> Mandando…</div>';
+  const fd = new FormData();
+  fd.append('to', to);
+  const d = await (await fetch('/api/mail/test', { method: 'POST', body: fd })).json();
+  $('smtp-result').innerHTML = d.ok
+    ? `<div class="alert ok">Salió. Revisá ${esc(to)} — si no llegó, mirá el spam.</div>`
+    : `<div class="alert err">${esc(d.error || d.detail || 'No se pudo enviar.')}</div>`;
+}
+
+function updateMailBtn() {
+  const b = $('btn-mail');
+  if (!b) return;
+  b.disabled = SELECTED.size === 0 || !$('mail-subject').value.trim()
+               || !$('mail-body').value.trim();
+  const n = SELECTED.size;
+  const cada = Math.max(1, +$('mail-every').value || 3);
+  const tope = Math.max(1, +$('mail-cap').value || 50);
+  const limite = +$('mail-limit').value || n;
+  const cuantos = Math.min(n, limite);
+  if (!cuantos) { $('mail-estimate').textContent = ''; return; }
+  const dias = Math.ceil(cuantos / tope);
+  const minutos = Math.round(Math.min(cuantos, tope) * cada);
+  $('mail-estimate').textContent =
+    `${cuantos} correo(s), uno cada ~${cada} min` +
+    (dias > 1 ? ` · ${tope} por día, termina en ${dias} días`
+              : ` · termina en ~${minutos > 90 ? Math.round(minutos / 60) + ' h' : minutos + ' min'}`);
+}
+
+async function previewMail() {
+  const ids = [...SELECTED];
+  if (!ids.length) { toast('Marcá contactos primero', 'warn'); return; }
+  const fd = new FormData();
+  fd.append('contact_ids', JSON.stringify(ids));
+  fd.append('subject', $('mail-subject').value);
+  fd.append('body', $('mail-body').value);
+  const d = await (await fetch('/api/mail/preview', { method: 'POST', body: fd })).json();
+
+  const avisos = [];
+  if (d.no_email) avisos.push(`${d.no_email} sin email`);
+  if (d.already_written) avisos.push(`${d.already_written} ya recibieron uno`);
+  const muestras = (d.samples || []).map((m) => `
+    <div class="log"><div class="log-h"><b>${esc(m.email)}</b>
+      <span class="sub">${esc(m.name || '')}</span></div>
+      <div class="log-b">
+        <div class="hint">ASUNTO</div><div>${esc(m.subject)}</div>
+        <div class="hint" style="margin-top:10px">MENSAJE</div>
+        <pre style="white-space:pre-wrap">${esc(m.body)}</pre></div></div>`).join('');
+
+  $('mail-preview').innerHTML = `
+    <div class="alert ${d.sendable ? 'info' : 'warn'}">
+      <b>Le llega a ${d.sendable} de ${d.selected} marcados.</b>
+      ${avisos.length ? ' Quedan afuera: ' + avisos.join(' y ') + '.' : ''}
+      ${d.unknown_vars.length ? `<br><br><b>Ojo:</b> ${d.unknown_vars.map((v) =>
+        '{{' + esc(v) + '}}').join(', ')} no existe como variable y va a salir vacío.` : ''}
+    </div>${muestras}`;
+}
+
+async function scheduleMail() {
+  const ids = [...SELECTED];
+  if (!ids.length) return;
+
+  const fd0 = new FormData();
+  fd0.append('contact_ids', JSON.stringify(ids));
+  fd0.append('subject', $('mail-subject').value);
+  fd0.append('body', $('mail-body').value);
+  const prev = await (await fetch('/api/mail/preview', { method: 'POST', body: fd0 })).json();
+  const cfg = await (await fetch('/api/mail/config')).json();
+  const limite = +$('mail-limit').value || prev.sendable;
+  const cuantos = Math.min(prev.sendable, limite);
+
+  if (!cuantos) { toast('Ninguno de los marcados puede recibir el correo', 'warn'); return; }
+
+  const ok = await ask('Programar el envío',
+    `<p>Se le va a escribir a <b>${cuantos} contacto(s)</b> desde
+     <b>${esc(cfg.from_email || 'sin configurar')}</b>.</p>
+     <p class="help">Son correos reales a empresas reales. Salen de a uno cada
+     ~${Math.max(1, +$('mail-every').value || 3)} minutos y podés pausarlo en
+     cualquier momento.</p>
+     ${prev.unknown_vars.length ? `<div class="alert warn" style="margin-top:12px">
+       ${prev.unknown_vars.map((v) => '{{' + esc(v) + '}}').join(', ')} no existe
+       y va a salir vacío.</div>` : ''}`,
+    [{ label: 'Cancelar', value: false },
+     { label: `Enviar a ${cuantos}`, value: true, cls: 'go' }]);
+  if (!ok) return;
+
+  const fd = new FormData();
+  fd.append('contact_ids', JSON.stringify(ids));
+  fd.append('subject', $('mail-subject').value);
+  fd.append('body', $('mail-body').value);
+  fd.append('name', $('mail-subject').value.slice(0, 60));
+  fd.append('limit', $('mail-limit').value || '');
+  fd.append('every_seconds', String(Math.max(1, +$('mail-every').value || 3) * 60));
+  fd.append('jitter_seconds', String(Math.max(0, +$('mail-jitter').value || 0) * 60));
+  fd.append('daily_cap', $('mail-cap').value || '50');
+
+  const r = await fetch('/api/mail/schedule', { method: 'POST', body: fd });
+  const d = await r.json();
+  if (!r.ok) { toast(esc(d.detail || 'Error'), 'err'); return; }
+  if (!d.started) { toast(esc(d.message), 'info'); return; }
+  toast(`${d.queued} correo(s) en cola`, 'ok');
+  clearSelection();
+  pollMail(true);
+}
+
+async function pollMail(seguir) {
+  const d = await (await fetch('/api/mail/status')).json();
+  const caja = $('mail-status');
+  if (!caja) return;
+  if (!d.campaign) { caja.innerHTML = ''; return; }
+
+  const c = d.campaign;
+  const total = d.pending + d.sent + d.error + d.cancelled;
+  const pct = total ? Math.round(((d.sent + d.error) / total) * 100) : 0;
+  const vivo = c.status === 'running' && d.pending;
+  const ESTADO = { running: 'En curso', paused: 'En pausa',
+                   done: 'Terminado', cancelled: 'Cancelado' };
+  const ultimos = (d.last || []).map((x) => `
+    <div class="srcline"><span>${esc(x.full_name || x.email)}
+      ${x.status === 'error' ? `<span class="sub" title="${esc(x.error || '')}">
+        — ${esc((x.error || '').slice(0, 40))}</span>` : ''}</span>
+      <span class="pill ${x.status === 'sent' ? 'verified' : 'not_found'}">
+        ${x.status === 'sent' ? 'enviado' : 'falló'}</span></div>`).join('');
+
+  caja.innerHTML = `
+    <div class="card" style="margin:0"><div class="body">
+      <div class="statline" style="margin:0 0 6px">
+        <b>${esc(ESTADO[c.status] || c.status)}</b>
+        <span style="color:var(--ok)"><b>${d.sent}</b> enviados</span>
+        <span class="sub"><b>${d.pending}</b> en cola</span>
+        ${d.error ? `<span style="color:var(--danger)"><b>${d.error}</b> fallaron</span>` : ''}
+      </div>
+      <div class="bar ${vivo ? 'live' : ''}"><i style="width:${pct}%"></i></div>
+      ${d.next_at && vivo ? `<p class="sub">Próximo alrededor de las
+        ${esc(d.next_at.slice(11, 16))} UTC</p>` : ''}
+      ${ultimos ? `<div style="margin-top:10px">${ultimos}</div>` : ''}
+      <div class="rowend" style="margin-top:12px">
+        ${c.status === 'running' ? `<button class="sm" onclick="mailControl(${c.id},'pause')">
+          Pausar</button>` : ''}
+        ${c.status === 'paused' ? `<button class="sm primary" onclick="mailControl(${c.id},'resume')">
+          Reanudar</button>` : ''}
+        ${d.pending ? `<button class="sm danger" onclick="mailControl(${c.id},'cancel')">
+          Cancelar lo que falta</button>` : ''}
+      </div>
+    </div></div>`;
+
+  if (MAILPOLL) { clearInterval(MAILPOLL); MAILPOLL = null; }
+  if (vivo || seguir) MAILPOLL = setInterval(() => pollMail(), 15000);
+}
+
+async function mailControl(id, accion) {
+  if (accion === 'cancel') {
+    const ok = await ask('Cancelar el envío',
+      '<p>Los que ya salieron no se pueden volver atrás. Se cancela lo que falta.</p>',
+      [{ label: 'Seguir enviando', value: false },
+       { label: 'Cancelar lo que falta', value: true, cls: 'danger' }]);
+    if (!ok) return;
+  }
+  const fd = new FormData();
+  fd.append('campaign_id', id);
+  fd.append('action', accion);
+  await fetch('/api/mail/control', { method: 'POST', body: fd });
+  pollMail(true);
+}
+
 /* ======================= importar ======================= */
 async function doPreview() {
   const f = $('csvfile').files[0];
@@ -1394,8 +1633,14 @@ $('f-q').addEventListener('input', () => {
 });
 FILTERS.forEach(([id]) => { $(id).addEventListener('change', loadContacts); });
 
+for (const id of ['mail-subject', 'mail-body', 'mail-limit', 'mail-every',
+                  'mail-cap']) {
+  $(id).addEventListener('input', updateMailBtn);
+}
+
 (async () => {
   loadMe();
+  loadSmtp(true);
   loadUsage();
   loadAiUsage();
   await loadMetrics();
