@@ -265,6 +265,13 @@ button.tile:hover{transform:translateY(-2px);box-shadow:var(--shadow-md);
 .tip .tip-b{padding:0 14px 13px;font-size:13.5px;color:var(--ink-2);line-height:1.6}
 .tip .tip-b p+p{margin-top:8px}
 
+/* Bloques dentro de una hoja: sin la caja de una tarjeta, que ahí sobra. */
+.hoja + .hoja{margin-top:8px;border-top:1px solid var(--line);padding-top:16px}
+.hoja>h2{display:flex;align-items:center;gap:8px;flex-wrap:wrap;
+  font-size:14px;font-weight:700;padding:0 0 10px}
+.hoja>h2 .hint{font-weight:400;color:var(--ink-3);font-size:12.5px}
+.hoja>.body{padding:0}
+
 /* ============================== controles ============================== */
 button,.btn{
   font-family:var(--sans);font-size:14.5px;font-weight:600;text-decoration:none;

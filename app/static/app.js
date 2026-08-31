@@ -424,6 +424,8 @@ function updateSelInfo() {
     const b = $(id);
     if (b) b.disabled = n === 0;
   }
+  const mc = $('mailer-count');
+  if (mc) mc.textContent = `${n} marcados`;
   updateMailBtn();
 }
 
@@ -1023,20 +1025,18 @@ async function pollWebsite() {
    confirmación que dice a cuántos y desde qué cuenta. */
 let MAILPOLL = null;
 
-function switchDestino(cual) {
-  const esCrm = cual === 'crm';
-  $('dest-crm').hidden = !esCrm;
-  $('dest-mail').hidden = esCrm;
-  for (const [id, on] of [['seg-crm', esCrm], ['seg-mail', !esCrm]]) {
-    $(id).classList.toggle('active', on);
-    $(id).setAttribute('aria-selected', String(on));
-  }
-  const b = $('selbar-go');
-  if (b) {
-    b.textContent = esCrm ? 'Enviar al CRM' : 'Programar correo';
-    b.onclick = esCrm ? sendToGHL : scheduleMail;
-  }
-  if (!esCrm) { loadSmtp(true); pollMail(); }
+/* Vive en una hoja y no al pie de la lista: con cientos de contactos, llegar
+   scrolleando hasta el final para escribir un correo no es un camino. */
+function openMailer() {
+  if (!SELECTED.size) { toast('Marcá contactos primero', 'warn'); return; }
+  $('mailer-count').textContent = `${SELECTED.size} marcados`;
+  $('mailer').classList.add('open');
+  loadSmtp(true);
+  updateMailBtn();
+}
+
+function closeMailer() {
+  $('mailer').classList.remove('open');
 }
 
 async function loadSmtp(inicial) {
@@ -1192,6 +1192,7 @@ async function scheduleMail() {
   if (!r.ok) { toast(esc(d.detail || 'Error'), 'err'); return; }
   if (!d.started) { toast(esc(d.message), 'info'); return; }
   toast(`${d.queued} correo(s) en cola`, 'ok');
+  closeMailer();
   clearSelection();
   pollMail(true);
 }
@@ -1201,6 +1202,7 @@ async function pollMail(seguir) {
   const caja = $('mail-status');
   if (!caja) return;
   if (!d.campaign) { caja.innerHTML = ''; return; }
+  // El envío en curso se ve al entrar al panel, sin abrir nada.
 
   const c = d.campaign;
   const total = d.pending + d.sent + d.error + d.cancelled;
@@ -1502,6 +1504,7 @@ function closeModal() { $('modal').classList.remove('open'); }
 document.addEventListener('keydown', (e) => {
   if (e.key !== 'Escape') return;
   if ($('ask').classList.contains('open')) askClose(null);
+  else if ($('mailer').classList.contains('open')) closeMailer();
   else closeModal();
 });
 
@@ -1640,7 +1643,7 @@ for (const id of ['mail-subject', 'mail-body', 'mail-limit', 'mail-every',
 
 (async () => {
   loadMe();
-  loadSmtp(true);
+  pollMail();
   loadUsage();
   loadAiUsage();
   await loadMetrics();
