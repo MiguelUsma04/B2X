@@ -1057,6 +1057,8 @@ async function loadSmtp() {
           <i style="width:${m.daily_cap ? Math.min(100, m.sent_today / m.daily_cap * 100) : 0}%"></i>
         </div>
         <div class="sub">${m.sent_today} de ${m.daily_cap} hoy · quedan ${m.remaining}</div>
+        ${(m.warnings || []).map((a) =>
+          `<div class="alert warn" style="margin:10px 0 0">${esc(a)}</div>`).join('')}
         <div class="mb-a">
           <button class="ghost sm" onclick="editMailbox(${m.id})">Editar</button>
           <button class="ghost sm" onclick="toggleMailbox(${m.id})">

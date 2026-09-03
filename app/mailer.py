@@ -34,11 +34,48 @@ _VAR_RE = re.compile(r"\{\{\s*(\w+)\s*\}\}")
 
 
 # ------------------------------------------------------------------ buzones
+# Servidores de Google. Tienen reglas propias que no se ven hasta que un
+# correo sale con el remitente cambiado o directo no sale.
+_ES_GOOGLE = ("gmail.com", "googlemail.com", "google.com")
+
+
+def avisos_del_buzon(b: dict) -> list[str]:
+    """Lo que va a fallar y todavía no falló.
+
+    Son avisos, no bloqueos: un alias verificado en Workspace es un caso
+    legítimo de remitente distinto al usuario, y no hay forma de saberlo
+    desde acá.
+    """
+    avisos = []
+    host = (b.get("host") or "").lower()
+    if not any(g in host for g in _ES_GOOGLE):
+        return avisos
+
+    usuario = (b.get("username") or "").strip().lower()
+    remitente = (b.get("from_email") or "").strip().lower()
+    if not usuario:
+        avisos.append("Gmail no acepta enviar sin usuario: poné la dirección "
+                      "completa de la cuenta.")
+    elif usuario != remitente:
+        avisos.append(f"El remitente ({remitente}) no es la cuenta que se "
+                      f"autentica ({usuario}). Google solo deja mandar como la "
+                      "cuenta o como un alias verificado en 'Enviar como'; si no, "
+                      "reescribe el remitente y el correo sale desde otra dirección.")
+    if b.get("has_password") is False:
+        avisos.append("Falta la contraseña de aplicación. La contraseña normal "
+                      "de la cuenta no funciona para enviar.")
+    if (b.get("daily_cap") or 0) > 300:
+        avisos.append("Un tope tan alto quema el dominio: en prospección en frío "
+                      "conviene arrancar bajo e ir subiendo.")
+    return avisos
+
+
 def _fila_a_buzon(r) -> dict:
     """Un buzón como lo ve la UI: nunca sale la contraseña, solo si hay una."""
     d = dict(r)
     d["has_password"] = bool(d.pop("password", None))
     d["configured"] = bool(d.get("host") and d.get("from_email"))
+    d["warnings"] = avisos_del_buzon(d)
     return d
 
 
