@@ -558,33 +558,55 @@ async def _arrancar_goteo():
 
 @app.get("/api/mail/config")
 def api_mail_config():
-    cfg = mailer.get_config()
-    cfg["variables"] = mailer.VARIABLES
-    return cfg
+    """Los buzones configurados y con cuánto margen cuenta cada uno hoy."""
+    buzones = mailer.list_mailboxes()
+    disp = {b["id"]: b for b in mailer.buzones_disponibles()}
+    for b in buzones:
+        d = disp.get(b["id"])
+        b["sent_today"] = d["sent_today"] if d else 0
+        b["remaining"] = d["remaining"] if d else 0
+    return {"mailboxes": buzones,
+            "configured": any(b["configured"] and b["active"] for b in buzones),
+            "capacity_today": sum(b["remaining"] for b in buzones),
+            "variables": mailer.VARIABLES}
 
 
 @app.post("/api/mail/config")
-def api_mail_config_save(host: str = Form(""), port: str = Form("587"),
+def api_mail_config_save(id: str = Form(""), label: str = Form(""),
+                         host: str = Form(""), port: str = Form("587"),
                          username: str = Form(""), password: str = Form(""),
                          from_name: str = Form(""), from_email: str = Form(""),
-                         security: str = Form("starttls")):
+                         security: str = Form("starttls"),
+                         active: str = Form("1"), daily_cap: str = Form("50")):
     if security not in ("starttls", "ssl", "none"):
         raise HTTPException(400, "Modo de seguridad desconocido.")
-    return mailer.save_config({
-        "host": host, "port": port, "username": username, "password": password,
-        "from_name": from_name, "from_email": from_email, "security": security})
+    try:
+        return mailer.save_mailbox({
+            "id": id, "label": label, "host": host, "port": port,
+            "username": username, "password": password, "from_name": from_name,
+            "from_email": from_email, "security": security,
+            "active": active, "daily_cap": daily_cap})
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+
+
+@app.post("/api/mail/config/{mailbox_id}/delete")
+def api_mail_config_delete(mailbox_id: int):
+    mailer.delete_mailbox(mailbox_id)
+    return {"deleted": mailbox_id}
 
 
 @app.post("/api/mail/test")
-async def api_mail_test(to: str = Form(...)):
+async def api_mail_test(to: str = Form(...), mailbox_id: str = Form("")):
     """Manda una prueba a una casilla propia. Es el paso previo obligado:
     probar la configuración contra un cliente real no es una opción."""
     if "@" not in to:
         raise HTTPException(400, "Escribí una dirección válida.")
+    mid = int(mailbox_id) if str(mailbox_id).strip().isdigit() else None
     r = await mailer.enviar(
         to, "Prueba de configuración — B2K",
         "Si estás leyendo esto, el servidor de salida quedó bien configurado.\n\n"
-        "Este mensaje lo generó B2K desde la pantalla de correos.")
+        "Este mensaje lo generó B2K desde la pantalla de correos.", mid)
     return r
 
 

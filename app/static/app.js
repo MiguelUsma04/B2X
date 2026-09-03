@@ -114,6 +114,9 @@ document.querySelectorAll('.step').forEach((t) => {
     t.setAttribute('aria-current', 'page');
     $('panel-' + t.dataset.panel).classList.add('active');
     if (t.dataset.panel === 'enrich') refreshPending();
+    // Los buzones cambian desde otra pantalla: se releen al entrar para que
+    // el estimado y el botón de enviar reflejen lo que hay ahora.
+    if (t.dataset.panel === 'mail' || t.dataset.panel === 'settings') loadSmtp();
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 });
@@ -424,8 +427,6 @@ function updateSelInfo() {
     const b = $(id);
     if (b) b.disabled = n === 0;
   }
-  const mc = $('mailer-count');
-  if (mc) mc.textContent = `${n} marcados`;
   updateMailBtn();
 }
 
@@ -1027,37 +1028,216 @@ let MAILPOLL = null;
 
 /* Vive en una hoja y no al pie de la lista: con cientos de contactos, llegar
    scrolleando hasta el final para escribir un correo no es un camino. */
-function openMailer() {
-  if (!SELECTED.size) { toast('Marcá contactos primero', 'warn'); return; }
-  $('mailer-count').textContent = `${SELECTED.size} marcados`;
-  $('mailer').classList.add('open');
-  loadSmtp(true);
-  updateMailBtn();
-}
+let MAILBOXES = [];
 
-function closeMailer() {
-  $('mailer').classList.remove('open');
-}
-
-async function loadSmtp(inicial) {
+/* ------------------------------- buzones ------------------------------- */
+async function loadSmtp() {
   const c = await (await fetch('/api/mail/config')).json();
-  $('sm-host').value = c.host || '';
-  $('sm-port').value = c.port || 587;
-  $('sm-sec').value = c.security || 'starttls';
-  $('sm-user').value = c.username || '';
-  $('sm-name').value = c.from_name || '';
-  $('sm-from').value = c.from_email || '';
-  $('smtp-hint').textContent = c.configured
-    ? `desde ${c.from_email}` : 'sin configurar';
-  // Sin configurar arranca abierta, que es el primer paso obligado. Pero solo
-  // al entrar: cerrarla al guardar taparía el botón de prueba, que es
-  // justamente lo siguiente que uno quiere hacer.
-  if (inicial) $('smtp-box').open = !c.configured;
+  MAILBOXES = c.mailboxes || [];
 
-  $('mail-vars').innerHTML = Object.entries(c.variables || {}).map(([k, desc]) =>
-    `<button class="fchip" title="${esc(desc)}" onclick="insertVar('${k}')"
-       style="cursor:pointer">{{${k}}}</button>`).join('');
+  const hint = $('smtp-hint');
+  if (hint) {
+    hint.textContent = MAILBOXES.length
+      ? `${MAILBOXES.filter((m) => m.active).length} activo(s) · ${c.capacity_today} correos hoy`
+      : 'sin configurar';
+  }
+
+  const lista = $('mb-list');
+  if (lista) {
+    lista.innerHTML = MAILBOXES.length ? MAILBOXES.map((m) => `
+      <div class="mb ${m.active ? '' : 'off'}">
+        <div class="mb-h">
+          <b>${esc(m.label || m.from_email)}</b>
+          <span class="tag ${m.active ? 'pin-site' : 'pin-none'}">
+            ${m.active ? 'activo' : 'pausado'}</span>
+          ${!m.has_password ? '<span class="tag pin-none">sin contraseña</span>' : ''}
+        </div>
+        <div class="sub">${esc(m.from_email)} · ${esc(m.host)}:${m.port}</div>
+        <div class="mb-bar" title="${m.sent_today} enviados hoy de ${m.daily_cap}">
+          <i style="width:${m.daily_cap ? Math.min(100, m.sent_today / m.daily_cap * 100) : 0}%"></i>
+        </div>
+        <div class="sub">${m.sent_today} de ${m.daily_cap} hoy · quedan ${m.remaining}</div>
+        <div class="mb-a">
+          <button class="ghost sm" onclick="editMailbox(${m.id})">Editar</button>
+          <button class="ghost sm" onclick="toggleMailbox(${m.id})">
+            ${m.active ? 'Pausar' : 'Activar'}</button>
+          <button class="ghost sm" onclick="testMailbox(${m.id})">Probar</button>
+          <button class="ghost sm danger" onclick="deleteMailbox(${m.id})">Borrar</button>
+        </div>
+        <div id="mb-test-${m.id}"></div>
+      </div>`).join('')
+      : `<div class="empty"><strong>Todavía no hay buzones</strong>
+         Agregá al menos uno para poder enviar correos.</div>`;
+  }
+
+  const vars = $('mail-vars');
+  if (vars) {
+    vars.innerHTML = Object.entries(c.variables || {}).map(([k, desc]) =>
+      `<button class="fchip" title="${esc(desc)}" onclick="insertVar('${k}')"
+         style="cursor:pointer">{{${k}}}</button>`).join('');
+  }
+
+  const rh = $('mail-rotate-help');
+  if (rh) {
+    const act = MAILBOXES.filter((m) => m.active && m.configured);
+    rh.textContent = act.length > 1
+      ? `Se van a repartir entre ${act.length} buzones: ${act.map((m) => m.from_email).join(', ')}.`
+      : (act.length === 1
+          ? `Todos salen desde ${act[0].from_email}. Agregá otro buzón para repartir el volumen.`
+          : 'No hay buzones activos: configurá uno en la sección Buzones.');
+  }
   updateMailBtn();
+}
+
+function newMailbox() { mailboxForm(null); }
+function editMailbox(id) { mailboxForm(MAILBOXES.find((m) => m.id === id) || null); }
+
+function mailboxForm(m) {
+  const v = m || { port: 587, security: 'starttls', daily_cap: 50, active: 1 };
+  $('mb-form').innerHTML = `
+    <div class="card" style="margin-top:16px">
+      <h2>${m ? 'Editar buzón' : 'Buzón nuevo'}</h2>
+      <div class="body">
+        <div class="row">
+          <div class="field">
+            <label class="fld" for="mb-label">Nombre para reconocerlo</label>
+            <input id="mb-label" value="${esc(v.label || '')}" placeholder="Ventas">
+          </div>
+          <div class="field">
+            <label class="fld" for="mb-from">Correo que ven</label>
+            <input id="mb-from" value="${esc(v.from_email || '')}"
+                   placeholder="ventas@gmarketing.co">
+          </div>
+          <div class="field">
+            <label class="fld" for="mb-name">Nombre que ven</label>
+            <input id="mb-name" value="${esc(v.from_name || '')}"
+                   placeholder="Equipo Gmarketing">
+          </div>
+        </div>
+        <div class="row" style="margin-top:10px">
+          <div class="field">
+            <label class="fld" for="mb-host">Servidor</label>
+            <input id="mb-host" value="${esc(v.host || '')}" placeholder="smtp.gmail.com">
+          </div>
+          <div class="field" style="flex:0 0 110px">
+            <label class="fld" for="mb-port">Puerto</label>
+            <input id="mb-port" type="number" inputmode="numeric" value="${v.port || 587}">
+          </div>
+          <div class="field" style="flex:0 0 170px">
+            <label class="fld" for="mb-sec">Seguridad</label>
+            <select id="mb-sec">
+              <option value="starttls" ${v.security === 'starttls' ? 'selected' : ''}>STARTTLS (587)</option>
+              <option value="ssl" ${v.security === 'ssl' ? 'selected' : ''}>SSL (465)</option>
+              <option value="none" ${v.security === 'none' ? 'selected' : ''}>Ninguna</option>
+            </select>
+          </div>
+        </div>
+        <div class="row" style="margin-top:10px">
+          <div class="field">
+            <label class="fld" for="mb-user">Usuario</label>
+            <input id="mb-user" autocomplete="off" value="${esc(v.username || '')}"
+                   placeholder="vos@gmarketing.co">
+          </div>
+          <div class="field">
+            <label class="fld" for="mb-pass">Contraseña de aplicación</label>
+            <input id="mb-pass" type="password" autocomplete="new-password"
+                   placeholder="${m && m.has_password ? 'dejala vacía para no cambiarla' : 'la de aplicación, no la del correo'}">
+          </div>
+          <div class="field" style="flex:0 0 170px">
+            <label class="fld" for="mb-cap">Tope por día</label>
+            <input id="mb-cap" type="number" inputmode="numeric" min="1"
+                   value="${v.daily_cap || 50}">
+          </div>
+        </div>
+        <p class="help">Con una cuenta nueva conviene empezar bajo (20–30 por día)
+          y subir de a poco: el volumen repentino es lo que dispara los filtros.</p>
+        <div class="row" style="margin-top:14px">
+          <button class="primary" onclick="saveMailbox(${m ? m.id : ''})">Guardar</button>
+          <button class="ghost" onclick="cancelMailboxForm()">Cancelar</button>
+        </div>
+      </div>
+    </div>`;
+  $('mb-form').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+function cancelMailboxForm() { $('mb-form').innerHTML = ''; }
+
+async function saveMailbox(id) {
+  const fd = new FormData();
+  if (id) fd.append('id', id);
+  for (const [campo, el] of [['label', 'mb-label'], ['from_email', 'mb-from'],
+                             ['from_name', 'mb-name'], ['host', 'mb-host'],
+                             ['port', 'mb-port'], ['security', 'mb-sec'],
+                             ['username', 'mb-user'], ['password', 'mb-pass'],
+                             ['daily_cap', 'mb-cap']]) {
+    fd.append(campo, ($(el) && $(el).value.trim()) || '');
+  }
+  const r = await fetch('/api/mail/config', { method: 'POST', body: fd });
+  const d = await r.json();
+  if (!r.ok) { toast(esc(d.detail || 'Error'), 'err'); return; }
+  cancelMailboxForm();
+  toast('Buzón guardado', 'ok');
+  loadSmtp();
+}
+
+async function toggleMailbox(id) {
+  const m = MAILBOXES.find((x) => x.id === id);
+  if (!m) return;
+  const fd = new FormData();
+  fd.append('id', id);
+  for (const campo of ['label', 'from_email', 'from_name', 'host', 'port',
+                       'security', 'username', 'daily_cap']) {
+    fd.append(campo, m[campo] == null ? '' : m[campo]);
+  }
+  fd.append('active', m.active ? '0' : '1');
+  await fetch('/api/mail/config', { method: 'POST', body: fd });
+  loadSmtp();
+}
+
+async function deleteMailbox(id) {
+  const m = MAILBOXES.find((x) => x.id === id);
+  if (!confirm(`¿Borrar el buzón ${m ? m.from_email : ''}?\n\nLos correos ya enviados desde él no se tocan.`)) return;
+  await fetch(`/api/mail/config/${id}/delete`, { method: 'POST' });
+  toast('Buzón borrado', 'ok');
+  loadSmtp();
+}
+
+async function testMailbox(id) {
+  const m = MAILBOXES.find((x) => x.id === id);
+  const to = prompt('¿A qué dirección mando la prueba?', (m && m.from_email) || '');
+  if (!to) return;
+  const caja = $('mb-test-' + id);
+  caja.innerHTML = '<div class="alert info"><span class="pulse">●</span> Mandando…</div>';
+  const fd = new FormData();
+  fd.append('to', to.trim());
+  fd.append('mailbox_id', id);
+  const d = await (await fetch('/api/mail/test', { method: 'POST', body: fd })).json();
+  caja.innerHTML = d.ok
+    ? `<div class="alert ok">Salió. Revisá ${esc(to)} — si no llegó, mirá el spam.</div>`
+    : `<div class="alert err">${esc(d.error || d.detail || 'No se pudo enviar.')}</div>`;
+}
+
+/* --------------------------- plantilla guardada --------------------------- */
+const TPL_KEY = 'b2k-mail-tpl';
+
+function saveTemplate() {
+  try {
+    localStorage.setItem(TPL_KEY, JSON.stringify({
+      subject: $('mail-subject').value, body: $('mail-body').value,
+      every: $('mail-every').value, jitter: $('mail-jitter').value,
+    }));
+    toast('Plantilla guardada en este navegador', 'ok');
+  } catch (e) { toast('No se pudo guardar la plantilla', 'warn'); }
+}
+
+function loadTemplate() {
+  try {
+    const t = JSON.parse(localStorage.getItem(TPL_KEY) || '{}');
+    if (t.subject && !$('mail-subject').value) $('mail-subject').value = t.subject;
+    if (t.body && !$('mail-body').value) $('mail-body').value = t.body;
+    if (t.every) $('mail-every').value = t.every;
+    if (t.jitter) $('mail-jitter').value = t.jitter;
+  } catch (e) { /* plantilla corrupta: se ignora */ }
 }
 
 function insertVar(nombre) {
@@ -1071,53 +1251,44 @@ function insertVar(nombre) {
   updateMailBtn();
 }
 
-async function saveSmtp() {
-  const fd = new FormData();
-  for (const [campo, id] of [['host', 'sm-host'], ['port', 'sm-port'],
-                             ['security', 'sm-sec'], ['username', 'sm-user'],
-                             ['password', 'sm-pass'], ['from_name', 'sm-name'],
-                             ['from_email', 'sm-from']]) {
-    fd.append(campo, $(id).value.trim());
-  }
-  const r = await fetch('/api/mail/config', { method: 'POST', body: fd });
-  const d = await r.json();
-  if (!r.ok) { toast(esc(d.detail || 'Error'), 'err'); return; }
-  $('sm-pass').value = '';
-  toast(d.configured ? 'Servidor guardado' : 'Faltan datos del servidor',
-        d.configured ? 'ok' : 'warn');
-  loadSmtp();
-}
-
-async function testSmtp() {
-  const to = $('sm-test').value.trim();
-  if (!to) { toast('Escribí a qué dirección mandar la prueba', 'warn'); return; }
-  $('smtp-result').innerHTML =
-    '<div class="alert info"><span class="pulse">●</span> Mandando…</div>';
-  const fd = new FormData();
-  fd.append('to', to);
-  const d = await (await fetch('/api/mail/test', { method: 'POST', body: fd })).json();
-  $('smtp-result').innerHTML = d.ok
-    ? `<div class="alert ok">Salió. Revisá ${esc(to)} — si no llegó, mirá el spam.</div>`
-    : `<div class="alert err">${esc(d.error || d.detail || 'No se pudo enviar.')}</div>`;
-}
-
 function updateMailBtn() {
   const b = $('btn-mail');
   if (!b) return;
+  const activos = MAILBOXES.filter((m) => m.active && m.configured);
+  const capacidad = activos.reduce((a, m) => a + (m.remaining || 0), 0);
+
   b.disabled = SELECTED.size === 0 || !$('mail-subject').value.trim()
-               || !$('mail-body').value.trim();
+               || !$('mail-body').value.trim() || !activos.length;
+
+  const listo = $('mail-ready');
+  if (listo) {
+    listo.innerHTML = !SELECTED.size
+      ? `<div class="alert info">No hay contactos marcados. Andá a
+         <b>Enviar</b>, marcá a quién escribirle y volvé.</div>`
+      : (!activos.length
+        ? `<div class="alert warn">No hay buzones activos. Configurá uno en
+           <b>Buzones</b> antes de enviar.</div>`
+        : `<div class="alert ok"><b>${SELECTED.size} contacto(s) marcados.</b>
+           Saldrán desde ${activos.length === 1 ? esc(activos[0].from_email)
+             : activos.length + ' buzones'}.</div>`);
+  }
+
   const n = SELECTED.size;
   const cada = Math.max(1, +$('mail-every').value || 3);
-  const tope = Math.max(1, +$('mail-cap').value || 50);
   const limite = +$('mail-limit').value || n;
   const cuantos = Math.min(n, limite);
-  if (!cuantos) { $('mail-estimate').textContent = ''; return; }
-  const dias = Math.ceil(cuantos / tope);
-  const minutos = Math.round(Math.min(cuantos, tope) * cada);
-  $('mail-estimate').textContent =
-    `${cuantos} correo(s), uno cada ~${cada} min` +
-    (dias > 1 ? ` · ${tope} por día, termina en ${dias} días`
-              : ` · termina en ~${minutos > 90 ? Math.round(minutos / 60) + ' h' : minutos + ' min'}`);
+  const est = $('mail-estimate');
+  if (!est) return;
+  if (!cuantos || !activos.length) { est.textContent = ''; return; }
+
+  const hoy = Math.min(cuantos, capacidad);
+  const minutos = Math.round(hoy * cada);
+  const dias = capacidad ? Math.ceil(cuantos / capacidad) : 0;
+  est.textContent =
+    `${cuantos} correo(s), uno cada ~${cada} min. ` +
+    (cuantos > capacidad
+      ? `Hoy entran ${hoy} (el tope de los buzones); el resto sigue mañana, ~${dias} día(s) en total.`
+      : `Termina en ~${minutos > 90 ? Math.round(minutos / 60) + ' h' : minutos + ' min'}.`);
 }
 
 async function previewMail() {
@@ -1185,14 +1356,20 @@ async function scheduleMail() {
   fd.append('limit', $('mail-limit').value || '');
   fd.append('every_seconds', String(Math.max(1, +$('mail-every').value || 3) * 60));
   fd.append('jitter_seconds', String(Math.max(0, +$('mail-jitter').value || 0) * 60));
-  fd.append('daily_cap', $('mail-cap').value || '50');
+  const cap = MAILBOXES.filter((m) => m.active && m.configured)
+                       .reduce((a, m) => a + (m.daily_cap || 0), 0);
+  fd.append('daily_cap', String(cap || 50));
 
   const r = await fetch('/api/mail/schedule', { method: 'POST', body: fd });
   const d = await r.json();
   if (!r.ok) { toast(esc(d.detail || 'Error'), 'err'); return; }
   if (!d.started) { toast(esc(d.message), 'info'); return; }
   toast(`${d.queued} correo(s) en cola`, 'ok');
-  closeMailer();
+  const caja = $('mail-sched-result');
+  if (caja) {
+    caja.innerHTML = `<div class="alert ok"><b>${d.queued} correo(s) programados.</b>
+      Salen de a poco; podés cerrar la app y sigue. El avance se ve arriba.</div>`;
+  }
   clearSelection();
   pollMail(true);
 }
@@ -1504,7 +1681,6 @@ function closeModal() { $('modal').classList.remove('open'); }
 document.addEventListener('keydown', (e) => {
   if (e.key !== 'Escape') return;
   if ($('ask').classList.contains('open')) askClose(null);
-  else if ($('mailer').classList.contains('open')) closeMailer();
   else closeModal();
 });
 
@@ -1637,8 +1813,9 @@ $('f-q').addEventListener('input', () => {
 FILTERS.forEach(([id]) => { $(id).addEventListener('change', loadContacts); });
 
 for (const id of ['mail-subject', 'mail-body', 'mail-limit', 'mail-every',
-                  'mail-cap']) {
-  $(id).addEventListener('input', updateMailBtn);
+                  'mail-jitter']) {
+  const el = $(id);
+  if (el) el.addEventListener('input', updateMailBtn);
 }
 
 (async () => {

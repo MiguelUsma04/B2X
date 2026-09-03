@@ -33,49 +33,135 @@ VARIABLES = {
 _VAR_RE = re.compile(r"\{\{\s*(\w+)\s*\}\}")
 
 
-# ------------------------------------------------------------------ config
-def get_config() -> dict:
-    with get_db() as conn:
-        r = conn.execute("SELECT * FROM smtp_config WHERE id = 1").fetchone()
-    if not r:
-        return {"host": "", "port": 587, "username": "", "from_name": "",
-                "from_email": "", "security": "starttls", "configured": False,
-                "has_password": False}
+# ------------------------------------------------------------------ buzones
+def _fila_a_buzon(r) -> dict:
+    """Un buzón como lo ve la UI: nunca sale la contraseña, solo si hay una."""
     d = dict(r)
     d["has_password"] = bool(d.pop("password", None))
     d["configured"] = bool(d.get("host") and d.get("from_email"))
     return d
 
 
-def save_config(datos: dict) -> dict:
-    """Guarda la configuración. Una contraseña vacía no borra la guardada:
-    el formulario nunca la muestra, así que mandarla vacía es lo normal."""
+def list_mailboxes() -> list[dict]:
     with get_db() as conn:
-        actual = conn.execute("SELECT password FROM smtp_config WHERE id=1").fetchone()
-        password = datos.get("password") or (actual["password"] if actual else "")
-        conn.execute(
-            """INSERT INTO smtp_config
-                 (id, host, port, username, password, from_name, from_email,
-                  security, updated_at)
-               VALUES (1,?,?,?,?,?,?,?,datetime('now'))
-               ON CONFLICT(id) DO UPDATE SET
-                 host=excluded.host, port=excluded.port, username=excluded.username,
-                 password=excluded.password, from_name=excluded.from_name,
-                 from_email=excluded.from_email, security=excluded.security,
-                 updated_at=datetime('now')""",
-            (datos.get("host", "").strip(), int(datos.get("port") or 587),
-             datos.get("username", "").strip(), password,
-             datos.get("from_name", "").strip(), datos.get("from_email", "").strip(),
-             datos.get("security", "starttls")))
-    return get_config()
+        filas = conn.execute(
+            "SELECT * FROM smtp_config ORDER BY active DESC, id").fetchall()
+    return [_fila_a_buzon(r) for r in filas]
 
 
-def _credenciales() -> dict | None:
+def get_mailbox(mid: int) -> dict | None:
     with get_db() as conn:
-        r = conn.execute("SELECT * FROM smtp_config WHERE id = 1").fetchone()
-    if not r or not r["host"] or not r["from_email"]:
+        r = conn.execute("SELECT * FROM smtp_config WHERE id=?", (mid,)).fetchone()
+    return _fila_a_buzon(r) if r else None
+
+
+def save_mailbox(datos: dict) -> dict:
+    """Crea o actualiza un buzón.
+
+    Una contraseña vacía no borra la guardada: el formulario nunca la muestra,
+    así que mandarla vacía es lo normal al editar.
+    """
+    mid = datos.get("id")
+    mid = int(mid) if str(mid or "").strip().isdigit() else None
+    host = (datos.get("host") or "").strip()
+    from_email = (datos.get("from_email") or "").strip()
+    if not host or not from_email:
+        raise ValueError("Faltan el servidor y el correo del remitente.")
+
+    campos = (
+        (datos.get("label") or from_email).strip(),
+        host,
+        int(datos.get("port") or 587),
+        (datos.get("username") or "").strip(),
+        (datos.get("from_name") or "").strip(),
+        from_email,
+        datos.get("security", "starttls"),
+        1 if str(datos.get("active", "1")).lower() not in ("0", "false", "off") else 0,
+        int(datos.get("daily_cap") or 50),
+    )
+    with get_db() as conn:
+        if mid:
+            actual = conn.execute("SELECT password FROM smtp_config WHERE id=?",
+                                  (mid,)).fetchone()
+            password = datos.get("password") or (actual["password"] if actual else "")
+            conn.execute(
+                """UPDATE smtp_config SET label=?, host=?, port=?, username=?,
+                     from_name=?, from_email=?, security=?, active=?, daily_cap=?,
+                     password=?, updated_at=datetime('now')
+                   WHERE id=?""", campos + (password, mid))
+        else:
+            cur = conn.execute(
+                """INSERT INTO smtp_config
+                     (label, host, port, username, from_name, from_email,
+                      security, active, daily_cap, password)
+                   VALUES (?,?,?,?,?,?,?,?,?,?)""",
+                campos + (datos.get("password") or "",))
+            mid = cur.lastrowid
+    return get_mailbox(mid)
+
+
+def delete_mailbox(mid: int) -> None:
+    with get_db() as conn:
+        conn.execute("DELETE FROM smtp_config WHERE id=?", (mid,))
+
+
+def enviados_hoy(conn, mid: int) -> int:
+    return conn.execute(
+        """SELECT COUNT(*) c FROM email_queue
+            WHERE smtp_id=? AND status='sent' AND date(sent_at)=date('now')""",
+        (mid,)).fetchone()["c"]
+
+
+def buzones_disponibles() -> list[dict]:
+    """Buzones activos y bien configurados, con lo que les queda hoy."""
+    with get_db() as conn:
+        filas = conn.execute(
+            """SELECT * FROM smtp_config
+                WHERE active=1 AND host<>'' AND from_email<>''
+                ORDER BY id""").fetchall()
+        salida = []
+        for r in filas:
+            d = dict(r)
+            d["sent_today"] = enviados_hoy(conn, r["id"])
+            d["remaining"] = max(0, (r["daily_cap"] or 0) - d["sent_today"])
+            salida.append(d)
+    return salida
+
+
+def elegir_buzon() -> dict | None:
+    """El próximo buzón a usar: el que más margen tiene hoy.
+
+    Repartir así, en vez de vaciar uno y pasar al siguiente, mantiene a todos
+    con un volumen parejo y bajo — que es lo que evita que los marquen.
+    """
+    libres = [b for b in buzones_disponibles() if b["remaining"] > 0]
+    if not libres:
         return None
-    return dict(r)
+    libres.sort(key=lambda b: (-b["remaining"], b["last_used"] or "", b["id"]))
+    return libres[0]
+
+
+# Compatibilidad con el código que asumía un solo buzón.
+def get_config() -> dict:
+    buzones = list_mailboxes()
+    if not buzones:
+        return {"host": "", "port": 587, "username": "", "from_name": "",
+                "from_email": "", "security": "starttls", "configured": False,
+                "has_password": False}
+    return buzones[0]
+
+
+def save_config(datos: dict) -> dict:
+    return save_mailbox(datos)
+
+
+def _credenciales(mid: int | None = None) -> dict | None:
+    """Credenciales del buzón pedido, o del que toque por rotación."""
+    if mid:
+        with get_db() as conn:
+            r = conn.execute("SELECT * FROM smtp_config WHERE id=?", (mid,)).fetchone()
+        return dict(r) if r and r["host"] and r["from_email"] else None
+    return elegir_buzon()
 
 
 # ------------------------------------------------------------------ plantilla
@@ -159,9 +245,13 @@ def _explicar(exc: Exception) -> str:
     return f"{type(exc).__name__}: {exc}"[:300]
 
 
-async def enviar(destino: str, asunto: str, cuerpo: str) -> dict:
-    """Manda un correo suelto. Devuelve {"ok": bool, "error": str|None}."""
-    cfg = _credenciales()
+async def enviar(destino: str, asunto: str, cuerpo: str,
+                 mailbox_id: int | None = None) -> dict:
+    """Manda un correo suelto. Devuelve {"ok": bool, "error": str|None}.
+
+    Sin buzón indicado usa el que toque por rotación.
+    """
+    cfg = _credenciales(mailbox_id)
     if not cfg:
         return {"ok": False, "error": "Falta configurar el servidor de salida."}
     try:
@@ -314,9 +404,16 @@ async def _tanda() -> None:
         ok, error = False, _explicar(exc)
 
     with get_db() as conn:
+        # Queda anotado por qué buzón salió: así se reparte el tope diario y
+        # después se puede ver cuál viene rebotando.
         conn.execute(
-            """UPDATE email_queue SET status=?, error=?, sent_at=datetime('now')
-                WHERE id=?""", ("sent" if ok else "error", error, fila["id"]))
+            """UPDATE email_queue SET status=?, error=?, smtp_id=?,
+                 sent_at=datetime('now')
+                WHERE id=?""",
+            ("sent" if ok else "error", error, cfg.get("id"), fila["id"]))
+        if ok and cfg.get("id"):
+            conn.execute("UPDATE smtp_config SET last_used=datetime('now') WHERE id=?",
+                         (cfg["id"],))
         # Sin pendientes, la campaña se da por terminada.
         quedan = conn.execute(
             """SELECT COUNT(*) n FROM email_queue

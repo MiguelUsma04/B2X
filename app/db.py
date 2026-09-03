@@ -108,8 +108,11 @@ CREATE INDEX IF NOT EXISTS idx_ai_usage_ts ON ai_usage(timestamp);
 -- Servidor de salida. Una sola fila: es la cuenta desde la que escribe el
 -- equipo. La contraseña queda en claro, igual que las API keys del .env: la
 -- base vive en el servidor y no se versiona.
+-- Los buzones desde los que se manda. Varios, para repartir el volumen: un
+-- solo remitente enviando de a cientos es lo que dispara los filtros de spam.
 CREATE TABLE IF NOT EXISTS smtp_config (
-    id         INTEGER PRIMARY KEY CHECK (id = 1),
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    label      TEXT,
     host       TEXT,
     port       INTEGER NOT NULL DEFAULT 587,
     username   TEXT,
@@ -118,6 +121,9 @@ CREATE TABLE IF NOT EXISTS smtp_config (
     from_email TEXT,
     security   TEXT NOT NULL DEFAULT 'starttls'
                CHECK (security IN ('starttls', 'ssl', 'none')),
+    active     INTEGER NOT NULL DEFAULT 1,
+    daily_cap  INTEGER NOT NULL DEFAULT 50,
+    last_used  TEXT,
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -139,6 +145,9 @@ CREATE TABLE IF NOT EXISTS email_campaigns (
 -- reiniciar la app no pierde lo que faltaba mandar ni reenvía lo ya mandado.
 CREATE TABLE IF NOT EXISTS email_queue (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    -- Desde qué buzón salió: para repartir la carga y para saber después
+    -- cuál viene rebotando.
+    smtp_id     INTEGER REFERENCES smtp_config(id) ON DELETE SET NULL,
     campaign_id INTEGER NOT NULL REFERENCES email_campaigns(id) ON DELETE CASCADE,
     contact_id  INTEGER NOT NULL REFERENCES contacts(id) ON DELETE CASCADE,
     email       TEXT NOT NULL,
@@ -241,6 +250,55 @@ def _migrate(conn) -> None:
         if name not in cols:
             conn.execute(f"ALTER TABLE contacts ADD COLUMN {name} {ddl}")
     _allow_web_as_source(conn)
+    _varios_buzones(conn)
+
+
+def _varios_buzones(conn) -> None:
+    """Pasa smtp_config de un solo buzón a varios.
+
+    La tabla vieja tenía CHECK (id = 1) y SQLite no deja quitar un CHECK: hay
+    que rehacerla. El buzón que ya estaba configurado se conserva tal cual, así
+    quien venía usando la app no tiene que volver a cargarlo.
+    """
+    row = conn.execute(
+        "SELECT sql FROM sqlite_master WHERE type='table' AND name='smtp_config'"
+    ).fetchone()
+    if not row or not row["sql"] or "CHECK (id = 1)" not in row["sql"]:
+        return   # ya es la versión nueva
+
+    conn.execute("ALTER TABLE smtp_config RENAME TO smtp_config_vieja")
+    conn.executescript("""
+        CREATE TABLE smtp_config (
+            id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            label      TEXT,
+            host       TEXT,
+            port       INTEGER NOT NULL DEFAULT 587,
+            username   TEXT,
+            password   TEXT,
+            from_name  TEXT,
+            from_email TEXT,
+            security   TEXT NOT NULL DEFAULT 'starttls'
+                       CHECK (security IN ('starttls', 'ssl', 'none')),
+            active     INTEGER NOT NULL DEFAULT 1,
+            daily_cap  INTEGER NOT NULL DEFAULT 50,
+            last_used  TEXT,
+            updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+    """)
+    conn.execute("""
+        INSERT INTO smtp_config
+            (id, label, host, port, username, password, from_name, from_email,
+             security, active, daily_cap, updated_at)
+        SELECT id, from_email, host, port, username, password, from_name,
+               from_email, security, 1, 50, updated_at
+          FROM smtp_config_vieja
+    """)
+    conn.execute("DROP TABLE smtp_config_vieja")
+
+    # La cola necesita saber por qué buzón salió cada correo.
+    cols = {r["name"] for r in conn.execute("PRAGMA table_info(email_queue)")}
+    if "smtp_id" not in cols:
+        conn.execute("ALTER TABLE email_queue ADD COLUMN smtp_id INTEGER")
 
 
 def _allow_web_as_source(conn) -> None:

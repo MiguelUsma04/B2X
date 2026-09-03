@@ -55,6 +55,14 @@
       <span class="ico" aria-hidden="true">◆</span><span class="num">3</span>
       <span><span class="t">Enviar</span><span class="d">Revisá y mandá al CRM</span></span>
     </button>
+    <button class="step" data-panel="mail">
+      <span class="ico" aria-hidden="true">✈</span><span class="num">4</span>
+      <span><span class="t">Enviar correos</span><span class="d">Campaña en goteo</span></span>
+    </button>
+    <button class="step" data-panel="settings">
+      <span class="ico" aria-hidden="true">⚙</span><span class="num">·</span>
+      <span><span class="t">Buzones</span><span class="d">Desde dónde se manda</span></span>
+    </button>
     <button class="step" data-panel="batches">
       <span class="ico" aria-hidden="true">≡</span><span class="num">·</span>
       <span><span class="t">Historial</span><span class="d">Cargas anteriores</span></span>
@@ -345,6 +353,102 @@
     </div>
   </section>
 
+
+  <!-- ========================= ENVIAR CORREOS ========================= -->
+  <section class="panel" id="panel-mail">
+    <div class="card">
+      <h2>Paso 4 — Escribirle a los contactos</h2>
+      <div class="body">
+        <p class="lede">Se le manda a los contactos que marcaste en la lista y
+          tengan email. A quien ya se le escribió antes queda afuera.</p>
+        <div id="mail-ready"></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>El correo</h2>
+      <div class="body">
+        <div class="field" style="flex:1 1 100%">
+          <label class="fld" for="mail-subject">Asunto</label>
+          <input id="mail-subject" placeholder="Una idea para {{empresa}}">
+        </div>
+        <div class="field" style="flex:1 1 100%;margin-top:12px">
+          <label class="fld" for="mail-body">Mensaje</label>
+          <textarea id="mail-body" rows="10" style="resize:vertical"
+            placeholder="Hola {{nombre}},&#10;&#10;vi que {{empresa}} ..."></textarea>
+        </div>
+        <p class="help">Tocá una variable para insertarla donde está el cursor:</p>
+        <div class="fchips" id="mail-vars"></div>
+        <div class="row" style="margin-top:14px">
+          <button onclick="previewMail()">Ver cómo queda</button>
+          <button class="ghost" onclick="saveTemplate()">Guardar como plantilla</button>
+        </div>
+        <div id="mail-preview" style="margin-top:14px"></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Ritmo del envío</h2>
+      <div class="body">
+        <p class="lede">De a poco y a horas irregulares: mandar cien de golpe es
+          la forma más rápida de terminar en spam.</p>
+        <div class="row">
+          <div class="field" style="flex:0 1 150px">
+            <label class="fld" for="mail-limit">Cuántos enviar</label>
+            <input id="mail-limit" type="number" inputmode="numeric" min="1"
+                   placeholder="todos los marcados">
+          </div>
+          <div class="field" style="flex:0 1 160px">
+            <label class="fld" for="mail-every">Uno cada (min)</label>
+            <input id="mail-every" type="number" inputmode="numeric" min="1" value="3">
+          </div>
+          <div class="field" style="flex:0 1 160px">
+            <label class="fld" for="mail-jitter">Variación (min)</label>
+            <input id="mail-jitter" type="number" inputmode="numeric" min="0" value="2">
+          </div>
+        </div>
+        <label class="switch" style="margin-top:14px">
+          <input type="checkbox" id="mail-rotate" checked>
+          <span>Alternar entre los buzones activos</span>
+        </label>
+        <p class="help" id="mail-rotate-help"></p>
+        <p class="help" id="mail-estimate"></p>
+        <div class="row" style="margin-top:16px">
+          <button class="go" id="btn-mail" onclick="scheduleMail()" disabled>
+            Programar el envío</button>
+        </div>
+        <div id="mail-sched-result" style="margin-top:14px"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ========================= BUZONES ========================= -->
+  <section class="panel" id="panel-settings">
+    <div class="card">
+      <h2>Buzones de salida <span class="hint" id="smtp-hint"></span></h2>
+      <div class="body">
+        <p class="lede">Desde qué cuentas sale el correo. Se configura una vez y
+          queda guardado. Con varios buzones el volumen se reparte, que es lo que
+          evita que marquen las cuentas como spam.</p>
+        <details class="tip">
+          <summary>Cómo sacar los datos de Gmail o Workspace</summary>
+          <div class="tip-b">
+            <p>Servidor <b>smtp.gmail.com</b>, puerto <b>587</b>, seguridad
+              STARTTLS. La contraseña tiene que ser una
+              <b>contraseña de aplicación</b> (Cuenta de Google → Seguridad →
+              Verificación en dos pasos → Contraseñas de aplicaciones): la del
+              correo no funciona.</p>
+          </div>
+        </details>
+        <div id="mb-list" style="margin-top:16px"></div>
+        <div class="row" style="margin-top:14px">
+          <button class="primary" onclick="newMailbox()">Agregar un buzón</button>
+        </div>
+        <div id="mb-form"></div>
+      </div>
+    </div>
+  </section>
+
   <!-- ========================= HISTORIAL ========================= -->
   <section class="panel" id="panel-batches">
     <div class="card list">
@@ -387,134 +491,6 @@
       <button class="iconbtn" onclick="closeModal()" aria-label="Cerrar">✕</button>
     </div>
     <div class="modal-body" id="modal-body"></div>
-  </div>
-</div>
-
-<div class="modal" id="mailer" onclick="if(event.target===this)closeMailer()">
-  <div class="modal-box" role="dialog" aria-modal="true" aria-labelledby="mailer-title">
-    <div class="modal-head">
-      <h3 id="mailer-title">Escribirle a los marcados</h3>
-      <span class="chip" id="mailer-count"></span>
-      <div class="spacer"></div>
-      <button class="iconbtn" onclick="closeMailer()" aria-label="Cerrar">✕</button>
-    </div>
-    <div class="modal-body">
-      <div class="hoja">
-  <h2>Servidor de salida <span class="hint" id="smtp-hint"></span></h2>
-  <div class="body">
-    <details class="tip" id="smtp-box">
-      <summary>Configurar desde qué cuenta se manda</summary>
-      <div class="tip-b">
-        <p style="margin-bottom:12px">Con Gmail o Workspace el servidor es
-          <b>smtp.gmail.com</b>, puerto <b>587</b>, y la contraseña tiene que
-          ser una <b>contraseña de aplicación</b> — la del correo no funciona.</p>
-        <div class="row">
-          <div class="field">
-            <label class="fld" for="sm-host">Servidor</label>
-            <input id="sm-host" placeholder="smtp.gmail.com">
-          </div>
-          <div class="field" style="flex:0 0 110px">
-            <label class="fld" for="sm-port">Puerto</label>
-            <input id="sm-port" type="number" inputmode="numeric" value="587">
-          </div>
-          <div class="field" style="flex:0 0 160px">
-            <label class="fld" for="sm-sec">Seguridad</label>
-            <select id="sm-sec">
-              <option value="starttls">STARTTLS (587)</option>
-              <option value="ssl">SSL (465)</option>
-              <option value="none">Ninguna</option>
-            </select>
-          </div>
-        </div>
-        <div class="row" style="margin-top:10px">
-          <div class="field">
-            <label class="fld" for="sm-user">Usuario</label>
-            <input id="sm-user" autocomplete="off" placeholder="vos@gmarketing.co">
-          </div>
-          <div class="field">
-            <label class="fld" for="sm-pass">Contraseña de aplicación</label>
-            <input id="sm-pass" type="password" autocomplete="new-password"
-                   placeholder="dejala vacía para no cambiarla">
-          </div>
-        </div>
-        <div class="row" style="margin-top:10px">
-          <div class="field">
-            <label class="fld" for="sm-name">Nombre que ven</label>
-            <input id="sm-name" placeholder="Equipo Gmarketing">
-          </div>
-          <div class="field">
-            <label class="fld" for="sm-from">Correo que ven</label>
-            <input id="sm-from" placeholder="ventas@gmarketing.co">
-          </div>
-          <button class="primary" onclick="saveSmtp()">Guardar</button>
-        </div>
-        <div class="row" style="margin-top:14px">
-          <div class="field">
-            <label class="fld" for="sm-test">Probar mandándome uno a</label>
-            <input id="sm-test" placeholder="vos@gmarketing.co">
-          </div>
-          <button onclick="testSmtp()">Enviar prueba</button>
-        </div>
-        <div id="smtp-result" style="margin-top:12px"></div>
-      </div>
-    </details>
-  </div>
-
-<div class="hoja">
-  <h2>El correo</h2>
-  <div class="body">
-    <p class="lede">Se le manda a los contactos marcados que tengan email.
-      A quien ya se le escribió antes queda afuera.</p>
-    <div class="field" style="flex:1 1 100%">
-      <label class="fld" for="mail-subject">Asunto</label>
-      <input id="mail-subject" placeholder="Una idea para {{empresa}}">
-    </div>
-    <div class="field" style="flex:1 1 100%;margin-top:12px">
-      <label class="fld" for="mail-body">Mensaje</label>
-      <textarea id="mail-body" rows="9" style="resize:vertical"
-        placeholder="Hola {{nombre}},&#10;&#10;vi que {{empresa}} ..."></textarea>
-    </div>
-    <p class="help">Tocá una variable para insertarla donde está el cursor:</p>
-    <div class="fchips" id="mail-vars"></div>
-    <div class="row" style="margin-top:14px">
-      <button onclick="previewMail()">Ver cómo queda</button>
-    </div>
-    <div id="mail-preview" style="margin-top:14px"></div>
-  </div>
-
-<div class="hoja">
-  <h2>Ritmo del goteo</h2>
-  <div class="body">
-    <p class="lede">De a poco y a horas irregulares: mandar cien de golpe es
-      la forma más rápida de terminar en spam.</p>
-    <div class="row">
-      <div class="field" style="flex:0 1 150px">
-        <label class="fld" for="mail-limit">Cuántos</label>
-        <input id="mail-limit" type="number" inputmode="numeric" min="1"
-               placeholder="todos">
-      </div>
-      <div class="field" style="flex:0 1 160px">
-        <label class="fld" for="mail-every">Uno cada (min)</label>
-        <input id="mail-every" type="number" inputmode="numeric" min="1" value="3">
-      </div>
-      <div class="field" style="flex:0 1 160px">
-        <label class="fld" for="mail-jitter">Variación (min)</label>
-        <input id="mail-jitter" type="number" inputmode="numeric" min="0" value="2">
-      </div>
-      <div class="field" style="flex:0 1 160px">
-        <label class="fld" for="mail-cap">Tope por día</label>
-        <input id="mail-cap" type="number" inputmode="numeric" min="1" value="50">
-      </div>
-    </div>
-    <p class="help" id="mail-estimate"></p>
-  </div>
-
-    </div>
-    <div class="modal-foot">
-      <button class="ghost" onclick="closeMailer()">Cerrar</button>
-      <button class="go" id="btn-mail" onclick="scheduleMail()" disabled>
-        Programar el envío</button>
-    </div>
   </div>
 </div>
 
