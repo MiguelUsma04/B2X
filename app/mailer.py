@@ -143,9 +143,16 @@ def delete_mailbox(mid: int) -> None:
 
 
 def enviados_hoy(conn, mid: int) -> int:
+    """Cuántos salieron hoy por este buzón.
+
+    El día se mide en hora local, no en UTC: con UTC el tope se reiniciaba a
+    las siete de la tarde en Colombia y el goteo podía mandar otra tanda
+    entera la misma noche, que es justo lo que el tope existe para evitar.
+    """
     return conn.execute(
         """SELECT COUNT(*) c FROM email_queue
-            WHERE smtp_id=? AND status='sent' AND date(sent_at)=date('now')""",
+            WHERE smtp_id=? AND status='sent'
+              AND date(sent_at, 'localtime') = date('now', 'localtime')""",
         (mid,)).fetchone()["c"]
 
 
