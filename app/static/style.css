@@ -107,13 +107,17 @@ img,svg{max-width:100%}
 .spacer{flex:1}
 
 .iconbtn{
-  width:40px;height:40px;min-height:0;padding:0;display:grid;place-items:center;
+  width:40px;height:40px;min-height:0;padding:0;flex:none;display:grid;place-items:center;
   border-radius:var(--r-sm);border:1px solid var(--line);
   background:var(--surface-2);color:var(--ink-2);font-size:17px;line-height:1;
 }
 .iconbtn:hover{background:var(--surface-3);color:var(--ink)}
 
-.provstat{display:flex;gap:6px;align-items:center}
+/* En el telefono los creditos se ven dentro de cada paso, y el correo
+   truncado a media palabra no dice nada: la cabecera se queda con la marca y
+   los dos botones. */
+.provstat{display:none;gap:6px;align-items:center}
+#quien{display:none}
 .chip{
   display:inline-flex;align-items:center;gap:6px;white-space:nowrap;
   font-size:12.5px;font-weight:500;color:var(--ink-2);
@@ -128,6 +132,7 @@ img,svg{max-width:100%}
 
 /* ============================== layout ============================== */
 .wrap{padding:16px 14px calc(var(--tabbar) + 96px);max-width:1500px;margin:0 auto}
+@media (min-width:900px){.wrap{max-width:none;margin:0}}
 .panel{display:none}
 .panel.active{display:block;animation:rise .22s var(--ease)}
 @keyframes rise{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
@@ -137,7 +142,9 @@ img,svg{max-width:100%}
   position:fixed;left:0;right:0;bottom:0;z-index:55;
   /* Se reparten solos: con un número fijo de columnas, agregar un paso los
      manda a una segunda fila y la barra le come media pantalla al teléfono. */
-  display:grid;grid-auto-flow:column;grid-auto-columns:1fr;gap:2px;
+  /* minmax(0,...) y no 1fr a secas: con 1fr, una palabra larga como
+     "Configuración" impone su ancho mínimo y la barra se sale de la pantalla. */
+  display:grid;grid-auto-flow:column;grid-auto-columns:minmax(0,1fr);gap:2px;
   background:var(--surface);border-top:1px solid var(--line);
   padding:6px 4px calc(6px + env(safe-area-inset-bottom));
   box-shadow:0 -2px 14px rgba(15,23,42,.06);
@@ -248,6 +255,9 @@ button.tile:hover{transform:translateY(-2px);box-shadow:var(--shadow-md);
 .seg.active{background:var(--brand-soft);border-color:var(--brand-line)}
 .seg.active b{color:var(--brand-dark)}
 .seg:hover:not(.active){background:var(--surface-2);border-color:transparent}
+/* Dos opciones repartidas en pantalla ancha quedan tan grandes que dejan de
+   leerse como un interruptor. */
+#panel-settings .segmented{max-width:520px}
 
 /* consumo del mes contra el tramo gratis de Google */
 .usage{margin-top:14px;font-size:12.5px;color:var(--ink-3)}
@@ -580,6 +590,10 @@ pre{font-family:var(--mono);font-size:12px;background:var(--surface-2);
   .top{padding:12px 22px;gap:14px}
   .brand{font-size:24px}
   .top .sub{display:block}
+  .provstat{display:flex}
+  #quien{display:inline-flex;max-width:220px}
+  #quien[hidden]{display:none}
+  #quien>span{overflow:hidden;text-overflow:ellipsis}
   .chip .lbl{display:inline}
   .tiles{display:grid;grid-template-columns:repeat(4,1fr);
     overflow:visible;margin:0;padding:0}
@@ -610,24 +624,39 @@ pre{font-family:var(--mono);font-size:12px;background:var(--surface-2);
 }
 
 /* ============================== ≥900px: riel de pasos ============================== */
+/* ============================== ≥900px: menú a la izquierda ============= */
 @media (min-width:900px){
-  :root{--tabbar:0px}
+  :root{--tabbar:0px; --menu:236px}
+
+  /* El menú deja de ser una fila arriba y pasa a ser una columna fija a la
+     izquierda: se ve entero de un vistazo, no se mueve al scrollear y deja
+     todo el ancho útil para la lista, que es lo que se mira todo el día. */
   .steps{
-    position:static;display:flex;gap:8px;margin-bottom:20px;padding:8px;
-    border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--shadow);
+    position:fixed;top:65px;bottom:0;left:0;width:var(--menu);z-index:50;
+    display:flex;flex-direction:column;align-items:stretch;gap:4px;
+    padding:14px 12px;overflow-y:auto;
+    background:var(--surface);border-top:0;border-right:1px solid var(--line);
+    box-shadow:none;border-radius:0;
   }
-  .step{flex:1 1 0;flex-direction:row;justify-content:flex-start;gap:11px;
-    padding:11px 14px;min-height:56px;text-align:left}
-  .step .ico{display:none}
-  .step .num{display:grid;place-items:center;flex:none;width:28px;height:28px;
-    border-radius:50%;background:var(--surface-3);color:var(--ink-2);
-    font-size:13px;font-weight:700}
-  .step .t{font-size:14.5px;color:var(--ink);display:block}
-  .step .d{display:block;font-size:12px;color:var(--ink-3)}
+  .step{
+    flex:0 0 auto;flex-direction:row;justify-content:flex-start;gap:12px;
+    padding:11px 12px;min-height:52px;text-align:left;
+  }
+  .step .ico{display:grid;place-items:center;flex:none;width:26px;height:26px;
+    font-size:15px;line-height:1;border-radius:var(--r-xs);
+    background:var(--surface-3);color:var(--ink-2)}
+  .step .num{display:none}
+  .step .t{font-size:14px;color:var(--ink);display:block;-webkit-line-clamp:1}
+  .step .d{display:block;font-size:11.5px;color:var(--ink-3);line-height:1.25}
   .step.active{background:var(--brand-soft)}
-  .step.active .num{background:var(--brand);color:var(--on-brand)}
+  .step.active .ico{background:var(--brand);color:var(--on-brand)}
   .step.active .t{color:var(--brand-dark)}
   .step:hover:not(.active){background:var(--surface-2)}
+
+  .wrap{padding-left:calc(var(--menu) + 22px)}
+  .top{padding-left:22px}
+  .selbar{right:20px}
+  .toasts{right:20px}
 }
 
 @media (min-width:1200px){

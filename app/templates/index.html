@@ -53,19 +53,16 @@
     </button>
     <button class="step active" data-panel="contacts" aria-current="page">
       <span class="ico" aria-hidden="true">◆</span><span class="num">3</span>
-      <span><span class="t">Enviar</span><span class="d">Revisá y mandá al CRM</span></span>
+      <span><span class="t">Contactos</span><span class="d">Revisá y mandá al CRM</span></span>
     </button>
     <button class="step" data-panel="mail">
       <span class="ico" aria-hidden="true">✈</span><span class="num">4</span>
-      <span><span class="t">Enviar correos</span><span class="d">Campaña en goteo</span></span>
+      <span><span class="t">Correos</span><span class="d">Campaña en goteo</span></span>
     </button>
     <button class="step" data-panel="settings">
       <span class="ico" aria-hidden="true">⚙</span><span class="num">·</span>
-      <span><span class="t">Buzones</span><span class="d">Desde dónde se manda</span></span>
-    </button>
-    <button class="step" data-panel="batches">
-      <span class="ico" aria-hidden="true">≡</span><span class="num">·</span>
-      <span><span class="t">Historial</span><span class="d">Cargas anteriores</span></span>
+      <span><span class="t">Configuración</span>
+        <span class="d">Buzones e historial</span></span>
     </button>
   </nav>
 
@@ -162,8 +159,6 @@
     <div class="card">
       <h2>Envío al CRM <span class="hint">GoHighLevel</span></h2>
       <div class="body">
-        <p class="lede">Marcá contactos arriba y enviálos. Van los que tengan email
-          o teléfono; los que ya están en el CRM se saltean.</p>
         <div class="row">
           <div class="field">
             <label class="fld" for="ghl-tag">Etiqueta</label>
@@ -179,21 +174,12 @@
     <div class="card">
       <h2>Ficha del negocio con IA <span class="hint">cuesta por contacto</span></h2>
       <div class="body">
-        <p class="lede">Lee el sitio de los marcados y arma la ficha: qué vende,
-          a quién, quién manda ahí y hace cuánto existe.</p>
         <details class="tip">
-          <summary>Qué saca y qué no</summary>
+          <summary>Qué saca</summary>
           <div class="tip-b">
-            <p>Emails, teléfonos y WhatsApp los saca el paso de arriba con
-              reglas, gratis. Acá entra la IA solo para lo que hay que
-              entender leyendo: el resumen del negocio, los servicios, a qué
-              mercado apunta, las personas nombradas con su cargo, la
-              antigüedad, las ciudades donde opera y un gancho para arrancar
-              la conversación.</p>
-            <p>Solo reporta lo que el sitio dice. Si un dato no está, queda
-              vacío: es preferible un hueco a un dato inventado.</p>
-            <p>El sitio se baja una sola vez, así que armar la ficha no
-              duplica las visitas ni el tiempo.</p>
+            <p>Qué vende y a quién, personas con su cargo, antigüedad, ciudades
+              y un gancho para abrir la conversación.</p>
+            <p>Solo lo que el sitio dice: si un dato no está, queda vacío.</p>
           </div>
         </details>
         <button id="btn-ai" class="block primary" onclick="startAI()" disabled>
@@ -206,18 +192,6 @@
     <div class="card">
       <h2>Leer los sitios web <span class="hint">gratis</span></h2>
       <div class="body">
-        <p class="lede">Entra al sitio de los marcados y saca el email y el
-          teléfono publicados, incluido el WhatsApp.</p>
-        <details class="tip">
-          <summary>Cómo lo hace</summary>
-          <div class="tip-b">
-            <p>Visita la home y hasta tres páginas de contacto por sitio,
-              respetando el robots.txt. No consume créditos de ningún
-              proveedor, así que podés correrlo sobre toda la lista.</p>
-            <p>Prefiere el email de una persona antes que el buzón de área
-              (info@, ventas@), y el WhatsApp antes que el número general.</p>
-          </div>
-        </details>
         <button id="btn-web" class="block primary" onclick="startWebsite()" disabled>
           Leer el sitio de los marcados</button>
         <div id="web-progress" style="margin-top:14px"></div>
@@ -227,17 +201,8 @@
     <div class="card">
       <h2>Buscar teléfonos <span class="hint">10× más caro</span></h2>
       <div class="body">
-        <p class="lede">Solo para los contactos que de verdad vas a llamar.</p>
-        <details class="tip">
-          <summary>Cuándo conviene</summary>
-          <div class="tip-b">
-            <p>Cada teléfono cuesta unos <b>10 créditos</b>, contra 1 de un email.
-              Por eso va sobre los que marcás, nunca sobre toda la base.</p>
-            <p>El teléfono marcado como <b>conmutador</b> es el número general de la
-              empresa: si llamás ahí te atiende recepción. A esos igual les podés
-              buscar el celular directo.</p>
-          </div>
-        </details>
+        <p class="lede">Cada teléfono cuesta <b>10 créditos</b>, contra 1 de un
+          email. Solo para los que de verdad vas a llamar.</p>
         <button id="btn-mobile" class="block" onclick="startMobile()" disabled>
           Buscar teléfono de los marcados</button>
         <div id="mobile-progress" style="margin-top:14px"></div>
@@ -260,16 +225,11 @@
 <div class="card">
       <h2>Buscar negocios por ubicación <span class="hint">Google Maps</span></h2>
       <div class="body">
-        <p class="lede">Escribilo como lo buscarías en Maps: qué y dónde.</p>
         <details class="tip">
-          <summary>Qué trae y qué no</summary>
+          <summary>Google no trae emails</summary>
           <div class="tip-b">
-            <p>Google devuelve el <b>negocio</b>: nombre, teléfono, sitio,
-              dirección y calificación. Nunca personas ni emails.</p>
-            <p>El email sale del paso siguiente: B2K entra al sitio de cada uno
-              y saca el contacto publicado. Eso es gratis.</p>
-            <p>Cada búsqueda le cuesta plata a tu cuenta de Google, así que
-              primero se muestran los resultados y vos decidís si guardarlos.</p>
+            <p>Devuelve el negocio: nombre, teléfono, sitio, dirección y
+              calificación. El email sale después, leyendo su sitio.</p>
           </div>
         </details>
         <div class="row">
@@ -298,16 +258,8 @@
 <div class="card">
       <h2>Subí tu archivo de Apollo</h2>
       <div class="body">
-        <p class="lede">CSV exportado desde la pestaña <b>People</b>. Vas a poder
-          revisarlo antes de guardar nada.</p>
-        <details class="tip">
-          <summary>Cómo exportar desde Apollo</summary>
-          <div class="tip-b">
-            <p>Entrá a <b>People</b> (no Accounts), aplicá tus filtros y exportá.
-              B2K reconoce las columnas solo.</p>
-            <p>Los contactos repetidos que ya tengas cargados se descartan.</p>
-          </div>
-        </details>
+        <p class="lede">Exportá desde la pestaña <b>People</b> de Apollo, no
+          desde Accounts.</p>
         <input type="file" id="csvfile" accept=".csv,text/csv" onchange="doPreview()"
                aria-label="Elegir archivo CSV">
         <div id="prev-alert" style="margin-top:14px"></div>
@@ -322,17 +274,8 @@
     <div class="card">
       <h2>Buscar los emails que faltan</h2>
       <div class="body">
-        <p class="lede">Se consulta un servicio por vez hasta encontrarlo, así se
-          paga solo lo necesario.</p>
-        <details class="tip">
-          <summary>El orden de la cascada</summary>
-          <div class="tip-b">
-            <p>Primero <b>Prospeo</b>. Y si no aparece,
-              <b>Hunter</b>. Cada consulta consume créditos.</p>
-            <p>La primera vez probá con 5 contactos para confirmar que todo
-              funciona antes de lanzar la lista completa.</p>
-          </div>
-        </details>
+        <p class="lede">Cada búsqueda consume créditos. La primera vez probá con
+          5 para ver que todo funcione.</p>
         <div id="enrich-warn"></div>
         <div class="row">
           <div class="field">
@@ -359,8 +302,7 @@
     <div class="card">
       <h2>Paso 4 — Escribirle a los contactos</h2>
       <div class="body">
-        <p class="lede">Se le manda a los contactos que marcaste en la lista y
-          tengan email. A quien ya se le escribió antes queda afuera.</p>
+        <p class="lede">A quien ya se le escribió antes queda afuera.</p>
         <div id="mail-ready"></div>
       </div>
     </div>
@@ -390,8 +332,8 @@
     <div class="card">
       <h2>Ritmo del envío</h2>
       <div class="body">
-        <p class="lede">De a poco y a horas irregulares: mandar cien de golpe es
-          la forma más rápida de terminar en spam.</p>
+        <p class="lede">De a poco y a horas irregulares: cien de golpe es la
+          forma más rápida de terminar en spam.</p>
         <div class="row">
           <div class="field" style="flex:0 1 150px">
             <label class="fld" for="mail-limit">Cuántos enviar</label>
@@ -424,12 +366,35 @@
 
   <!-- ========================= BUZONES ========================= -->
   <section class="panel" id="panel-settings">
+    <div class="segmented" role="tablist" aria-label="Qué configurar">
+      <button class="seg active" id="seg-buzones" role="tab" aria-selected="true"
+              onclick="switchAjustes('buzones')">
+        <b>Buzones</b><span>desde dónde sale el correo</span></button>
+      <button class="seg" id="seg-historial" role="tab" aria-selected="false"
+              onclick="switchAjustes('historial')">
+        <b>Historial</b><span>cargas anteriores</span></button>
+    </div>
+
+    <div id="set-historial" hidden>
+      <div class="card list">
+        <div class="tbl-scroll">
+          <table class="rtable">
+            <thead><tr>
+              <th>#</th><th>Archivo</th><th>Fecha</th><th>Filas</th>
+              <th>Agregados</th><th>Repetidos</th><th>Segmento</th><th></th>
+            </tr></thead>
+            <tbody id="btbody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <div id="set-buzones">
     <div class="card">
       <h2>Buzones de salida <span class="hint" id="smtp-hint"></span></h2>
       <div class="body">
-        <p class="lede">Desde qué cuentas sale el correo. Se configura una vez y
-          queda guardado. Con varios buzones el volumen se reparte, que es lo que
-          evita que marquen las cuentas como spam.</p>
+        <p class="lede">Con varios buzones el volumen se reparte, y por eso no
+          marcan las cuentas como spam.</p>
         <details class="tip">
           <summary>Cómo sacar los datos de Gmail o Workspace</summary>
           <div class="tip-b">
@@ -447,21 +412,6 @@
         <div id="mb-form"></div>
       </div>
     </div>
-  </section>
-
-  <!-- ========================= HISTORIAL ========================= -->
-  <section class="panel" id="panel-batches">
-    <div class="card list">
-      <h2>Cargas anteriores</h2>
-      <div class="tbl-scroll">
-        <table class="rtable">
-          <thead><tr>
-            <th>#</th><th>Archivo</th><th>Fecha</th><th>Filas</th>
-            <th>Agregados</th><th>Repetidos</th><th>Segmento</th><th></th>
-          </tr></thead>
-          <tbody id="btbody"></tbody>
-        </table>
-      </div>
     </div>
   </section>
 
