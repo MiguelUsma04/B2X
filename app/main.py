@@ -161,9 +161,29 @@ _PENDING_UPLOAD: dict = {}
 _PENDING_PLACES: dict = {}
 
 
+_ESTATICOS = ("style.css", "app.js")
+
+
+def _con_version(html: str) -> str:
+    """Le pega a cada archivo estático la fecha en que se modificó.
+
+    Sin esto el navegador reusa el CSS que ya tiene en disco y queda mostrando
+    la maqueta nueva con los estilos viejos. Mientras el archivo no cambie la
+    dirección es la misma y se sigue reusando; apenas cambia, es otra y se
+    vuelve a bajar.
+    """
+    for nombre in _ESTATICOS:
+        archivo = BASE_DIR / "static" / nombre
+        if archivo.exists():
+            html = html.replace(f"/static/{nombre}",
+                                f"/static/{nombre}?v={int(archivo.stat().st_mtime)}")
+    return html
+
+
 @app.get("/", response_class=HTMLResponse)
 def index():
-    return (BASE_DIR / "templates" / "index.html").read_text(encoding="utf-8")
+    html = (BASE_DIR / "templates" / "index.html").read_text(encoding="utf-8")
+    return _con_version(html)
 
 
 # ---------------------------------------------------------------- importación
