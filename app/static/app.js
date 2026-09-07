@@ -27,9 +27,12 @@ const pill = (val, dict) => val
   : '<span class="sub dash">—</span>';
 
 /* ======================= quién entró ======================= */
+let YO = '';                       // la cuenta con la que se entró
+
 async function loadMe() {
   try {
     const m = await (await fetch('/api/me')).json();
+    YO = m.email || '';
     if (!m.email) return;
     const el = $('quien');
     el.hidden = false;
@@ -1206,8 +1209,24 @@ async function deleteMailbox(id) {
 
 async function testMailbox(id) {
   const m = MAILBOXES.find((x) => x.id === id);
-  const to = prompt('¿A qué dirección mando la prueba?', (m && m.from_email) || '');
-  if (!to) return;
+  // Por defecto a la cuenta con la que entraste: es la casilla que tenés
+  // abierta y donde podés revisar de verdad cómo llegó el correo.
+  const ok = await ask('Probar el buzón',
+    `<p>Se manda un correo de prueba desde
+       <b>${esc((m && m.from_email) || 'este buzón')}</b>.</p>
+     <div class="field" style="margin-top:12px">
+       <label class="fld" for="test-to">Le llega a</label>
+       <input id="test-to" value="${esc(YO || (m && m.from_email) || '')}"
+              placeholder="vos@gmarketing.co">
+     </div>
+     ${YO ? '<p class="help">Es la cuenta con la que entraste.</p>'
+          : '<p class="help">Entraste con la contraseña del equipo, así que hay '
+            + 'que escribir la dirección.</p>'}`,
+    [{ label: 'Cancelar', value: false },
+     { label: 'Mandar prueba', value: true, cls: 'primary' }]);
+  if (!ok) return;
+  const to = ($('test-to').value || '').trim();
+  if (!to) { toast('Falta la dirección', 'warn'); return; }
   const caja = $('mb-test-' + id);
   caja.innerHTML = '<div class="alert info"><span class="pulse">●</span> Mandando…</div>';
   const fd = new FormData();

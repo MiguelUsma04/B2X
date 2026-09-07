@@ -597,17 +597,33 @@ def api_mail_config_delete(mailbox_id: int):
 
 
 @app.post("/api/mail/test")
-async def api_mail_test(to: str = Form(...), mailbox_id: str = Form("")):
+async def api_mail_test(request: Request, to: str = Form(""),
+                        mailbox_id: str = Form("")):
     """Manda una prueba a una casilla propia. Es el paso previo obligado:
-    probar la configuración contra un cliente real no es una opción."""
-    if "@" not in to:
-        raise HTTPException(400, "Escribí una dirección válida.")
+    probar la configuración contra un cliente real no es una opción.
+
+    Sin destinatario va a la cuenta con la que entraste, que es la casilla que
+    tenés abierta ahora mismo y donde vas a poder revisar de verdad cómo llegó.
+    """
+    destino = (to or "").strip() or ((auth.sesion(request) or {}).get("email") or "")
+    if "@" not in destino:
+        raise HTTPException(
+            400, "No hay a quién mandarle la prueba: entraste con la contraseña "
+                 "del equipo, así que escribí una dirección.")
+
     mid = int(mailbox_id) if str(mailbox_id).strip().isdigit() else None
+    buzon = mailer.get_mailbox(mid) if mid else None
+    quien = (buzon or {}).get("label") or (buzon or {}).get("from_email") or "B2K"
+
     r = await mailer.enviar(
-        to, "Prueba de configuración — B2K",
-        "Si estás leyendo esto, el servidor de salida quedó bien configurado.\n\n"
-        "Este mensaje lo generó B2K desde la pantalla de correos.", mid)
-    return r
+        destino, f"Prueba de envío — {quien}",
+        "Si estás leyendo esto, el buzón quedó bien configurado.\n\n"
+        f"Salió desde: {(buzon or {}).get('from_email', 'el buzón configurado')}\n"
+        f"Servidor: {(buzon or {}).get('host', '—')}\n\n"
+        "Abrí 'Mostrar original' en Gmail y fijate que SPF, DKIM y DMARC digan "
+        "PASS: eso confirma que un receptor real ve bien el dominio.\n\n"
+        "Lo generó B2K desde la pantalla de buzones.", mid)
+    return {**r, "to": destino}
 
 
 @app.post("/api/mail/preview")
