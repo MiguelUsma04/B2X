@@ -10,6 +10,7 @@ está pensada para no sorprender:
   uno nuevo si ya se le escribió antes.
 """
 import asyncio
+import html as _html
 import random
 import re
 import smtplib
@@ -209,11 +210,14 @@ def _credenciales(mid: int | None = None) -> dict | None:
 
 
 # ------------------------------------------------------------------ plantilla
-def render(texto: str, contacto: dict) -> str:
+def render(texto: str, contacto: dict, para_html: bool = False) -> str:
     """Reemplaza {{variables}} con lo que se sabe del contacto.
 
     Una variable sin dato se reemplaza por vacío, nunca por el literal
     '{{nombre}}': mandar eso a un cliente es peor que una frase corta.
+
+    Dentro de HTML el dato se escapa: una empresa que se llama "Ruiz & Cía"
+    o "<Nombre>" rompe la maqueta del correo si entra crudo.
     """
     perfil = {}
     if contacto.get("ai_profile"):
@@ -233,10 +237,40 @@ def render(texto: str, contacto: dict) -> str:
         "resumen": perfil.get("resumen") or contacto.get("ai_summary") or "",
         "gancho": perfil.get("gancho") or "",
     }
-    salida = _VAR_RE.sub(lambda m: str(valores.get(m.group(1).lower(), "")), texto or "")
+    def poner(m):
+        dato = str(valores.get(m.group(1).lower(), ""))
+        return _html.escape(dato, quote=True) if para_html else dato
+
+    salida = _VAR_RE.sub(poner, texto or "")
+    if para_html:
+        # Acá los espacios y los renglones no se ven: los pone la maqueta.
+        return salida.strip()
     # Si una variable vacía dejó un renglón huérfano o espacios dobles, se limpia.
     salida = re.sub(r"[ \t]{2,}", " ", salida)
     return re.sub(r"\n{3,}", "\n\n", salida).strip()
+
+
+# Lo que separa párrafos cuando el HTML se pasa a texto.
+_CORTES = re.compile(r"(?i)</?(?:p|div|tr|h[1-6]|li|table|blockquote)\b[^>]*>|<br\s*/?>")
+_INVISIBLE = re.compile(r"(?is)<(script|style|head)\b.*?</\1>")
+_ETIQUETA = re.compile(r"<[^>]+>")
+
+
+def html_a_texto(cuerpo_html: str) -> str:
+    """La versión de texto de un correo diseñado.
+
+    Todo correo sale con las dos versiones. La de texto no es un trámite: hay
+    quien lee con las imágenes y el HTML apagados, y un correo que solo trae
+    HTML puntúa peor en los filtros de spam. Que la escriba la máquina evita
+    que alguien la olvide.
+    """
+    t = _INVISIBLE.sub(" ", cuerpo_html or "")
+    t = _CORTES.sub("\n", t)
+    t = _ETIQUETA.sub("", t)
+    t = _html.unescape(t)
+    t = re.sub(r"[ \t]+", " ", t)
+    t = "\n".join(linea.strip() for linea in t.splitlines())
+    return re.sub(r"\n{3,}", "\n\n", t).strip()
 
 
 def variables_desconocidas(texto: str) -> list[str]:
@@ -245,14 +279,19 @@ def variables_desconocidas(texto: str) -> list[str]:
 
 
 # ------------------------------------------------------------------ envío
-def _enviar_sincrono(cfg: dict, destino: str, asunto: str, cuerpo: str) -> None:
+def _enviar_sincrono(cfg: dict, destino: str, asunto: str, cuerpo: str,
+                     cuerpo_html: str | None = None) -> None:
     """Manda un correo. Bloquea: se llama siempre dentro de un hilo aparte."""
     msg = EmailMessage()
     msg["From"] = formataddr((cfg.get("from_name") or "", cfg["from_email"]))
     msg["To"] = destino
     msg["Subject"] = asunto
     msg["Message-ID"] = make_msgid()
-    msg.set_content(cuerpo)
+    # Primero el texto y después el HTML: el orden importa, cada programa
+    # muestra la última versión que sabe leer.
+    msg.set_content(cuerpo or html_a_texto(cuerpo_html or ""))
+    if (cuerpo_html or "").strip():
+        msg.add_alternative(cuerpo_html, subtype="html")
 
     contexto = ssl.create_default_context()
     if cfg["security"] == "ssl":
@@ -290,7 +329,8 @@ def _explicar(exc: Exception) -> str:
 
 
 async def enviar(destino: str, asunto: str, cuerpo: str,
-                 mailbox_id: int | None = None) -> dict:
+                 mailbox_id: int | None = None,
+                 cuerpo_html: str | None = None) -> dict:
     """Manda un correo suelto. Devuelve {"ok": bool, "error": str|None}.
 
     Sin buzón indicado usa el que toque por rotación.
@@ -299,7 +339,8 @@ async def enviar(destino: str, asunto: str, cuerpo: str,
     if not cfg:
         return {"ok": False, "error": "Falta configurar el servidor de salida."}
     try:
-        await asyncio.to_thread(_enviar_sincrono, cfg, destino, asunto, cuerpo)
+        await asyncio.to_thread(_enviar_sincrono, cfg, destino, asunto, cuerpo,
+                                cuerpo_html)
         return {"ok": True, "error": None}
     except Exception as exc:
         return {"ok": False, "error": _explicar(exc)}
@@ -336,14 +377,17 @@ def contactos_enviables(contact_ids: list[int], repetir: bool = False) -> list[d
 
 
 def crear_campania(nombre: str, asunto: str, cuerpo: str, contactos: list[dict],
-                   cada_segundos: int, jitter: int, tope_diario: int) -> dict:
+                   cada_segundos: int, jitter: int, tope_diario: int,
+                   cuerpo_html: str = "") -> dict:
     """Arma la campaña y reparte las horas de salida del goteo."""
     with get_db() as conn:
         cur = conn.execute(
             """INSERT INTO email_campaigns
-                 (name, subject, body, every_seconds, jitter_seconds, daily_cap)
-               VALUES (?,?,?,?,?,?)""",
-            (nombre or None, asunto, cuerpo, cada_segundos, jitter, tope_diario))
+                 (name, subject, body, body_html, every_seconds, jitter_seconds,
+                  daily_cap)
+               VALUES (?,?,?,?,?,?,?)""",
+            (nombre or None, asunto, cuerpo, cuerpo_html or None,
+             cada_segundos, jitter, tope_diario))
         campania = cur.lastrowid
 
         momento = _ahora()
@@ -354,8 +398,12 @@ def crear_campania(nombre: str, asunto: str, cuerpo: str, contactos: list[dict],
                 # Se corta el día y se sigue mañana a la misma hora.
                 momento = datetime.combine(dia + timedelta(days=1), momento.timetz())
                 dia, enviados_hoy = momento.date(), 0
-            filas.append((campania, c["id"], c["email"],
-                          render(asunto, c), render(cuerpo, c), _iso(momento)))
+            # El correo se arma acá, contacto por contacto, y queda guardado:
+            # así lo que sale es exactamente lo que se vio en la vista previa.
+            html_armado = render(cuerpo_html, c, para_html=True) if cuerpo_html else ""
+            texto = render(cuerpo, c) if cuerpo else html_a_texto(html_armado)
+            filas.append((campania, c["id"], c["email"], render(asunto, c),
+                          texto, html_armado or None, _iso(momento)))
             enviados_hoy += 1
             # El jitter evita el patrón de reloj: mandar exacto cada 180 s es
             # una firma de robot para cualquier filtro de spam.
@@ -363,10 +411,11 @@ def crear_campania(nombre: str, asunto: str, cuerpo: str, contactos: list[dict],
 
         conn.executemany(
             """INSERT OR IGNORE INTO email_queue
-                 (campaign_id, contact_id, email, subject, body, send_after)
-               VALUES (?,?,?,?,?,?)""", filas)
+                 (campaign_id, contact_id, email, subject, body, body_html,
+                  send_after)
+               VALUES (?,?,?,?,?,?,?)""", filas)
     return {"campaign_id": campania, "queued": len(filas),
-            "termina": filas[-1][5] if filas else None}
+            "termina": filas[-1][6] if filas else None}
 
 
 def estado(campania: int | None = None) -> dict:
@@ -442,7 +491,7 @@ async def _tanda() -> None:
 
     try:
         await asyncio.to_thread(_enviar_sincrono, cfg, fila["email"],
-                                fila["subject"], fila["body"])
+                                fila["subject"], fila["body"], fila["body_html"])
         ok, error = True, None
     except Exception as exc:
         ok, error = False, _explicar(exc)

@@ -618,12 +618,18 @@ def api_mail_config_delete(mailbox_id: int):
 
 @app.post("/api/mail/test")
 async def api_mail_test(request: Request, to: str = Form(""),
-                        mailbox_id: str = Form("")):
+                        mailbox_id: str = Form(""), subject: str = Form(""),
+                        body: str = Form(""), body_html: str = Form("")):
     """Manda una prueba a una casilla propia. Es el paso previo obligado:
     probar la configuración contra un cliente real no es una opción.
 
     Sin destinatario va a la cuenta con la que entraste, que es la casilla que
     tenés abierta ahora mismo y donde vas a poder revisar de verdad cómo llegó.
+
+    Con asunto y cuerpo manda ese correo tal cual, sin tocar la lista de
+    contactos: es la única forma de ver un diseño como lo va a ver quien lo
+    reciba, porque Gmail y Outlook recortan CSS y la vista previa del
+    navegador no lo hace.
     """
     destino = (to or "").strip() or ((auth.sesion(request) or {}).get("email") or "")
     if "@" not in destino:
@@ -634,6 +640,11 @@ async def api_mail_test(request: Request, to: str = Form(""),
     mid = int(mailbox_id) if str(mailbox_id).strip().isdigit() else None
     buzon = mailer.get_mailbox(mid) if mid else None
     quien = (buzon or {}).get("label") or (buzon or {}).get("from_email") or "B2K"
+
+    if subject.strip() or body.strip() or body_html.strip():
+        r = await mailer.enviar(destino, subject.strip() or f"Prueba — {quien}",
+                                body, mid, cuerpo_html=body_html)
+        return {**r, "to": destino}
 
     r = await mailer.enviar(
         destino, f"Prueba de envío — {quien}",
@@ -648,7 +659,8 @@ async def api_mail_test(request: Request, to: str = Form(""),
 
 @app.post("/api/mail/preview")
 def api_mail_preview(contact_ids: str = Form(...), subject: str = Form(""),
-                     body: str = Form(""), repeat: str = Form("")):
+                     body: str = Form(""), repeat: str = Form(""),
+                     body_html: str = Form("")):
     """Cómo le va a llegar a los primeros, y a cuántos se le va a escribir."""
     try:
         ids = [int(i) for i in json.loads(contact_ids)]
@@ -668,7 +680,11 @@ def api_mail_preview(contact_ids: str = Form(...), subject: str = Form(""),
         "email": c["email"],
         "name": c.get("full_name"),
         "subject": mailer.render(subject, c),
-        "body": mailer.render(body, c),
+        # Con diseño, la versión de texto la escribe la máquina a partir del
+        # HTML: se muestra tal cual va a salir, no una aproximación.
+        "body": (mailer.render(body, c) if body
+                 else mailer.html_a_texto(mailer.render(body_html, c, para_html=True))),
+        "body_html": mailer.render(body_html, c, para_html=True) if body_html else "",
     } for c in destinos[:3]]
 
     return {
@@ -683,10 +699,10 @@ def api_mail_preview(contact_ids: str = Form(...), subject: str = Form(""),
 
 @app.post("/api/mail/schedule")
 def api_mail_schedule(contact_ids: str = Form(...), subject: str = Form(...),
-                      body: str = Form(...), name: str = Form(""),
+                      body: str = Form(""), name: str = Form(""),
                       limit: str = Form(""), every_seconds: str = Form("180"),
                       jitter_seconds: str = Form("60"), daily_cap: str = Form("50"),
-                      repeat: str = Form("")):
+                      repeat: str = Form(""), body_html: str = Form("")):
     """Arma la campaña y deja la cola lista. El obrero la va soltando."""
     activa = mailer.estado()
     if activa.get("campaign") and activa["campaign"]["status"] == "running" \
@@ -697,8 +713,10 @@ def api_mail_schedule(contact_ids: str = Form(...), subject: str = Form(...),
         ids = [int(i) for i in json.loads(contact_ids)]
     except Exception:
         raise HTTPException(400, "contact_ids debe ser un array JSON de enteros.")
-    if not subject.strip() or not body.strip():
-        raise HTTPException(400, "Falta el asunto o el cuerpo del correo.")
+    if not subject.strip():
+        raise HTTPException(400, "Falta el asunto del correo.")
+    if not body.strip() and not body_html.strip():
+        raise HTTPException(400, "Falta el cuerpo del correo.")
     if not mailer.get_config()["configured"]:
         raise HTTPException(400, "Configurá primero el servidor de salida.")
 
@@ -721,7 +739,8 @@ def api_mail_schedule(contact_ids: str = Form(...), subject: str = Form(...),
         name.strip(), subject, body, destinos,
         cada_segundos=entero(every_seconds, 180, 10),
         jitter=entero(jitter_seconds, 60),
-        tope_diario=entero(daily_cap, 50))
+        tope_diario=entero(daily_cap, 50),
+        cuerpo_html=body_html)
     mailer.arrancar_worker()
     return {"started": True, **r}
 

@@ -314,15 +314,61 @@
           <label class="fld" for="mail-subject">Asunto</label>
           <input id="mail-subject" placeholder="Una idea para {{empresa}}">
         </div>
-        <div class="field" style="flex:1 1 100%;margin-top:12px">
-          <label class="fld" for="mail-body">Mensaje</label>
-          <textarea id="mail-body" rows="10" style="resize:vertical"
-            placeholder="Hola {{nombre}},&#10;&#10;vi que {{empresa}} ..."></textarea>
+        <div class="segmented" role="tablist" aria-label="Cómo escribir el correo"
+             style="margin:14px 0 0">
+          <button class="seg active" id="seg-texto" role="tab" aria-selected="true"
+                  onclick="switchFormato('texto')">
+            <b>Texto</b><span>se ve igual en todos lados</span></button>
+          <button class="seg" id="seg-html" role="tab" aria-selected="false"
+                  onclick="switchFormato('html')">
+            <b>Diseño HTML</b><span>colores, imágenes, botón</span></button>
         </div>
+
+        <div id="modo-texto">
+          <div class="field" style="flex:1 1 100%;margin-top:12px">
+            <label class="fld" for="mail-body">Mensaje</label>
+            <textarea id="mail-body" rows="10" style="resize:vertical"
+              placeholder="Hola {{nombre}},&#10;&#10;vi que {{empresa}} ..."></textarea>
+          </div>
+        </div>
+
+        <div id="modo-html" hidden>
+          <div class="editor-html">
+            <div class="field" style="margin-top:12px">
+              <label class="fld" for="mail-html">HTML</label>
+              <textarea id="mail-html" rows="18" spellcheck="false"
+                class="codigo" placeholder="&lt;p&gt;Hola {{nombre}}&lt;/p&gt;"></textarea>
+            </div>
+            <div class="field" style="margin-top:12px">
+              <label class="fld">Cómo se ve</label>
+              <iframe id="html-live" class="marco-correo" sandbox
+                      title="Vista del correo"></iframe>
+            </div>
+          </div>
+          <div class="row" style="margin-top:12px">
+            <button class="ghost" onclick="plantillaHtml()">Partir de un diseño
+              armado</button>
+          </div>
+          <details class="tip" style="margin-top:12px">
+            <summary>El correo no aguanta lo mismo que una página</summary>
+            <div class="tip-b">
+              <p>Nada de <b>&lt;style&gt;</b>, hojas aparte ni JavaScript: Gmail
+                los descarta. El estilo va escrito en cada etiqueta, con
+                <b>style="..."</b>.</p>
+              <p>Para armar columnas se usan tablas, no flex ni grid. Las
+                imágenes tienen que estar publicadas en una dirección de
+                internet, y conviene que el correo se entienda igual si no
+                cargan.</p>
+            </div>
+          </details>
+        </div>
+
         <p class="help">Tocá una variable para insertarla donde está el cursor:</p>
         <div class="fchips" id="mail-vars"></div>
         <div class="row" style="margin-top:14px">
           <button onclick="previewMail()">Ver cómo queda</button>
+          <button class="ghost" onclick="probarEsteCorreo()">Probar en mi
+            correo</button>
           <button class="ghost" onclick="saveTemplate()">Guardar como plantilla</button>
         </div>
         <div id="mail-preview" style="margin-top:14px"></div>

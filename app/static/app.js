@@ -1249,6 +1249,80 @@ async function testMailbox(id) {
     : `<div class="alert err">${esc(d.error || d.detail || 'No se pudo enviar.')}</div>`;
 }
 
+/* ------------------------------ modo del correo --------------------------- */
+// 'texto' o 'html'. Se manda uno solo de los dos: el que está a la vista es
+// el que se está escribiendo, y mandar el otro sin querer sería mandar algo
+// que nadie miró.
+let MODO_CORREO = 'texto';
+
+function switchFormato(cual) {
+  MODO_CORREO = cual === 'html' ? 'html' : 'texto';
+  const esHtml = MODO_CORREO === 'html';
+  $('modo-html').hidden = !esHtml;
+  $('modo-texto').hidden = esHtml;
+  for (const [id, on] of [['seg-html', esHtml], ['seg-texto', !esHtml]]) {
+    $(id).classList.toggle('active', on);
+    $(id).setAttribute('aria-selected', String(on));
+  }
+  if (esHtml) verHtmlEnVivo();
+  updateMailBtn();
+}
+
+function cuerpoTexto() { return MODO_CORREO === 'html' ? '' : $('mail-body').value; }
+function cuerpoHtml() { return MODO_CORREO === 'html' ? $('mail-html').value : ''; }
+
+function verHtmlEnVivo() {
+  // srcdoc en un iframe sin permisos: el correo se dibuja de verdad, con sus
+  // propios estilos, sin que pueda tocar la aplicación.
+  const marco = $('html-live');
+  if (marco) marco.srcdoc = $('mail-html').value || '<p style="color:#888">…</p>';
+}
+
+// Un correo que ya funciona, para no empezar contra una caja vacía. Tablas y
+// estilos escritos en cada etiqueta: es lo único que Gmail respeta.
+const BASE_HTML = `<table role="presentation" width="100%" cellpadding="0" cellspacing="0"
+       style="background:#f4f4f7;padding:24px 12px;font-family:Arial,Helvetica,sans-serif">
+  <tr><td align="center">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0"
+           style="max-width:560px;background:#ffffff;border-radius:10px;overflow:hidden">
+      <tr><td style="background:#241a5c;padding:20px 28px;color:#ffffff;
+                     font-size:20px;font-weight:bold">gmarketing.co</td></tr>
+      <tr><td style="padding:28px">
+        <p style="margin:0 0 16px;font-size:16px;color:#222">Hola {{nombre}},</p>
+        <p style="margin:0 0 16px;font-size:15px;line-height:1.6;color:#444">
+          Vi que {{empresa}} trabaja en {{rubro}} y quería contarte algo que
+          nos viene funcionando con empresas parecidas.
+        </p>
+        <p style="margin:0 0 24px;font-size:15px;line-height:1.6;color:#444">
+          ¿Te sirve que lo hablemos esta semana?
+        </p>
+        <a href="https://gmarketing.co"
+           style="display:inline-block;background:#00c27a;color:#ffffff;
+                  text-decoration:none;padding:13px 26px;border-radius:8px;
+                  font-size:15px;font-weight:bold">Agendar una llamada</a>
+      </td></tr>
+      <tr><td style="padding:18px 28px;background:#fafafa;font-size:12px;color:#888">
+        gmarketing.co · Si no te interesa, respondé este correo y no te
+        volvemos a escribir.
+      </td></tr>
+    </table>
+  </td></tr>
+</table>`;
+
+function plantillaHtml() {
+  const escrito = $('mail-html').value.trim();
+  const poner = () => {
+    $('mail-html').value = BASE_HTML;
+    verHtmlEnVivo();
+    updateMailBtn();
+  };
+  if (!escrito) { poner(); return; }
+  ask('Reemplazar lo que escribiste',
+      '<p>Ya hay HTML escrito. El diseño de base lo pisa entero.</p>',
+      [{ label: 'Cancelar', value: false },
+       { label: 'Reemplazar', value: true, cls: 'go' }]).then((ok) => ok && poner());
+}
+
 /* --------------------------- plantilla guardada --------------------------- */
 const TPL_KEY = 'b2k-mail-tpl';
 
@@ -1256,6 +1330,7 @@ function saveTemplate() {
   try {
     localStorage.setItem(TPL_KEY, JSON.stringify({
       subject: $('mail-subject').value, body: $('mail-body').value,
+      html: $('mail-html').value, modo: MODO_CORREO,
       every: $('mail-every').value, jitter: $('mail-jitter').value,
     }));
     toast('Plantilla guardada en este navegador', 'ok');
@@ -1267,6 +1342,8 @@ function loadTemplate() {
     const t = JSON.parse(localStorage.getItem(TPL_KEY) || '{}');
     if (t.subject && !$('mail-subject').value) $('mail-subject').value = t.subject;
     if (t.body && !$('mail-body').value) $('mail-body').value = t.body;
+    if (t.html && !$('mail-html').value) $('mail-html').value = t.html;
+    if (t.modo) switchFormato(t.modo);
     if (t.every) $('mail-every').value = t.every;
     if (t.jitter) $('mail-jitter').value = t.jitter;
   } catch (e) { /* plantilla corrupta: se ignora */ }
@@ -1274,12 +1351,14 @@ function loadTemplate() {
 
 function insertVar(nombre) {
   // Va donde está el cursor, que es donde el usuario lo está esperando.
-  const el = document.activeElement === $('mail-subject') ? $('mail-subject') : $('mail-body');
+  const cuerpo = MODO_CORREO === 'html' ? $('mail-html') : $('mail-body');
+  const el = document.activeElement === $('mail-subject') ? $('mail-subject') : cuerpo;
   const t = `{{${nombre}}}`;
   const i = el.selectionStart ?? el.value.length;
   el.value = el.value.slice(0, i) + t + el.value.slice(el.selectionEnd ?? i);
   el.focus();
   el.selectionStart = el.selectionEnd = i + t.length;
+  if (el.id === 'mail-html') verHtmlEnVivo();
   updateMailBtn();
 }
 
@@ -1289,8 +1368,10 @@ function updateMailBtn() {
   const activos = MAILBOXES.filter((m) => m.active && m.configured);
   const capacidad = activos.reduce((a, m) => a + (m.remaining || 0), 0);
 
+  const hayCuerpo = (MODO_CORREO === 'html' ? $('mail-html').value : $('mail-body').value)
+                    .trim();
   b.disabled = SELECTED.size === 0 || !$('mail-subject').value.trim()
-               || !$('mail-body').value.trim() || !activos.length;
+               || !hayCuerpo || !activos.length;
 
   const listo = $('mail-ready');
   if (listo) {
@@ -1329,7 +1410,8 @@ async function previewMail() {
   const fd = new FormData();
   fd.append('contact_ids', JSON.stringify(ids));
   fd.append('subject', $('mail-subject').value);
-  fd.append('body', $('mail-body').value);
+  fd.append('body', cuerpoTexto());
+  fd.append('body_html', cuerpoHtml());
   const d = await (await fetch('/api/mail/preview', { method: 'POST', body: fd })).json();
 
   const avisos = [];
@@ -1341,7 +1423,11 @@ async function previewMail() {
       <div class="log-b">
         <div class="hint">ASUNTO</div><div>${esc(m.subject)}</div>
         <div class="hint" style="margin-top:10px">MENSAJE</div>
-        <pre style="white-space:pre-wrap">${esc(m.body)}</pre></div></div>`).join('');
+        ${m.body_html
+          ? `<iframe class="marco-correo" sandbox title="Correo de ${esc(m.email)}"
+                     srcdoc="${esc(m.body_html)}"></iframe>`
+          : `<pre style="white-space:pre-wrap">${esc(m.body)}</pre>`}
+        </div></div>`).join('');
 
   $('mail-preview').innerHTML = `
     <div class="alert ${d.sendable ? 'info' : 'warn'}">
@@ -1352,6 +1438,47 @@ async function previewMail() {
     </div>${muestras}`;
 }
 
+async function probarEsteCorreo() {
+  // Un diseño se ve de verdad en un cliente de correo: Gmail y Outlook
+  // recortan CSS que el navegador dibuja sin chistar. Va con las variables
+  // sin reemplazar, porque acá todavía no hay un contacto elegido.
+  const asunto = $('mail-subject').value.trim();
+  const cuerpo = cuerpoTexto().trim(), html = cuerpoHtml().trim();
+  if (!asunto && !cuerpo && !html) {
+    toast('Escribí algo primero', 'warn');
+    return;
+  }
+  const activos = MAILBOXES.filter((m) => m.active && m.configured);
+  if (!activos.length) {
+    toast('Configurá un buzón en Configuración', 'warn');
+    return;
+  }
+
+  const mandar = await ask('Probar el correo',
+    `<p>Se manda tal cual está, a una casilla tuya.</p>
+     <div class="field" style="margin-top:12px">
+       <label class="fld" for="test-mio">Le llega a</label>
+       <input id="test-mio" value="${esc(YO || '')}"
+              placeholder="vos@gmarketing.co">
+     </div>
+     <p class="help">Las variables van sin reemplazar: todavía no hay un
+       contacto elegido.</p>`,
+    [{ label: 'Cancelar', value: false },
+     { label: 'Mandar', value: true, cls: 'primary' }]);
+  if (!mandar) return;
+  const destino = ($('test-mio').value || '').trim();
+  if (!destino) { toast('Falta la dirección', 'warn'); return; }
+
+  const fd = new FormData();
+  fd.append('to', destino);
+  fd.append('subject', asunto || 'Prueba de diseño');
+  fd.append('body', cuerpo);
+  fd.append('body_html', html);
+  const d = await (await fetch('/api/mail/test', { method: 'POST', body: fd })).json();
+  toast(d.ok ? `Salió a ${esc(d.to)}` : esc(d.error || 'No se pudo mandar'),
+        d.ok ? 'ok' : 'err');
+}
+
 async function scheduleMail() {
   const ids = [...SELECTED];
   if (!ids.length) return;
@@ -1359,7 +1486,8 @@ async function scheduleMail() {
   const fd0 = new FormData();
   fd0.append('contact_ids', JSON.stringify(ids));
   fd0.append('subject', $('mail-subject').value);
-  fd0.append('body', $('mail-body').value);
+  fd0.append('body', cuerpoTexto());
+  fd0.append('body_html', cuerpoHtml());
   const prev = await (await fetch('/api/mail/preview', { method: 'POST', body: fd0 })).json();
   const cfg = await (await fetch('/api/mail/config')).json();
   const limite = +$('mail-limit').value || prev.sendable;
@@ -1383,7 +1511,8 @@ async function scheduleMail() {
   const fd = new FormData();
   fd.append('contact_ids', JSON.stringify(ids));
   fd.append('subject', $('mail-subject').value);
-  fd.append('body', $('mail-body').value);
+  fd.append('body', cuerpoTexto());
+  fd.append('body_html', cuerpoHtml());
   fd.append('name', $('mail-subject').value.slice(0, 60));
   fd.append('limit', $('mail-limit').value || '');
   fd.append('every_seconds', String(Math.max(1, +$('mail-every').value || 3) * 60));
@@ -1845,10 +1974,12 @@ $('f-q').addEventListener('input', () => {
 FILTERS.forEach(([id]) => { $(id).addEventListener('change', loadContacts); });
 
 for (const id of ['mail-subject', 'mail-body', 'mail-limit', 'mail-every',
-                  'mail-jitter']) {
+                  'mail-jitter', 'mail-html']) {
   const el = $(id);
   if (el) el.addEventListener('input', updateMailBtn);
 }
+const _html = $('mail-html');
+if (_html) _html.addEventListener('input', verHtmlEnVivo);
 
 (async () => {
   loadMe();

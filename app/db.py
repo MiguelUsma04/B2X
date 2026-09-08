@@ -133,6 +133,8 @@ CREATE TABLE IF NOT EXISTS email_campaigns (
     name           TEXT,
     subject        TEXT NOT NULL,
     body           TEXT NOT NULL,
+    -- El mismo correo diseñado. Vacío = se manda solo la versión de texto.
+    body_html      TEXT,
     every_seconds  INTEGER NOT NULL DEFAULT 180,
     jitter_seconds INTEGER NOT NULL DEFAULT 60,
     daily_cap      INTEGER NOT NULL DEFAULT 50,
@@ -153,6 +155,7 @@ CREATE TABLE IF NOT EXISTS email_queue (
     email       TEXT NOT NULL,
     subject     TEXT NOT NULL,
     body        TEXT NOT NULL,
+    body_html   TEXT,
     send_after  TEXT NOT NULL,
     status      TEXT NOT NULL DEFAULT 'pending'
                 CHECK (status IN ('pending', 'sent', 'error', 'cancelled')),
@@ -251,6 +254,20 @@ def _migrate(conn) -> None:
             conn.execute(f"ALTER TABLE contacts ADD COLUMN {name} {ddl}")
     _allow_web_as_source(conn)
     _varios_buzones(conn)
+    _cuerpo_html(conn)
+
+
+def _cuerpo_html(conn) -> None:
+    """La versión HTML del correo, al lado de la de texto.
+
+    Van las dos: el correo sale con ambas y cada programa muestra la que sabe
+    leer. Las campañas viejas quedan con el HTML vacío, que es exactamente lo
+    que eran.
+    """
+    for tabla in ("email_campaigns", "email_queue"):
+        cols = {r["name"] for r in conn.execute(f"PRAGMA table_info({tabla})")}
+        if "body_html" not in cols:
+            conn.execute(f"ALTER TABLE {tabla} ADD COLUMN body_html TEXT")
 
 
 def _varios_buzones(conn) -> None:

@@ -259,6 +259,28 @@ button.tile:hover{transform:translateY(-2px);box-shadow:var(--shadow-md);
    leerse como un interruptor. */
 #panel-settings .segmented{max-width:520px}
 
+/* ============================== correo en HTML ========================= */
+/* El código y el correo dibujado, uno al lado del otro: se escribe mirando
+   el resultado, que es la única forma de maquetar sin ir a ciegas. En el
+   teléfono se apilan, primero el código. */
+.editor-html{display:grid;gap:12px}
+@media (min-width:1000px){
+  .editor-html{grid-template-columns:1fr 1fr;align-items:start}
+}
+textarea.codigo{
+  font-family:ui-monospace,"Cascadia Code",Consolas,monospace;
+  font-size:12.5px;line-height:1.55;tab-size:2;white-space:pre-wrap;
+  word-break:break-word;
+  resize:vertical;
+}
+/* El correo se dibuja sobre blanco aunque la app esté en oscuro: así es como
+   lo va a ver quien lo reciba. */
+.marco-correo{
+  width:100%;height:420px;background:#fff;border:1px solid var(--line);
+  border-radius:var(--r-sm);display:block;
+}
+.log .marco-correo{height:320px}
+
 /* consumo del mes contra el tramo gratis de Google */
 .usage{margin-top:14px;font-size:12.5px;color:var(--ink-3)}
 .usage .top{display:flex;justify-content:space-between;gap:12px;margin-bottom:5px}
