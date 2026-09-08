@@ -90,6 +90,23 @@ filtrados") y usás *Aprobar y enviar a GHL*. Los que fallan quedan en
 `ghl_status = error` con el mensaje; **no hay reintento automático** — reintentás
 vos filtrando por `ghl_status = error`.
 
+**Escribirles** — Pestaña *Correos*. El correo se escribe en texto o en
+*Diseño HTML*, con vista de cómo queda y un botón para mandarse una prueba a
+uno mismo. Sale en goteo, rotando entre los buzones activos y respetando el
+tope diario de cada uno.
+
+**Medir** — Pestaña *Resultados*. Aperturas y clics salen del correo mismo:
+cada mensaje lleva una marca al azar, los enlaces pasan por B2K y al final va
+un pixel. Necesita `PUBLIC_URL` (o un proxy que mande `X-Forwarded-Host`) y
+que el correo vaya en HTML; sin eso no se rastrea nada, a propósito, para no
+mandar enlaces rotos.
+
+Las **respuestas y los rebotes** salen de leer el buzón por IMAP, con la misma
+contraseña de aplicación del envío. Con Gmail o Workspace el servidor se
+deduce (`smtp.gmail.com` → `imap.gmail.com`); si no sigue esa costumbre se
+escribe a mano en el buzón. Se revisa solo cada 10 minutos y hay un botón para
+no esperar. Un "estoy de vacaciones" no cuenta como respuesta.
+
 ## La cascada
 
 | Orden | Proveedor | Endpoint | Auth | Notas |

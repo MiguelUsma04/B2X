@@ -426,6 +426,10 @@
           <select id="res-campania" onchange="cargarMetricas(this.value)"></select>
         </div>
         <div id="res-aviso"></div>
+        <div class="row" style="margin-top:12px">
+          <button class="ghost" id="btn-revisar" onclick="revisarBuzon()">Revisar
+            el buzón</button>
+        </div>
       </div>
     </div>
 
@@ -451,7 +455,7 @@
         <table class="rtable">
           <thead><tr>
             <th>Contacto</th><th>Correo</th><th>Salió</th>
-            <th>Abrió</th><th>Tocó</th>
+            <th>Abrió</th><th>Tocó</th><th>Respondió</th>
           </tr></thead>
           <tbody id="res-gente"></tbody>
         </table>

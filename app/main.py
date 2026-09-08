@@ -599,7 +599,8 @@ def api_mail_config_save(id: str = Form(""), label: str = Form(""),
                          username: str = Form(""), password: str = Form(""),
                          from_name: str = Form(""), from_email: str = Form(""),
                          security: str = Form("starttls"),
-                         active: str = Form("1"), daily_cap: str = Form("50")):
+                         active: str = Form("1"), daily_cap: str = Form("50"),
+                         imap_host: str = Form(""), imap_port: str = Form("993")):
     if security not in ("starttls", "ssl", "none"):
         raise HTTPException(400, "Modo de seguridad desconocido.")
     try:
@@ -607,7 +608,8 @@ def api_mail_config_save(id: str = Form(""), label: str = Form(""),
             "id": id, "label": label, "host": host, "port": port,
             "username": username, "password": password, "from_name": from_name,
             "from_email": from_email, "security": security,
-            "active": active, "daily_cap": daily_cap})
+            "active": active, "daily_cap": daily_cap,
+            "imap_host": imap_host, "imap_port": imap_port})
     except ValueError as exc:
         raise HTTPException(400, str(exc))
 
@@ -818,6 +820,16 @@ def track_click(token: str, request: Request, u: str = ""):
     except Exception:
         pass
     return RedirectResponse(destino, status_code=302)
+
+
+@app.post("/api/mail/inbox/scan")
+async def api_mail_inbox_scan(mailbox_id: str = Form("")):
+    """Entra a los buzones y anota lo que volvió: respuestas y rebotes.
+
+    Se hace solo cada diez minutos; esto es para no esperar.
+    """
+    mid = int(mailbox_id) if str(mailbox_id).strip().isdigit() else None
+    return await mailer.revisar_buzones(mid)
 
 
 @app.get("/api/mail/campaigns")

@@ -139,6 +139,27 @@ function cuando(iso) {
                                      hour: '2-digit', minute: '2-digit' });
 }
 
+async function revisarBuzon() {
+  const b = $('btn-revisar');
+  b.disabled = true;
+  b.textContent = 'Entrando al buzón…';
+  try {
+    const d = await (await fetch('/api/mail/inbox/scan', { method: 'POST' })).json();
+    const fallos = (d.buzones || []).filter((x) => x.error);
+    if (fallos.length) {
+      toast(esc(fallos[0].label + ': ' + fallos[0].error), 'err');
+    } else if (d.respuestas || d.rebotes) {
+      toast(`${d.respuestas} respuesta(s) y ${d.rebotes} rebote(s)`, 'ok');
+    } else {
+      toast('Nada nuevo en el buzón', 'info');
+    }
+    await cargarMetricas($('res-campania').value);
+  } finally {
+    b.disabled = false;
+    b.textContent = 'Revisar el buzón';
+  }
+}
+
 async function cargarMetricas(cual) {
   const url = '/api/mail/metrics' + (cual ? '?campaign=' + encodeURIComponent(cual) : '');
   const d = await (await fetch(url)).json();
@@ -175,12 +196,17 @@ async function cargarMetricas(cual) {
   const t = (k, v, n, cls) => `
     <div class="tile ${cls || ''}"><span class="k">${k}</span>
       <span class="v">${v}</span><span class="n">${n}</span></div>`;
+  // Respondieron va primero: es el único número que ya es una conversación.
   $('res-tiles').innerHTML =
+    t('Respondieron', m.respondieron, m.respondieron
+        ? `${m.pct_respondieron}% de los que salieron` : 'todavía nadie') +
     t('Salieron', m.enviados, `de ${m.total} en la lista`) +
     t('Abrieron', m.abrieron, m.medible ? `${m.pct_abrieron}% de los que salieron`
                                         : 'no se midió') +
     t('Tocaron un enlace', m.clicaron, m.medible ? `${m.pct_clicaron}% de los que salieron`
                                                  : 'no se midió') +
+    t('Rebotaron', m.rebotaron, m.rebotaron ? 'esas direcciones no existen'
+                                            : 'ninguna dirección rebotó') +
     t('En cola', m.pendientes, m.pendientes ? 'todavía por salir' : 'no queda nada') +
     t('Con error', m.errores, m.errores ? 'no se pudieron mandar' : 'ninguno');
 
@@ -199,11 +225,13 @@ async function cargarMetricas(cual) {
       : `<span class="pill pending">${esc(g.status === 'pending' ? 'en cola' : g.status)}</span>`;
     return `<tr>
       <td><b>${esc(g.full_name || g.company_name || '—')}</b></td>
-      <td class="sub">${esc(g.email)}</td>
+      <td class="sub">${esc(g.email)}
+        ${g.reboto ? '<span class="pill error">rebotó</span>' : ''}</td>
       <td>${estado}</td>
       <td>${g.abrio ? cuando(g.abrio) : '—'}</td>
       <td>${g.clico ? `<b>${cuando(g.clico)}</b>${g.clics > 1 ? ` ·&nbsp;${g.clics}` : ''}`
-                    : '—'}</td></tr>`;
+                    : '—'}</td>
+      <td>${g.respondio ? `<b class="respondio">${cuando(g.respondio)}</b>` : '—'}</td></tr>`;
   }).join('');
 }
 
@@ -1246,6 +1274,28 @@ function mailboxForm(m) {
         </div>
         <p class="help">Con una cuenta nueva conviene empezar bajo (20–30 por día)
           y subir de a poco: el volumen repentino es lo que dispara los filtros.</p>
+        <details class="tip" style="margin-top:12px" ${v.imap_host ? 'open' : ''}>
+          <summary>Leer las respuestas</summary>
+          <div class="tip-b">
+            <p>Para contar respuestas y rebotes, B2K entra al buzón con la misma
+              contraseña. Con Gmail o Workspace no hay que escribir nada: se
+              deduce del servidor de salida.</p>
+            <div class="row">
+              <div class="field">
+                <label class="fld" for="mb-imap">Servidor de entrada</label>
+                <input id="mb-imap" value="${esc(v.imap_host || '')}"
+                       placeholder="se deduce: imap.gmail.com">
+              </div>
+              <div class="field" style="flex:0 0 110px">
+                <label class="fld" for="mb-imap-port">Puerto</label>
+                <input id="mb-imap-port" type="number" inputmode="numeric"
+                       value="${v.imap_port || 993}">
+              </div>
+            </div>
+            ${v.imap_error ? `<div class="alert warn" style="margin-top:10px">
+              La última lectura falló: ${esc(v.imap_error)}</div>` : ''}
+          </div>
+        </details>
         <div class="row" style="margin-top:14px">
           <button class="primary" onclick="saveMailbox(${m ? m.id : ''})">Guardar</button>
           <button class="ghost" onclick="cancelMailboxForm()">Cancelar</button>
@@ -1264,7 +1314,8 @@ async function saveMailbox(id) {
                              ['from_name', 'mb-name'], ['host', 'mb-host'],
                              ['port', 'mb-port'], ['security', 'mb-sec'],
                              ['username', 'mb-user'], ['password', 'mb-pass'],
-                             ['daily_cap', 'mb-cap']]) {
+                             ['daily_cap', 'mb-cap'], ['imap_host', 'mb-imap'],
+                             ['imap_port', 'mb-imap-port']]) {
     fd.append(campo, ($(el) && $(el).value.trim()) || '');
   }
   const r = await fetch('/api/mail/config', { method: 'POST', body: fd });

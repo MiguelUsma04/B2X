@@ -11,7 +11,9 @@ está pensada para no sorprender:
 """
 import asyncio
 import base64
+import email as _email
 import html as _html
+import imaplib
 import random
 import re
 import secrets
@@ -118,6 +120,10 @@ def save_mailbox(datos: dict) -> dict:
         datos.get("security", "starttls"),
         1 if str(datos.get("active", "1")).lower() not in ("0", "false", "off") else 0,
         int(datos.get("daily_cap") or 50),
+        # Por dónde se entra a leer las respuestas. Vacío = se deduce del
+        # servidor de salida.
+        (datos.get("imap_host") or "").strip() or None,
+        int(datos.get("imap_port") or 993),
     )
     with get_db() as conn:
         if mid:
@@ -127,14 +133,16 @@ def save_mailbox(datos: dict) -> dict:
             conn.execute(
                 """UPDATE smtp_config SET label=?, host=?, port=?, username=?,
                      from_name=?, from_email=?, security=?, active=?, daily_cap=?,
+                     imap_host=?, imap_port=?,
                      password=?, updated_at=datetime('now')
                    WHERE id=?""", campos + (password, mid))
         else:
             cur = conn.execute(
                 """INSERT INTO smtp_config
                      (label, host, port, username, from_name, from_email,
-                      security, active, daily_cap, password)
-                   VALUES (?,?,?,?,?,?,?,?,?,?)""",
+                      security, active, daily_cap, imap_host, imap_port,
+                      password)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
                 campos + (datos.get("password") or "",))
             mid = cur.lastrowid
     return get_mailbox(mid)
@@ -398,15 +406,216 @@ def _es_maquina(agent: str, sent_at: str | None) -> bool:
     return False
 
 
+# ------------------------------------------------------- leer el buzón
+# Un Message-ID tal como aparece escrito en una cabecera.
+_MSGID = re.compile(r"<[^<>@\s]+@[^<>@\s]+>")
+
+# Quién manda un rebote. No hay un estándar que todos respeten, así que se
+# mira de dónde viene y qué dice.
+# Solo los que existen para avisar de un fallo. Un "noreply@" cualquiera no
+# entra: hay mucho correo automático legítimo que sale de una dirección así,
+# y contarlo como rebote diría que una dirección buena está rota.
+_DAEMONS = ("mailer-daemon@", "postmaster@")
+_ASUNTO_REBOTE = re.compile(
+    r"(?i)undeliver|delivery status|delivery failure|failure notice|returned mail"
+    r"|no se pudo entregar|devuelto|mail delivery")
+
+
+def _host_imap(b: dict) -> str:
+    """Por dónde se entra a leer el buzón.
+
+    Casi siempre es el mismo servidor con otro nombre: si manda por
+    smtp.gmail.com, se lee por imap.gmail.com. Se puede escribir a mano
+    cuando no sigue esa costumbre.
+    """
+    if (b.get("imap_host") or "").strip():
+        return b["imap_host"].strip()
+    host = (b.get("host") or "").strip().lower()
+    if host.startswith("smtp."):
+        return "imap." + host[5:]
+    if "smtp" in host:
+        return host.replace("smtp", "imap", 1)
+    return ""
+
+
+def _es_rebote(msg) -> bool:
+    """Si esto es un aviso de que el correo no llegó."""
+    tipo = (msg.get_content_type() or "").lower()
+    if tipo == "multipart/report":
+        return "delivery-status" in (msg.get("Content-Type") or "").lower()
+    de = (msg.get("From") or "").lower()
+    if any(d in de for d in _DAEMONS):
+        return True
+    return bool(_ASUNTO_REBOTE.search(msg.get("Subject") or ""))
+
+
+def _es_automatico(msg) -> bool:
+    """Una respuesta que escribió un programa, no una persona.
+
+    El 'estoy de vacaciones' no es una respuesta: contarlo como interés
+    llevaría a llamar a alguien que ni leyó el correo.
+    """
+    auto = (msg.get("Auto-Submitted") or "").lower()
+    if auto and auto != "no":
+        return True
+    return bool(msg.get("X-Autoreply") or msg.get("X-Autorespond")
+                or (msg.get("Precedence") or "").lower() in ("auto_reply", "bulk"))
+
+
+def _correo_original(conn, ids: list[str]):
+    """Cuál de nuestros envíos corresponde a los identificadores citados."""
+    ids = [i for i in ids if i][:60]
+    if not ids:
+        return None
+    marcas = ",".join("?" * len(ids))
+    return conn.execute(
+        f"SELECT id, campaign_id, contact_id FROM email_queue "
+        f"WHERE message_id IN ({marcas}) ORDER BY id DESC LIMIT 1", ids).fetchone()
+
+
+def _anotar_respuesta(conn, fila, kind: str, ref: str, de: str) -> bool:
+    """Anota la respuesta si no estaba ya anotada."""
+    if ref and conn.execute("SELECT 1 FROM email_events WHERE ref=? AND kind=?",
+                            (ref, kind)).fetchone():
+        return False
+    conn.execute(
+        """INSERT INTO email_events
+             (queue_id, campaign_id, contact_id, kind, ref, agent, bot)
+           VALUES (?,?,?,?,?,?,0)""",
+        (fila["id"], fila["campaign_id"], fila["contact_id"], kind, ref or None,
+         (de or "")[:200]))
+    return True
+
+
+def _leer_buzon_sincrono(b: dict, limite: int = 300) -> dict:
+    """Entra al buzón y anota lo que volvió. Bloquea: va en un hilo aparte."""
+    host = _host_imap(b)
+    if not host:
+        return {"error": "No se sabe por dónde leer este buzón: escribí el "
+                         "servidor IMAP a mano."}
+    usuario = (b.get("username") or b.get("from_email") or "").strip()
+    if not usuario or not b.get("password"):
+        return {"error": "Falta el usuario o la contraseña del buzón."}
+
+    try:
+        M = imaplib.IMAP4_SSL(host, int(b.get("imap_port") or 993), timeout=30)
+    except Exception as exc:
+        return {"error": f"No se pudo conectar a {host}: {type(exc).__name__}"}
+
+    respuestas = rebotes = automaticos = 0
+    ultimo = int(b.get("imap_last_uid") or 0)
+    visto = ultimo
+    try:
+        M.login(usuario, b["password"])
+        M.select("INBOX", readonly=True)
+        typ, datos = M.uid("search", None, f"(UID {ultimo + 1}:*)")
+        if typ != "OK":
+            return {"error": "El servidor no aceptó la búsqueda."}
+        uids = [int(u) for u in (datos[0] or b"").split() if int(u) > ultimo]
+        uids = uids[-limite:]
+
+        with get_db() as conn:
+            for uid in uids:
+                visto = max(visto, uid)
+                typ, cuerpo = M.uid("fetch", str(uid), "(BODY.PEEK[])")
+                if typ != "OK" or not cuerpo or not isinstance(cuerpo[0], tuple):
+                    continue
+                msg = _email.message_from_bytes(cuerpo[0][1])
+
+                # Una respuesta trae el identificador en la cabecera. Un
+                # rebote lo cita adentro, en el correo original que devuelve.
+                cabeceras = " ".join(filter(None, [msg.get("In-Reply-To"),
+                                                   msg.get("References")]))
+                fila = _correo_original(conn, _MSGID.findall(cabeceras))
+                rebote = _es_rebote(msg)
+                if not fila and rebote:
+                    crudo = cuerpo[0][1].decode("utf-8", "replace")
+                    fila = _correo_original(conn, _MSGID.findall(crudo))
+                if not fila:
+                    continue
+
+                ref = (msg.get("Message-ID") or "").strip()
+                de = msg.get("From") or ""
+                if rebote:
+                    rebotes += int(_anotar_respuesta(conn, fila, "bounce", ref, de))
+                elif _es_automatico(msg):
+                    automaticos += 1
+                else:
+                    respuestas += int(_anotar_respuesta(conn, fila, "reply", ref, de))
+    except imaplib.IMAP4.error as exc:
+        return {"error": _explicar_imap(exc)}
+    except Exception as exc:
+        return {"error": f"{type(exc).__name__}: {exc}"[:200]}
+    finally:
+        try:
+            M.logout()
+        except Exception:
+            pass
+
+    with get_db() as conn:
+        conn.execute("UPDATE smtp_config SET imap_last_uid=?, imap_error=NULL, "
+                     "imap_checked=datetime('now') WHERE id=?", (visto, b["id"]))
+    return {"respuestas": respuestas, "rebotes": rebotes,
+            "automaticos": automaticos, "revisados": len(uids)}
+
+
+def _explicar_imap(exc: Exception) -> str:
+    texto = str(exc).lower()
+    if "auth" in texto or "credential" in texto or "login" in texto:
+        return ("El servidor rechazó usuario o contraseña. Con Gmail o Workspace "
+                "va la misma contraseña de aplicación del envío, y el IMAP tiene "
+                "que estar habilitado en la cuenta.")
+    return f"IMAP: {exc}"[:200]
+
+
+async def revisar_buzones(mailbox_id: int | None = None) -> dict:
+    """Lee los buzones y devuelve qué encontró en cada uno."""
+    with get_db() as conn:
+        if mailbox_id:
+            filas = conn.execute("SELECT * FROM smtp_config WHERE id=?",
+                                 (mailbox_id,)).fetchall()
+        else:
+            filas = conn.execute("SELECT * FROM smtp_config WHERE active=1 "
+                                 "AND host IS NOT NULL AND host <> ''").fetchall()
+
+    salida = []
+    for f in filas:
+        b = dict(f)
+        r = await asyncio.to_thread(_leer_buzon_sincrono, b)
+        if r.get("error"):
+            with get_db() as conn:
+                conn.execute("UPDATE smtp_config SET imap_error=?, "
+                             "imap_checked=datetime('now') WHERE id=?",
+                             (r["error"], b["id"]))
+        salida.append({"id": b["id"],
+                       "label": b.get("label") or b.get("from_email"), **r})
+    return {"buzones": salida,
+            "respuestas": sum(x.get("respuestas", 0) for x in salida),
+            "rebotes": sum(x.get("rebotes", 0) for x in salida)}
+
+
 # ------------------------------------------------------------------ envío
+def nuevo_message_id(cfg: dict, token: str = "") -> str:
+    """El identificador con el que sale un correo.
+
+    Lleva la marca del correo adentro: cuando alguien responde, su programa
+    devuelve este identificador en In-Reply-To, y ahí se sabe a qué envío
+    corresponde. El dominio es el del remitente y no el de la máquina, que
+    además es lo que esperan los filtros de spam.
+    """
+    dominio = (cfg.get("from_email") or "").split("@")[-1].strip() or None
+    return make_msgid(idstring=token or None, domain=dominio)
+
+
 def _enviar_sincrono(cfg: dict, destino: str, asunto: str, cuerpo: str,
-                     cuerpo_html: str | None = None) -> None:
+                     cuerpo_html: str | None = None,
+                     message_id: str | None = None) -> None:
     """Manda un correo. Bloquea: se llama siempre dentro de un hilo aparte."""
     msg = EmailMessage()
     msg["From"] = formataddr((cfg.get("from_name") or "", cfg["from_email"]))
     msg["To"] = destino
     msg["Subject"] = asunto
-    msg["Message-ID"] = make_msgid()
+    msg["Message-ID"] = message_id or nuevo_message_id(cfg)
     # Primero el texto y después el HTML: el orden importa, cada programa
     # muestra la última versión que sabe leer.
     msg.set_content(cuerpo or html_a_texto(cuerpo_html or ""))
@@ -585,10 +794,13 @@ def metricas(campania: int) -> dict:
         # Personas distintas, no hechos: lo que importa es a cuántos les llegó
         # de verdad, no cuántas veces se abrió el mismo correo.
         gente = conn.execute(
-            """SELECT SUM(abrio) abrieron, SUM(clic) clicaron FROM (
+            """SELECT SUM(abrio) abrieron, SUM(clic) clicaron,
+                      SUM(resp) respondieron, SUM(reb) rebotaron FROM (
                  SELECT queue_id,
-                        MAX(kind='open'  AND bot=0) abrio,
-                        MAX(kind='click' AND bot=0) clic
+                        MAX(kind='open'   AND bot=0) abrio,
+                        MAX(kind='click'  AND bot=0) clic,
+                        MAX(kind='reply'  AND bot=0) resp,
+                        MAX(kind='bounce' AND bot=0) reb
                    FROM email_events WHERE campaign_id=? GROUP BY queue_id)""",
             (campania,)).fetchone()
 
@@ -607,20 +819,26 @@ def metricas(campania: int) -> dict:
         quienes = conn.execute(
             """SELECT q.email, q.status, q.sent_at, q.error,
                       ct.full_name, ct.company_name, ct.id contact_id,
-                      MAX(CASE WHEN e.kind='open'  AND e.bot=0 THEN e.at END) abrio,
-                      MAX(CASE WHEN e.kind='click' AND e.bot=0 THEN e.at END) clico,
+                      MAX(CASE WHEN e.kind='open'   AND e.bot=0 THEN e.at END) abrio,
+                      MAX(CASE WHEN e.kind='click'  AND e.bot=0 THEN e.at END) clico,
+                      MAX(CASE WHEN e.kind='reply'  AND e.bot=0 THEN e.at END) respondio,
+                      MAX(CASE WHEN e.kind='bounce' AND e.bot=0 THEN e.at END) reboto,
                       SUM(e.kind='click' AND e.bot=0) clics
                  FROM email_queue q
                  LEFT JOIN contacts ct ON ct.id = q.contact_id
                  LEFT JOIN email_events e ON e.queue_id = q.id
                 WHERE q.campaign_id=?
                 GROUP BY q.id
-                ORDER BY (clico IS NULL), clico DESC, (abrio IS NULL), abrio DESC,
+                ORDER BY (respondio IS NULL), respondio DESC,
+                         (clico IS NULL), clico DESC,
+                         (abrio IS NULL), abrio DESC,
                          q.sent_at DESC""", (campania,)).fetchall()
 
     enviados = env["enviados"] or 0
     abrieron = (gente["abrieron"] or 0) if gente else 0
     clicaron = (gente["clicaron"] or 0) if gente else 0
+    respondieron = (gente["respondieron"] or 0) if gente else 0
+    rebotaron = (gente["rebotaron"] or 0) if gente else 0
 
     def parte(n):
         return round(100 * n / enviados, 1) if enviados else 0.0
@@ -633,8 +851,11 @@ def metricas(campania: int) -> dict:
         "errores": env["errores"] or 0,
         "abrieron": abrieron,
         "clicaron": clicaron,
+        "respondieron": respondieron,
+        "rebotaron": rebotaron,
         "pct_abrieron": parte(abrieron),
         "pct_clicaron": parte(clicaron),
+        "pct_respondieron": parte(respondieron),
         "maquinas": maquinas,
         "primero": env["primero"],
         "ultimo": env["ultimo"],
@@ -699,6 +920,7 @@ def cambiar_estado(campania: int, nuevo: str) -> dict:
 # ------------------------------------------------------------------ obrero
 INTERVALO = 20          # cada cuánto mira la cola
 _worker: asyncio.Task | None = None
+_lector: asyncio.Task | None = None
 
 
 async def _tanda() -> None:
@@ -716,9 +938,15 @@ async def _tanda() -> None:
     if not fila:
         return
 
+    msg_id = nuevo_message_id(cfg, fila["token"] or "")
+    with get_db() as conn:
+        conn.execute("UPDATE email_queue SET message_id=? WHERE id=?",
+                     (msg_id, fila["id"]))
+
     try:
         await asyncio.to_thread(_enviar_sincrono, cfg, fila["email"],
-                                fila["subject"], fila["body"], fila["body_html"])
+                                fila["subject"], fila["body"], fila["body_html"],
+                                msg_id)
         ok, error = True, None
     except Exception as exc:
         ok, error = False, _explicar(exc)
@@ -744,6 +972,22 @@ async def _tanda() -> None:
                          "AND status='running'", (fila["campaign_id"],))
 
 
+# Cada cuánto se entra al buzón. Diez minutos: una respuesta no es urgente
+# y entrar cada minuto es una forma de que el servidor te corte el acceso.
+_CADA_BUZON = 600
+
+
+async def loop_buzones() -> None:
+    """Revisa los buzones cada tanto, sin que nadie tenga que apretar nada."""
+    while True:
+        try:
+            await revisar_buzones()
+        except Exception:
+            # Que no se caiga el ciclo: el próximo intento es en diez minutos.
+            pass
+        await asyncio.sleep(_CADA_BUZON)
+
+
 async def loop_envio() -> None:
     while True:
         try:
@@ -754,6 +998,11 @@ async def loop_envio() -> None:
 
 
 def arrancar_worker() -> None:
-    global _worker
+    global _worker, _lector
+    lazo = asyncio.get_event_loop()
     if _worker is None or _worker.done():
-        _worker = asyncio.get_event_loop().create_task(loop_envio())
+        _worker = lazo.create_task(loop_envio())
+    # El que lee el buzón va aparte: no depende de que haya una campaña en
+    # curso, porque una respuesta puede llegar días después del último envío.
+    if _lector is None or _lector.done():
+        _lector = lazo.create_task(loop_buzones())

@@ -124,6 +124,14 @@ CREATE TABLE IF NOT EXISTS smtp_config (
     active     INTEGER NOT NULL DEFAULT 1,
     daily_cap  INTEGER NOT NULL DEFAULT 50,
     last_used  TEXT,
+    -- Para leer las respuestas hay que entrar al buzón, no solo escribir.
+    -- Vacío = se deduce del servidor de salida (smtp.gmail.com → imap.gmail.com).
+    imap_host  TEXT,
+    imap_port  INTEGER NOT NULL DEFAULT 993,
+    -- Hasta dónde se leyó la última vez, para no releer todo cada vez.
+    imap_last_uid INTEGER NOT NULL DEFAULT 0,
+    imap_error TEXT,
+    imap_checked TEXT,
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -157,8 +165,11 @@ CREATE TABLE IF NOT EXISTS email_events (
     queue_id    INTEGER NOT NULL REFERENCES email_queue(id) ON DELETE CASCADE,
     campaign_id INTEGER NOT NULL REFERENCES email_campaigns(id) ON DELETE CASCADE,
     contact_id  INTEGER REFERENCES contacts(id) ON DELETE SET NULL,
-    kind        TEXT NOT NULL CHECK (kind IN ('open', 'click')),
+    kind        TEXT NOT NULL CHECK (kind IN ('open', 'click', 'reply', 'bounce')),
     url         TEXT,
+    -- El Message-ID del correo que llegó. Sirve para no contar dos veces la
+    -- misma respuesta si se vuelve a leer el buzón.
+    ref         TEXT,
     agent       TEXT,
     -- Lo que abrió un antivirus o el proxy de un servidor, no una persona.
     bot         INTEGER NOT NULL DEFAULT 0,
@@ -181,6 +192,10 @@ CREATE TABLE IF NOT EXISTS email_queue (
     -- La marca que identifica a este correo en el enlace de rastreo. Al azar
     -- para que nadie pueda adivinar el de otro y ensuciar los números.
     token       TEXT UNIQUE,
+    -- El identificador con el que salió. Una respuesta lo trae de vuelta en
+    -- In-Reply-To, y un rebote lo cita adentro: es así como se sabe a qué
+    -- correo corresponde lo que llegó.
+    message_id  TEXT,
     send_after  TEXT NOT NULL,
     status      TEXT NOT NULL DEFAULT 'pending'
                 CHECK (status IN ('pending', 'sent', 'error', 'cancelled')),
@@ -281,6 +296,7 @@ def _migrate(conn) -> None:
     _varios_buzones(conn)
     _cuerpo_html(conn)
     _rastreo(conn)
+    _lectura_del_buzon(conn)
 
 
 def _cuerpo_html(conn) -> None:
@@ -324,6 +340,61 @@ def _rastreo(conn) -> None:
             bot         INTEGER NOT NULL DEFAULT 0,
             at          TEXT NOT NULL DEFAULT (datetime('now'))
         );
+        CREATE INDEX IF NOT EXISTS ix_events_camp
+            ON email_events(campaign_id, kind, bot);
+        CREATE INDEX IF NOT EXISTS ix_events_queue ON email_events(queue_id, kind);
+    """)
+
+
+def _lectura_del_buzon(conn) -> None:
+    """Lo que hace falta para leer respuestas y rebotes.
+
+    El CHECK de email_events solo aceptaba 'open' y 'click'. SQLite no deja
+    cambiar un CHECK, así que la tabla se rehace conservando lo que tenga.
+    """
+    for col, ddl in (("imap_host", "TEXT"),
+                     ("imap_port", "INTEGER NOT NULL DEFAULT 993"),
+                     ("imap_last_uid", "INTEGER NOT NULL DEFAULT 0"),
+                     ("imap_error", "TEXT"),
+                     ("imap_checked", "TEXT")):
+        cols = {r["name"] for r in conn.execute("PRAGMA table_info(smtp_config)")}
+        if col not in cols:
+            conn.execute(f"ALTER TABLE smtp_config ADD COLUMN {col} {ddl}")
+
+    cols = {r["name"] for r in conn.execute("PRAGMA table_info(email_queue)")}
+    if "message_id" not in cols:
+        conn.execute("ALTER TABLE email_queue ADD COLUMN message_id TEXT")
+        conn.execute("CREATE INDEX IF NOT EXISTS ix_queue_msgid "
+                     "ON email_queue(message_id)")
+
+    fila = conn.execute("SELECT sql FROM sqlite_master WHERE type='table' "
+                        "AND name='email_events'").fetchone()
+    if not fila or "'reply'" in (fila["sql"] or ""):
+        cols = {r["name"] for r in conn.execute("PRAGMA table_info(email_events)")}
+        if fila and "ref" not in cols:
+            conn.execute("ALTER TABLE email_events ADD COLUMN ref TEXT")
+        return   # ya acepta los tipos nuevos
+
+    conn.execute("ALTER TABLE email_events RENAME TO email_events_vieja")
+    conn.executescript("""
+        CREATE TABLE email_events (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            queue_id    INTEGER NOT NULL REFERENCES email_queue(id) ON DELETE CASCADE,
+            campaign_id INTEGER NOT NULL REFERENCES email_campaigns(id) ON DELETE CASCADE,
+            contact_id  INTEGER REFERENCES contacts(id) ON DELETE SET NULL,
+            kind        TEXT NOT NULL
+                        CHECK (kind IN ('open', 'click', 'reply', 'bounce')),
+            url         TEXT,
+            ref         TEXT,
+            agent       TEXT,
+            bot         INTEGER NOT NULL DEFAULT 0,
+            at          TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        INSERT INTO email_events
+            (id, queue_id, campaign_id, contact_id, kind, url, agent, bot, at)
+            SELECT id, queue_id, campaign_id, contact_id, kind, url, agent, bot, at
+              FROM email_events_vieja;
+        DROP TABLE email_events_vieja;
         CREATE INDEX IF NOT EXISTS ix_events_camp
             ON email_events(campaign_id, kind, bot);
         CREATE INDEX IF NOT EXISTS ix_events_queue ON email_events(queue_id, kind);
