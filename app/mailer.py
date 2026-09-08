@@ -10,9 +10,11 @@ está pensada para no sorprender:
   uno nuevo si ya se le escribió antes.
 """
 import asyncio
+import base64
 import html as _html
 import random
 import re
+import secrets
 import smtplib
 import ssl
 from datetime import datetime, timedelta, timezone
@@ -256,6 +258,21 @@ _INVISIBLE = re.compile(r"(?is)<(script|style|head)\b.*?</\1>")
 _ETIQUETA = re.compile(r"<[^>]+>")
 
 
+# Un enlace con su rótulo: <a href="X">Y</a>
+_ENLACE = re.compile(r"(?is)<a\b[^>]*?\shref=(\"|')(.*?)\1[^>]*>(.*?)</a>")
+
+
+def _enlace_en_texto(m) -> str:
+    """El rótulo seguido de la dirección, salvo que sean lo mismo."""
+    destino = _html.unescape(m.group(2)).strip()
+    rotulo = _ETIQUETA.sub("", m.group(3)).strip()
+    if not destino.lower().startswith(("http://", "https://")):
+        return rotulo or destino
+    if not rotulo or rotulo == destino:
+        return destino
+    return f"{rotulo}: {destino}"
+
+
 def html_a_texto(cuerpo_html: str) -> str:
     """La versión de texto de un correo diseñado.
 
@@ -265,6 +282,9 @@ def html_a_texto(cuerpo_html: str) -> str:
     que alguien la olvide.
     """
     t = _INVISIBLE.sub(" ", cuerpo_html or "")
+    # Los enlaces primero: en texto plano un botón que dice "Agendar" sin la
+    # dirección al lado no sirve para nada.
+    t = _ENLACE.sub(_enlace_en_texto, t)
     t = _CORTES.sub("\n", t)
     t = _ETIQUETA.sub("", t)
     t = _html.unescape(t)
@@ -276,6 +296,106 @@ def html_a_texto(cuerpo_html: str) -> str:
 def variables_desconocidas(texto: str) -> list[str]:
     return sorted({m.group(1).lower() for m in _VAR_RE.finditer(texto or "")}
                   - set(VARIABLES))
+
+
+# ------------------------------------------------------------------ rastreo
+# Enlaces que no se tocan: no llevan a ninguna página que se pueda medir, y
+# reescribirlos rompería lo que hacen.
+_NO_RASTREAR = ("mailto:", "tel:", "#", "{{")
+_HREF = re.compile(r"(?i)(<a\b[^>]*?\shref=)(\"|')(.*?)\2")
+_PIXEL = ('<img src="{url}" width="1" height="1" alt="" '
+          'style="display:none;width:1px;height:1px">')
+
+
+def _url_rastreo(base: str, tipo: str, token: str, destino: str = "") -> str:
+    """La dirección por la que pasa el correo antes de llegar a su destino."""
+    if tipo == "click":
+        codigo = base64.urlsafe_b64encode(destino.encode()).decode().rstrip("=")
+        return f"{base}/t/c/{token}?u={codigo}"
+    return f"{base}/t/a/{token}.png"
+
+
+def descifrar_destino(codigo: str) -> str:
+    """Devuelve la dirección original de un enlace rastreado."""
+    relleno = "=" * (-len(codigo) % 4)
+    return base64.urlsafe_b64decode(codigo + relleno).decode(errors="replace")
+
+
+def marcar_html(cuerpo_html: str, base: str, token: str) -> str:
+    """Deja el correo listo para medirse: enlaces por el desvío y el pixel.
+
+    El pixel es una imagen de un punto que el programa de correo baja al
+    abrir el mensaje. Es la única forma de estimar una apertura, y es una
+    estimación: quien lee con las imágenes apagadas no aparece, y Apple Mail
+    las baja solo aunque nadie haya abierto nada. El clic, en cambio, es un
+    hecho.
+    """
+    if not (cuerpo_html or "").strip() or not base:
+        return cuerpo_html
+
+    def desviar(m):
+        # El href está escrito en HTML: un & aparece como &amp;. Se vuelve a
+        # texto antes de guardarlo, o el clic terminaría en una dirección con
+        # el "&amp;" adentro, que no lleva a ningún lado.
+        destino = _html.unescape(m.group(3))
+        if not destino or destino.lower().startswith(_NO_RASTREAR):
+            return m.group(0)
+        return f'{m.group(1)}{m.group(2)}{_html.escape(_url_rastreo(base, "click", token, destino), quote=True)}{m.group(2)}'
+
+    salida = _HREF.sub(desviar, cuerpo_html)
+    pixel = _PIXEL.format(url=_html.escape(_url_rastreo(base, "open", token), quote=True))
+    # Al final del cuerpo si lo hay, y si no al final de todo.
+    if "</body>" in salida.lower():
+        i = salida.lower().rindex("</body>")
+        return salida[:i] + pixel + salida[i:]
+    return salida + pixel
+
+
+def registrar_evento(token: str, kind: str, url: str = "", agent: str = "") -> dict:
+    """Anota una apertura o un clic. Devuelve a dónde seguir, si hay dónde."""
+    with get_db() as conn:
+        fila = conn.execute(
+            "SELECT id, campaign_id, contact_id, sent_at FROM email_queue "
+            "WHERE token=?", (token,)).fetchone()
+        if not fila:
+            return {"ok": False}
+
+        conn.execute(
+            """INSERT INTO email_events
+                 (queue_id, campaign_id, contact_id, kind, url, agent, bot)
+               VALUES (?,?,?,?,?,?,?)""",
+            (fila["id"], fila["campaign_id"], fila["contact_id"], kind,
+             url or None, (agent or "")[:200], int(_es_maquina(agent, fila["sent_at"]))))
+    return {"ok": True}
+
+
+# Aparatos que abren el correo sin que nadie lo lea: antivirus del servidor
+# del destinatario, filtros de la empresa, robots sueltos.
+_MAQUINAS = ("proofpoint", "barracuda", "mimecast", "symantec", "forcepoint",
+             "trendmicro", "sophos", "bitdefender", "curl/", "wget",
+             "python-requests", "bot", "spider", "crawler")
+
+
+def _es_maquina(agent: str, sent_at: str | None) -> bool:
+    """Si esto lo abrió un filtro y no una persona.
+
+    Dos señales. Una, el nombre del programa. Dos, el reloj: un correo que se
+    'abre' en los primeros segundos lo abrió el antivirus del servidor que lo
+    recibió, porque nadie lee tan rápido.
+
+    El proxy de imágenes de Gmail NO entra acá: Gmail baja la imagen recién
+    cuando la persona abre el mensaje, así que ahí sí hubo alguien.
+    """
+    a = (agent or "").lower()
+    if any(m in a for m in _MAQUINAS):
+        return True
+    if sent_at:
+        try:
+            salida = datetime.fromisoformat(sent_at).replace(tzinfo=timezone.utc)
+            return (_ahora() - salida).total_seconds() < 5
+        except ValueError:
+            pass
+    return False
 
 
 # ------------------------------------------------------------------ envío
@@ -378,7 +498,7 @@ def contactos_enviables(contact_ids: list[int], repetir: bool = False) -> list[d
 
 def crear_campania(nombre: str, asunto: str, cuerpo: str, contactos: list[dict],
                    cada_segundos: int, jitter: int, tope_diario: int,
-                   cuerpo_html: str = "") -> dict:
+                   cuerpo_html: str = "", base_rastreo: str = "") -> dict:
     """Arma la campaña y reparte las horas de salida del goteo."""
     with get_db() as conn:
         cur = conn.execute(
@@ -388,6 +508,8 @@ def crear_campania(nombre: str, asunto: str, cuerpo: str, contactos: list[dict],
                VALUES (?,?,?,?,?,?,?)""",
             (nombre or None, asunto, cuerpo, cuerpo_html or None,
              cada_segundos, jitter, tope_diario))
+        conn.execute("UPDATE email_campaigns SET track_base=? WHERE id=?",
+                     (base_rastreo or None, cur.lastrowid))
         campania = cur.lastrowid
 
         momento = _ahora()
@@ -402,8 +524,13 @@ def crear_campania(nombre: str, asunto: str, cuerpo: str, contactos: list[dict],
             # así lo que sale es exactamente lo que se vio en la vista previa.
             html_armado = render(cuerpo_html, c, para_html=True) if cuerpo_html else ""
             texto = render(cuerpo, c) if cuerpo else html_a_texto(html_armado)
+            # La versión de texto se saca ANTES de marcar: si no, el enlace
+            # que se lee en texto plano sería el del desvío y no el real.
+            marca = secrets.token_urlsafe(16)
+            if html_armado and base_rastreo:
+                html_armado = marcar_html(html_armado, base_rastreo, marca)
             filas.append((campania, c["id"], c["email"], render(asunto, c),
-                          texto, html_armado or None, _iso(momento)))
+                          texto, html_armado or None, marca, _iso(momento)))
             enviados_hoy += 1
             # El jitter evita el patrón de reloj: mandar exacto cada 180 s es
             # una firma de robot para cualquier filtro de spam.
@@ -412,10 +539,110 @@ def crear_campania(nombre: str, asunto: str, cuerpo: str, contactos: list[dict],
         conn.executemany(
             """INSERT OR IGNORE INTO email_queue
                  (campaign_id, contact_id, email, subject, body, body_html,
-                  send_after)
-               VALUES (?,?,?,?,?,?,?)""", filas)
+                  token, send_after)
+               VALUES (?,?,?,?,?,?,?,?)""", filas)
     return {"campaign_id": campania, "queued": len(filas),
-            "termina": filas[-1][6] if filas else None}
+            "termina": filas[-1][7] if filas else None}
+
+
+def campanias() -> list[dict]:
+    """Las campañas, de la más nueva a la más vieja, con lo básico de cada una."""
+    with get_db() as conn:
+        filas = conn.execute(
+            """SELECT c.id, c.name, c.subject, c.status, c.created_at,
+                      COUNT(q.id) total,
+                      SUM(q.status='sent') enviados,
+                      SUM(q.status='pending') pendientes
+                 FROM email_campaigns c
+                 LEFT JOIN email_queue q ON q.campaign_id = c.id
+                GROUP BY c.id
+                ORDER BY c.id DESC""").fetchall()
+    return [dict(f) for f in filas]
+
+
+def metricas(campania: int) -> dict:
+    """Qué pasó con una campaña: cuántos salieron, cuántos se abrieron, quién.
+
+    Las aperturas se cuentan por persona, no por vez: un correo que alguien
+    deja abierto en una pestaña suma una sola. Y no se cuentan las de las
+    máquinas, que son las que inflan el número sin que nadie haya leído nada.
+    """
+    with get_db() as conn:
+        c = conn.execute("SELECT * FROM email_campaigns WHERE id=?",
+                         (campania,)).fetchone()
+        if not c:
+            return {}
+
+        env = conn.execute(
+            """SELECT COUNT(*) total,
+                      SUM(status='sent') enviados,
+                      SUM(status='pending') pendientes,
+                      SUM(status='error') errores,
+                      SUM(body_html IS NOT NULL AND body_html <> '') con_diseno,
+                      MIN(sent_at) primero, MAX(sent_at) ultimo
+                 FROM email_queue WHERE campaign_id=?""", (campania,)).fetchone()
+
+        # Personas distintas, no hechos: lo que importa es a cuántos les llegó
+        # de verdad, no cuántas veces se abrió el mismo correo.
+        gente = conn.execute(
+            """SELECT SUM(abrio) abrieron, SUM(clic) clicaron FROM (
+                 SELECT queue_id,
+                        MAX(kind='open'  AND bot=0) abrio,
+                        MAX(kind='click' AND bot=0) clic
+                   FROM email_events WHERE campaign_id=? GROUP BY queue_id)""",
+            (campania,)).fetchone()
+
+        maquinas = conn.execute(
+            "SELECT COUNT(*) n FROM email_events WHERE campaign_id=? AND bot=1",
+            (campania,)).fetchone()["n"]
+
+        enlaces = conn.execute(
+            """SELECT url, COUNT(*) veces, COUNT(DISTINCT queue_id) personas
+                 FROM email_events
+                WHERE campaign_id=? AND kind='click' AND bot=0 AND url IS NOT NULL
+                GROUP BY url ORDER BY personas DESC, veces DESC""",
+            (campania,)).fetchall()
+
+        # Quién: es lo único de todo esto que se puede accionar hoy.
+        quienes = conn.execute(
+            """SELECT q.email, q.status, q.sent_at, q.error,
+                      ct.full_name, ct.company_name, ct.id contact_id,
+                      MAX(CASE WHEN e.kind='open'  AND e.bot=0 THEN e.at END) abrio,
+                      MAX(CASE WHEN e.kind='click' AND e.bot=0 THEN e.at END) clico,
+                      SUM(e.kind='click' AND e.bot=0) clics
+                 FROM email_queue q
+                 LEFT JOIN contacts ct ON ct.id = q.contact_id
+                 LEFT JOIN email_events e ON e.queue_id = q.id
+                WHERE q.campaign_id=?
+                GROUP BY q.id
+                ORDER BY (clico IS NULL), clico DESC, (abrio IS NULL), abrio DESC,
+                         q.sent_at DESC""", (campania,)).fetchall()
+
+    enviados = env["enviados"] or 0
+    abrieron = (gente["abrieron"] or 0) if gente else 0
+    clicaron = (gente["clicaron"] or 0) if gente else 0
+
+    def parte(n):
+        return round(100 * n / enviados, 1) if enviados else 0.0
+
+    return {
+        "campaign": dict(c),
+        "total": env["total"] or 0,
+        "enviados": enviados,
+        "pendientes": env["pendientes"] or 0,
+        "errores": env["errores"] or 0,
+        "abrieron": abrieron,
+        "clicaron": clicaron,
+        "pct_abrieron": parte(abrieron),
+        "pct_clicaron": parte(clicaron),
+        "maquinas": maquinas,
+        "primero": env["primero"],
+        "ultimo": env["ultimo"],
+        # Sin diseño no hay pixel ni enlaces que desviar: no hay nada que medir.
+        "medible": bool(c["track_base"]) and bool(env["con_diseno"]),
+        "enlaces": [dict(e) for e in enlaces],
+        "gente": [dict(g) for g in quienes],
+    }
 
 
 def estado(campania: int | None = None) -> dict:

@@ -135,6 +135,10 @@ CREATE TABLE IF NOT EXISTS email_campaigns (
     body           TEXT NOT NULL,
     -- El mismo correo diseñado. Vacío = se manda solo la versión de texto.
     body_html      TEXT,
+    -- Desde qué dirección se sirven el pixel y los enlaces. Se guarda con la
+    -- campaña: si mañana cambia el dominio, los correos ya enviados siguen
+    -- apuntando al que existía cuando salieron.
+    track_base     TEXT,
     every_seconds  INTEGER NOT NULL DEFAULT 180,
     jitter_seconds INTEGER NOT NULL DEFAULT 60,
     daily_cap      INTEGER NOT NULL DEFAULT 50,
@@ -145,6 +149,24 @@ CREATE TABLE IF NOT EXISTS email_campaigns (
 
 -- La cola. Cada fila tiene su hora: el goteo vive acá y no en memoria, así
 -- reiniciar la app no pierde lo que faltaba mandar ni reenvía lo ya mandado.
+-- Cada vez que alguien abre un correo o toca un enlace. Una fila por
+-- hecho, no un contador: sirve para saber quién y cuándo, que es lo que
+-- convierte una métrica en una llamada.
+CREATE TABLE IF NOT EXISTS email_events (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    queue_id    INTEGER NOT NULL REFERENCES email_queue(id) ON DELETE CASCADE,
+    campaign_id INTEGER NOT NULL REFERENCES email_campaigns(id) ON DELETE CASCADE,
+    contact_id  INTEGER REFERENCES contacts(id) ON DELETE SET NULL,
+    kind        TEXT NOT NULL CHECK (kind IN ('open', 'click')),
+    url         TEXT,
+    agent       TEXT,
+    -- Lo que abrió un antivirus o el proxy de un servidor, no una persona.
+    bot         INTEGER NOT NULL DEFAULT 0,
+    at          TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS ix_events_camp ON email_events(campaign_id, kind, bot);
+CREATE INDEX IF NOT EXISTS ix_events_queue ON email_events(queue_id, kind);
+
 CREATE TABLE IF NOT EXISTS email_queue (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     -- Desde qué buzón salió: para repartir la carga y para saber después
@@ -156,6 +178,9 @@ CREATE TABLE IF NOT EXISTS email_queue (
     subject     TEXT NOT NULL,
     body        TEXT NOT NULL,
     body_html   TEXT,
+    -- La marca que identifica a este correo en el enlace de rastreo. Al azar
+    -- para que nadie pueda adivinar el de otro y ensuciar los números.
+    token       TEXT UNIQUE,
     send_after  TEXT NOT NULL,
     status      TEXT NOT NULL DEFAULT 'pending'
                 CHECK (status IN ('pending', 'sent', 'error', 'cancelled')),
@@ -255,6 +280,7 @@ def _migrate(conn) -> None:
     _allow_web_as_source(conn)
     _varios_buzones(conn)
     _cuerpo_html(conn)
+    _rastreo(conn)
 
 
 def _cuerpo_html(conn) -> None:
@@ -268,6 +294,40 @@ def _cuerpo_html(conn) -> None:
         cols = {r["name"] for r in conn.execute(f"PRAGMA table_info({tabla})")}
         if "body_html" not in cols:
             conn.execute(f"ALTER TABLE {tabla} ADD COLUMN body_html TEXT")
+
+
+def _rastreo(conn) -> None:
+    """Las columnas y la tabla del rastreo, en bases que ya existían.
+
+    Los correos que salieron antes quedan sin marca y por lo tanto sin
+    métricas: no hay forma de saber qué pasó con algo que ya se entregó.
+    """
+    cols = {r["name"] for r in conn.execute("PRAGMA table_info(email_queue)")}
+    if "token" not in cols:
+        conn.execute("ALTER TABLE email_queue ADD COLUMN token TEXT")
+        conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS ix_queue_token "
+                     "ON email_queue(token)")
+
+    cols = {r["name"] for r in conn.execute("PRAGMA table_info(email_campaigns)")}
+    if "track_base" not in cols:
+        conn.execute("ALTER TABLE email_campaigns ADD COLUMN track_base TEXT")
+
+    conn.executescript("""
+        CREATE TABLE IF NOT EXISTS email_events (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            queue_id    INTEGER NOT NULL REFERENCES email_queue(id) ON DELETE CASCADE,
+            campaign_id INTEGER NOT NULL REFERENCES email_campaigns(id) ON DELETE CASCADE,
+            contact_id  INTEGER REFERENCES contacts(id) ON DELETE SET NULL,
+            kind        TEXT NOT NULL CHECK (kind IN ('open', 'click')),
+            url         TEXT,
+            agent       TEXT,
+            bot         INTEGER NOT NULL DEFAULT 0,
+            at          TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        CREATE INDEX IF NOT EXISTS ix_events_camp
+            ON email_events(campaign_id, kind, bot);
+        CREATE INDEX IF NOT EXISTS ix_events_queue ON email_events(queue_id, kind);
+    """)
 
 
 def _varios_buzones(conn) -> None:

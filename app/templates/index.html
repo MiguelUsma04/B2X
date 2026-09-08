@@ -59,9 +59,13 @@
       <span class="ico" aria-hidden="true">✈</span><span class="num">4</span>
       <span><span class="t">Correos</span><span class="d">Campaña en goteo</span></span>
     </button>
+    <button class="step" data-panel="results">
+      <span class="ico" aria-hidden="true">📈</span><span class="num">5</span>
+      <span><span class="t">Resultados</span><span class="d">Aperturas y clics</span></span>
+    </button>
     <button class="step" data-panel="settings">
       <span class="ico" aria-hidden="true">⚙</span><span class="num">·</span>
-      <span><span class="t">Configuración</span>
+      <span><span class="t">Ajustes</span>
         <span class="d">Buzones e historial</span></span>
     </button>
   </nav>
@@ -411,6 +415,50 @@
   </section>
 
   <!-- ========================= BUZONES ========================= -->
+  <!-- ========================= RESULTADOS ========================= -->
+  <section class="panel" id="panel-results">
+    <div class="card">
+      <h2>Resultados del envío
+        <span class="hint" id="res-hint"></span></h2>
+      <div class="body">
+        <div class="field" style="max-width:520px">
+          <label class="fld" for="res-campania">Qué envío</label>
+          <select id="res-campania" onchange="cargarMetricas(this.value)"></select>
+        </div>
+        <div id="res-aviso"></div>
+      </div>
+    </div>
+
+    <div class="metrics" style="grid-template-columns:1fr">
+      <div class="tiles" id="res-tiles"></div>
+    </div>
+
+    <div class="card" id="res-enlaces-card" hidden>
+      <h2>Qué tocaron</h2>
+      <div class="body">
+        <div class="tbl-scroll">
+          <table class="rtable">
+            <thead><tr><th>Enlace</th><th>Personas</th><th>Veces</th></tr></thead>
+            <tbody id="res-enlaces"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <div class="card list">
+      <h2>Uno por uno <span class="hint" id="res-gente-hint"></span></h2>
+      <div class="tbl-scroll" style="max-height:60vh">
+        <table class="rtable">
+          <thead><tr>
+            <th>Contacto</th><th>Correo</th><th>Salió</th>
+            <th>Abrió</th><th>Tocó</th>
+          </tr></thead>
+          <tbody id="res-gente"></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
   <section class="panel" id="panel-settings">
     <div class="segmented" role="tablist" aria-label="Qué configurar">
       <button class="seg active" id="seg-buzones" role="tab" aria-selected="true"

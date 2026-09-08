@@ -120,12 +120,91 @@ document.querySelectorAll('.step').forEach((t) => {
     // Los buzones cambian desde otra pantalla: se releen al entrar para que
     // el estimado y el botón de enviar reflejen lo que hay ahora.
     if (t.dataset.panel === 'mail' || t.dataset.panel === 'settings') loadSmtp();
+    if (t.dataset.panel === 'results') cargarMetricas();
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 });
 function goToStep(name) {
   const btn = document.querySelector(`.step[data-panel="${name}"]`);
   if (btn) btn.click();
+}
+
+/* ======================= resultados del envío ======================= */
+// Fecha corta: la hora es lo que importa acá, el año se sobreentiende.
+function cuando(iso) {
+  if (!iso) return '';
+  const d = new Date(iso.replace(' ', 'T') + (iso.endsWith('Z') ? '' : 'Z'));
+  if (isNaN(d)) return esc(iso);
+  return d.toLocaleString('es-CO', { day: '2-digit', month: 'short',
+                                     hour: '2-digit', minute: '2-digit' });
+}
+
+async function cargarMetricas(cual) {
+  const url = '/api/mail/metrics' + (cual ? '?campaign=' + encodeURIComponent(cual) : '');
+  const d = await (await fetch(url)).json();
+  const sel = $('res-campania');
+
+  if (!d.campaigns || !d.campaigns.length) {
+    sel.innerHTML = '<option>Todavía no mandaste ninguno</option>';
+    $('res-tiles').innerHTML = '';
+    $('res-enlaces-card').hidden = true;
+    $('res-gente').innerHTML = '';
+    $('res-aviso').innerHTML = `<div class="alert info">Acá van a aparecer los
+      resultados cuando mandes tu primer envío desde <b>Correos</b>.</div>`;
+    return;
+  }
+
+  const m = d.metrics || {};
+  sel.innerHTML = d.campaigns.map((c) => `
+    <option value="${c.id}" ${m.campaign && c.id === m.campaign.id ? 'selected' : ''}>
+      ${esc(c.subject || c.name || 'Envío ' + c.id)} · ${cuando(c.created_at)}
+    </option>`).join('');
+
+  // Sin diseño HTML no hay pixel ni enlaces que desviar, y sin dirección
+  // pública los enlaces del correo no llevarían a ningún lado.
+  $('res-aviso').innerHTML = m.medible
+    ? `<p class="help">Las aperturas son una estimación: quien lee con las
+       imágenes apagadas no aparece, y algunos programas las cuentan solas.
+       <b>El clic sí es un hecho.</b></p>`
+    : `<div class="alert warn">Este envío no se midió.
+       ${!d.base ? 'B2K necesita una dirección pública de internet para servir el '
+                 + 'rastreo; en esta máquina no la tiene.'
+                 : 'Se mandó en texto plano: para medir aperturas y clics el '
+                 + 'correo tiene que ir en <b>Diseño HTML</b>.'}</div>`;
+
+  const t = (k, v, n, cls) => `
+    <div class="tile ${cls || ''}"><span class="k">${k}</span>
+      <span class="v">${v}</span><span class="n">${n}</span></div>`;
+  $('res-tiles').innerHTML =
+    t('Salieron', m.enviados, `de ${m.total} en la lista`) +
+    t('Abrieron', m.abrieron, m.medible ? `${m.pct_abrieron}% de los que salieron`
+                                        : 'no se midió') +
+    t('Tocaron un enlace', m.clicaron, m.medible ? `${m.pct_clicaron}% de los que salieron`
+                                                 : 'no se midió') +
+    t('En cola', m.pendientes, m.pendientes ? 'todavía por salir' : 'no queda nada') +
+    t('Con error', m.errores, m.errores ? 'no se pudieron mandar' : 'ninguno');
+
+  const enlaces = m.enlaces || [];
+  $('res-enlaces-card').hidden = !enlaces.length;
+  $('res-enlaces').innerHTML = enlaces.map((e) => `
+    <tr><td><a href="${esc(e.url)}" target="_blank" rel="noopener noreferrer"
+              >${esc(e.url.slice(0, 70))}</a></td>
+      <td><b>${e.personas}</b></td><td>${e.veces}</td></tr>`).join('');
+
+  const gente = m.gente || [];
+  $('res-gente-hint').textContent = gente.length ? `${gente.length} contacto(s)` : '';
+  $('res-gente').innerHTML = gente.map((g) => {
+    const estado = g.status === 'sent' ? cuando(g.sent_at)
+      : g.status === 'error' ? `<span class="pill error" title="${esc(g.error || '')}">error</span>`
+      : `<span class="pill pending">${esc(g.status === 'pending' ? 'en cola' : g.status)}</span>`;
+    return `<tr>
+      <td><b>${esc(g.full_name || g.company_name || '—')}</b></td>
+      <td class="sub">${esc(g.email)}</td>
+      <td>${estado}</td>
+      <td>${g.abrio ? cuando(g.abrio) : '—'}</td>
+      <td>${g.clico ? `<b>${cuando(g.clico)}</b>${g.clics > 1 ? ` ·&nbsp;${g.clics}` : ''}`
+                    : '—'}</td></tr>`;
+  }).join('');
 }
 
 /* ======================= métricas ======================= */
@@ -1100,7 +1179,7 @@ async function loadSmtp() {
       ? `Se van a repartir entre ${act.length} buzones: ${act.map((m) => m.from_email).join(', ')}.`
       : (act.length === 1
           ? `Todos salen desde ${act[0].from_email}. Agregá otro buzón para repartir el volumen.`
-          : 'No hay buzones activos: configurá uno en la sección Buzones.');
+          : 'No hay buzones activos: configurá uno en Ajustes.');
   }
   updateMailBtn();
 }
@@ -1450,7 +1529,7 @@ async function probarEsteCorreo() {
   }
   const activos = MAILBOXES.filter((m) => m.active && m.configured);
   if (!activos.length) {
-    toast('Configurá un buzón en Configuración', 'warn');
+    toast('Configurá un buzón en Ajustes', 'warn');
     return;
   }
 

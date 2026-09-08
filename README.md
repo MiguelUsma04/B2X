@@ -41,6 +41,7 @@ proveedores están configurados (verde = activo).
 | `ENRICH_DELAY_SECONDS` | Espera entre contactos | default `1.0` |
 | `ENRICH_MAX_RETRIES` | Reintentos ante 429/5xx | default `3` |
 | `ONLY_VERIFIED_EMAIL` | Prospeo: solo emails verificados | default `false` |
+| `PUBLIC_URL` | Dirección pública de B2K | necesaria para medir aperturas y clics |
 | `APP_PASSWORD` | Contraseña de acceso | obligatoria para exponer la app |
 | `SECRET_KEY` | Firma de la cookie de sesión | `python -c "import secrets; print(secrets.token_urlsafe(32))"` |
 | `COOKIE_SECURE` | Cookie solo por HTTPS | default `true` |

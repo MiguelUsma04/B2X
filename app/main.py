@@ -1,5 +1,6 @@
 """B2X — app interna de prospección B2B. FastAPI + SQLite."""
 import asyncio
+import base64
 import datetime
 import json
 import os
@@ -11,7 +12,8 @@ from urllib.parse import quote
 
 import httpx
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.responses import (HTMLResponse, JSONResponse,
+                               RedirectResponse, Response)
 from fastapi.staticfiles import StaticFiles
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -697,8 +699,35 @@ def api_mail_preview(contact_ids: str = Form(...), subject: str = Form(""),
     }
 
 
+# Direcciones que solo existen en esta máquina. Un correo con enlaces
+# apuntando acá le llega al cliente roto, así que ahí no se rastrea nada.
+_LOCALES = ("localhost", "127.0.0.1", "0.0.0.0", "::1")
+
+
+def _base_publica(request: Request) -> str:
+    """La dirección por la que se llega a B2K desde afuera.
+
+    Es la que se escribe adentro del correo, así que tiene que ser la de
+    internet y no la que ve el servidor: detrás de Traefik la app se cree en
+    http y en otro puerto. Sin una dirección pública no se rastrea: mejor un
+    correo sin métricas que un correo con enlaces rotos.
+    """
+    fijo = (os.getenv("PUBLIC_URL") or "").strip().rstrip("/")
+    if fijo:
+        return fijo
+    cab = request.headers
+    proto = (cab.get("x-forwarded-proto", "").split(",")[0].strip()
+             or request.url.scheme)
+    host = (cab.get("x-forwarded-host", "").split(",")[0].strip()
+            or cab.get("host", ""))
+    if not host or any(host.startswith(l) for l in _LOCALES):
+        return ""
+    return f"{proto}://{host}"
+
+
 @app.post("/api/mail/schedule")
-def api_mail_schedule(contact_ids: str = Form(...), subject: str = Form(...),
+def api_mail_schedule(request: Request,
+                      contact_ids: str = Form(...), subject: str = Form(...),
                       body: str = Form(""), name: str = Form(""),
                       limit: str = Form(""), every_seconds: str = Form("180"),
                       jitter_seconds: str = Form("60"), daily_cap: str = Form("50"),
@@ -740,7 +769,8 @@ def api_mail_schedule(contact_ids: str = Form(...), subject: str = Form(...),
         cada_segundos=entero(every_seconds, 180, 10),
         jitter=entero(jitter_seconds, 60),
         tope_diario=entero(daily_cap, 50),
-        cuerpo_html=body_html)
+        cuerpo_html=body_html,
+        base_rastreo=_base_publica(request))
     mailer.arrancar_worker()
     return {"started": True, **r}
 
@@ -748,6 +778,65 @@ def api_mail_schedule(contact_ids: str = Form(...), subject: str = Form(...),
 @app.get("/api/mail/status")
 def api_mail_status():
     return mailer.estado()
+
+
+# ------------------------------------------------------------------ rastreo
+# Un punto transparente. Va escrito acá y no como archivo para que no dependa
+# de nada del disco: si esto falla, falla el correo de alguien.
+_PUNTO = base64.b64decode(
+    b"R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7")
+
+
+@app.get("/t/a/{token}.png")
+def track_open(token: str, request: Request):
+    """Alguien abrió el correo. Devuelve la imagen pase lo que pase."""
+    try:
+        mailer.registrar_evento(token, "open",
+                                agent=request.headers.get("user-agent", ""))
+    except Exception:
+        # Un error acá no puede romper el correo de nadie.
+        pass
+    return Response(_PUNTO, media_type="image/gif",
+                    headers={"Cache-Control": "no-store, no-cache, must-revalidate",
+                             "Pragma": "no-cache"})
+
+
+@app.get("/t/c/{token}")
+def track_click(token: str, request: Request, u: str = ""):
+    """Alguien tocó un enlace. Se anota y se lo manda a donde iba."""
+    try:
+        destino = mailer.descifrar_destino(u)
+    except Exception:
+        destino = ""
+    # Solo direcciones de internet: sin esto, un enlace armado a mano podría
+    # usar la app para mandar gente a donde quiera.
+    if not destino.lower().startswith(("http://", "https://")):
+        raise HTTPException(400, "Enlace inválido.")
+    try:
+        mailer.registrar_evento(token, "click", url=destino,
+                                agent=request.headers.get("user-agent", ""))
+    except Exception:
+        pass
+    return RedirectResponse(destino, status_code=302)
+
+
+@app.get("/api/mail/campaigns")
+def api_mail_campaigns():
+    return {"campaigns": mailer.campanias()}
+
+
+@app.get("/api/mail/metrics")
+def api_mail_metrics(request: Request, campaign: str = ""):
+    """Los resultados de una campaña. Sin indicar cuál, la más reciente."""
+    lista = mailer.campanias()
+    base = _base_publica(request)
+    if not lista:
+        return {"campaigns": [], "metrics": {}, "base": base}
+    try:
+        cid = int(campaign)
+    except (TypeError, ValueError):
+        cid = lista[0]["id"]
+    return {"campaigns": lista, "metrics": mailer.metricas(cid), "base": base}
 
 
 @app.post("/api/mail/control")

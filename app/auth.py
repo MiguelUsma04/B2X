@@ -25,7 +25,8 @@ ESTADO_COOKIE = "b2x_oauth"
 MAX_AGE = 60 * 60 * 12  # 12 h
 ESTADO_MAX_AGE = 60 * 10   # el ida y vuelta con Google no debería tardar más
 
-# Rutas accesibles sin sesión.
+# Rutas accesibles sin sesión. Además de estas, todo lo que cuelga de /t/:
+# es lo que abre quien recibe el correo, que nunca va a tener sesión acá.
 PUBLIC_PATHS = {"/login", "/api/login", "/static/style.css", "/favicon.ico",
                 "/auth/google/start", "/auth/google/callback"}
 
@@ -245,7 +246,8 @@ async def auth_middleware(request: Request, call_next):
             status_code=503,
         )
 
-    if path in PUBLIC_PATHS or path.startswith("/static/"):
+    if path in PUBLIC_PATHS or path.startswith("/static/") \
+            or path.startswith("/t/"):
         return await call_next(request)
 
     if valid_session(request):
