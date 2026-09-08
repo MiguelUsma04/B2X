@@ -506,7 +506,23 @@
         <div id="mb-list" style="margin-top:16px"></div>
         <div class="row" style="margin-top:14px">
           <button class="primary" onclick="newMailbox()">Agregar un buzón</button>
+          <button class="ghost" id="btn-dns" onclick="revisarDns()">Revisar
+            el DNS</button>
         </div>
+        <details class="tip" style="margin-top:12px">
+          <summary>Mandar desde subdominios</summary>
+          <div class="tip-b">
+            <p>Un subdominio (<b>ventas@mail.tudominio.co</b>) sirve para que la
+              prospección en frío no se lleve puesta la reputación del dominio
+              principal: si algo sale mal, cae el subdominio y no el correo con
+              el que hablás con tus clientes.</p>
+            <p><b>El SPF no se hereda.</b> El registro de tudominio.co no cubre
+              a mail.tudominio.co: cada subdominio necesita el suyo, y su propia
+              clave DKIM. El DMARC sí se hereda del dominio padre.</p>
+            <p>El botón de arriba consulta el DNS de cada dominio y dice cuál de
+              los tres falta.</p>
+          </div>
+        </details>
         <div id="mb-form"></div>
       </div>
     </div>

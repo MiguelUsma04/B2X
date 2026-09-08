@@ -39,7 +39,7 @@ _load_env()
 from .db import get_db, init_db          # noqa: E402
 from .importer import (delete_batch, import_contacts,      # noqa: E402
                        import_places, preview_csv)
-from . import ai, auth, enrichment, ghl, mailer, places   # noqa: E402
+from . import ai, auth, dnscheck, enrichment, ghl, mailer, places  # noqa: E402
 from .providers import build_chain       # noqa: E402
 
 app = FastAPI(title="B2X", docs_url="/api/docs")
@@ -590,6 +590,7 @@ def api_mail_config():
     return {"mailboxes": buzones,
             "configured": any(b["configured"] and b["active"] for b in buzones),
             "capacity_today": sum(b["remaining"] for b in buzones),
+            "domains": mailer.resumen_por_dominio(),
             "variables": mailer.VARIABLES}
 
 
@@ -820,6 +821,36 @@ def track_click(token: str, request: Request, u: str = ""):
     except Exception:
         pass
     return RedirectResponse(destino, status_code=302)
+
+
+@app.post("/api/mail/dns/check")
+async def api_mail_dns(domain: str = Form("")):
+    """Revisa SPF, DKIM y DMARC de los dominios desde los que se manda.
+
+    Se consulta a pedido y el resultado queda guardado: el DNS no cambia solo
+    y preguntarlo en cada carga de pantalla sería ruido.
+    """
+    if domain.strip():
+        dominios = [domain.strip().lower()]
+    else:
+        dominios = sorted({mailer.dominio_de(b) for b in mailer.list_mailboxes()
+                           if mailer.dominio_de(b)})
+    if not dominios:
+        return {"domains": []}
+
+    salida = []
+    for d in dominios:
+        r = await dnscheck.revisar_dominio(d)
+        with get_db() as conn:
+            conn.execute(
+                """INSERT INTO domain_dns (domain, ok, detail, checked_at)
+                   VALUES (?,?,?, datetime('now'))
+                   ON CONFLICT(domain) DO UPDATE SET
+                     ok=excluded.ok, detail=excluded.detail,
+                     checked_at=excluded.checked_at""",
+                (d, 1 if r["ok"] else 0, json.dumps(r, ensure_ascii=False)))
+        salida.append(r)
+    return {"domains": salida}
 
 
 @app.post("/api/mail/inbox/scan")

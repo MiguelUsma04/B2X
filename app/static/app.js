@@ -1150,6 +1150,52 @@ let MAILPOLL = null;
 /* Vive en una hoja y no al pie de la lista: con cientos de contactos, llegar
    scrolleando hasta el final para escribir un correo no es un camino. */
 let MAILBOXES = [];
+let DOMINIOS = [];
+
+// El nombre corto de cada registro y qué pasa si falta. Es lo único de todo
+// esto que no se puede adivinar mirando la pantalla.
+const REGISTROS = {
+  spf: 'autoriza a Google a mandar por este dominio',
+  dkim: 'firma cada correo',
+  dmarc: 'dice qué hacer si algo no cuadra',
+};
+
+function chipsDns(d) {
+  const dns = d.dns;
+  if (!dns) {
+    return `<span class="tag pin-none">DNS sin revisar</span>`;
+  }
+  return ['spf', 'dkim', 'dmarc'].map((k) => {
+    const v = dns[k] || {};
+    const detalle = v.detail || REGISTROS[k];
+    return `<span class="tag ${v.ok ? 'pin-site' : 'pin-none'}"
+              title="${esc(detalle)}">${k.toUpperCase()} ${v.ok ? '✓' : '✕'}</span>`;
+  }).join('');
+}
+
+function avisoDns(d) {
+  const dns = d.dns;
+  if (!dns || dns.ok) return '';
+  const faltan = (dns.falta || []).map((k) => (dns[k] || {}).detail || k);
+  return `<div class="alert warn" style="margin:10px 0 0">
+    <b>${esc(d.domain)}</b> todavía no está listo para mandar.
+    ${faltan.map((f) => esc(f)).join(' ')}</div>`;
+}
+
+async function revisarDns() {
+  const b = $('btn-dns');
+  if (b) { b.disabled = true; b.textContent = 'Consultando el DNS…'; }
+  try {
+    const d = await (await fetch('/api/mail/dns/check', { method: 'POST' })).json();
+    const mal = (d.domains || []).filter((x) => !x.ok);
+    toast(mal.length ? `${mal.length} dominio(s) con algo pendiente`
+                     : 'Todos los dominios están listos',
+          mal.length ? 'warn' : 'ok');
+    await loadSmtp();
+  } finally {
+    if (b) { b.disabled = false; b.textContent = 'Revisar el DNS'; }
+  }
+}
 
 /* ------------------------------- buzones ------------------------------- */
 async function loadSmtp() {
@@ -1163,9 +1209,22 @@ async function loadSmtp() {
       : 'sin configurar';
   }
 
+  DOMINIOS = c.domains || [];
+
   const lista = $('mb-list');
   if (lista) {
-    lista.innerHTML = MAILBOXES.length ? MAILBOXES.map((m) => `
+    // Agrupados por dominio: es la unidad que mira quien recibe el correo, y
+    // la que hay que cuidar. Tres buzones de un mismo dominio son, para
+    // Gmail, un solo remitente.
+    const porDominio = {};
+    for (const m of MAILBOXES) {
+      const d = m.domain || '(sin dominio)';
+      (porDominio[d] = porDominio[d] || []).push(m);
+    }
+    const resumen = {};
+    for (const d of DOMINIOS) resumen[d.domain] = d;
+
+    const tarjeta = (m) => `
       <div class="mb ${m.active ? '' : 'off'}">
         <div class="mb-h">
           <b>${esc(m.label || m.from_email)}</b>
@@ -1188,7 +1247,24 @@ async function loadSmtp() {
           <button class="ghost sm danger" onclick="deleteMailbox(${m.id})">Borrar</button>
         </div>
         <div id="mb-test-${m.id}"></div>
-      </div>`).join('')
+      </div>`;
+
+    lista.innerHTML = MAILBOXES.length
+      ? Object.keys(porDominio).sort().map((d) => {
+          const r = resumen[d] || { domain: d };
+          const hoy = r.sent_today || 0, tope = r.daily_cap || 0;
+          return `<div class="dominio">
+            <div class="dominio-h">
+              <b>${esc(d)}</b>
+              <span class="sub">${porDominio[d].length} buzón(es)${
+                tope ? ` · ${hoy} de ${tope} hoy` : ''}</span>
+              <span class="spacer"></span>
+              ${chipsDns(r)}
+            </div>
+            ${avisoDns(r)}
+            ${porDominio[d].map(tarjeta).join('')}
+          </div>`;
+        }).join('')
       : `<div class="empty"><strong>Todavía no hay buzones</strong>
          Agregá al menos uno para poder enviar correos.</div>`;
   }
@@ -1203,10 +1279,13 @@ async function loadSmtp() {
   const rh = $('mail-rotate-help');
   if (rh) {
     const act = MAILBOXES.filter((m) => m.active && m.configured);
+    const doms = [...new Set(act.map((m) => m.domain))];
     rh.textContent = act.length > 1
-      ? `Se van a repartir entre ${act.length} buzones: ${act.map((m) => m.from_email).join(', ')}.`
+      ? `Se reparten entre ${act.length} buzones de ${doms.length} dominio(s): `
+        + `${doms.join(', ')}. Se manda primero por el dominio que menos usó hoy.`
       : (act.length === 1
-          ? `Todos salen desde ${act[0].from_email}. Agregá otro buzón para repartir el volumen.`
+          ? `Todos salen desde ${act[0].from_email}. Con un solo dominio el `
+            + `volumen se concentra: sumá otro para repartirlo.`
           : 'No hay buzones activos: configurá uno en Ajustes.');
   }
   updateMailBtn();

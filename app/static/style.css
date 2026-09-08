@@ -289,6 +289,21 @@ textarea.codigo{
 /* Una respuesta es la mejor noticia de la tabla: que se vea. */
 .respondio{color:var(--ok)}
 
+/* ============================== buzones por dominio ==================== */
+/* El dominio manda: es lo que mira quien recibe el correo. Los buzones se
+   ven colgando de él y no como una lista plana donde no se nota que tres
+   salen del mismo lado. */
+.dominio{margin-bottom:18px}
+.dominio-h{
+  display:flex;align-items:center;gap:10px;flex-wrap:wrap;
+  padding:10px 12px;border:1px solid var(--line);border-radius:var(--r-sm);
+  background:var(--surface-2);margin-bottom:10px;
+}
+.dominio-h b{font-size:14.5px}
+.dominio-h .sub{font-size:12px}
+.dominio .mb{margin-left:12px}
+@media (max-width:620px){.dominio .mb{margin-left:0}}
+
 /* consumo del mes contra el tramo gratis de Google */
 .usage{margin-top:14px;font-size:12.5px;color:var(--ink-3)}
 .usage .top{display:flex;justify-content:space-between;gap:12px;margin-bottom:5px}

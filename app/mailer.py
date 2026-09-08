@@ -75,9 +75,20 @@ def avisos_del_buzon(b: dict) -> list[str]:
     return avisos
 
 
+def dominio_de(b: dict) -> str:
+    """El dominio desde el que sale ese buzón.
+
+    Es la unidad que importa para la reputación: quien recibe el correo mira
+    el dominio, no la casilla. Tres buzones de un mismo dominio son, para
+    Gmail, un solo remitente.
+    """
+    return (b.get("from_email") or "").split("@")[-1].strip().lower()
+
+
 def _fila_a_buzon(r) -> dict:
     """Un buzón como lo ve la UI: nunca sale la contraseña, solo si hay una."""
     d = dict(r)
+    d["domain"] = dominio_de(d)
     d["has_password"] = bool(d.pop("password", None))
     d["configured"] = bool(d.get("host") and d.get("from_email"))
     d["warnings"] = avisos_del_buzon(d)
@@ -184,16 +195,50 @@ def buzones_disponibles() -> list[dict]:
 
 
 def elegir_buzon() -> dict | None:
-    """El próximo buzón a usar: el que más margen tiene hoy.
+    """El próximo buzón a usar: primero el dominio que menos mandó hoy.
 
-    Repartir así, en vez de vaciar uno y pasar al siguiente, mantiene a todos
-    con un volumen parejo y bajo — que es lo que evita que los marquen.
+    Repartir por buzón no alcanza cuando varios cuelgan del mismo dominio:
+    tres casillas de midominio.co son, para quien recibe, un solo remitente
+    mandando el triple. Así que primero se elige el dominio más descansado y
+    recién adentro de ese, el buzón con más margen.
     """
     libres = [b for b in buzones_disponibles() if b["remaining"] > 0]
     if not libres:
         return None
-    libres.sort(key=lambda b: (-b["remaining"], b["last_used"] or "", b["id"]))
+
+    por_dominio: dict[str, int] = {}
+    for b in libres:
+        d = dominio_de(b)
+        por_dominio[d] = por_dominio.get(d, 0) + b["sent_today"]
+
+    libres.sort(key=lambda b: (por_dominio.get(dominio_de(b), 0),
+                               -b["remaining"], b["last_used"] or "", b["id"]))
     return libres[0]
+
+
+def resumen_por_dominio() -> list[dict]:
+    """Cuánto salió de cada dominio hoy y cómo está su DNS."""
+    buzones = [_fila_a_buzon(b) for b in buzones_disponibles()]
+    with get_db() as conn:
+        dns = {}
+        for r in conn.execute("SELECT * FROM domain_dns"):
+            try:
+                import json
+                detalle = json.loads(r["detail"] or "{}")
+            except ValueError:
+                detalle = {}
+            dns[r["domain"]] = {**detalle, "ok": bool(r["ok"]),
+                                "checked_at": r["checked_at"]}
+
+    grupos: dict[str, dict] = {}
+    for b in buzones:
+        d = b["domain"]
+        g = grupos.setdefault(d, {"domain": d, "buzones": 0, "sent_today": 0,
+                                  "daily_cap": 0, "dns": dns.get(d)})
+        g["buzones"] += 1
+        g["sent_today"] += b["sent_today"]
+        g["daily_cap"] += b["daily_cap"] or 0
+    return sorted(grupos.values(), key=lambda g: g["domain"])
 
 
 # Compatibilidad con el código que asumía un solo buzón.

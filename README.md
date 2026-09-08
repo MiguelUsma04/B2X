@@ -107,6 +107,16 @@ deduce (`smtp.gmail.com` → `imap.gmail.com`); si no sigue esa costumbre se
 escribe a mano en el buzón. Se revisa solo cada 10 minutos y hay un botón para
 no esperar. Un "estoy de vacaciones" no cuenta como respuesta.
 
+**Varios dominios** — Los buzones se agrupan por dominio, que es la unidad
+que mira quien recibe el correo: tres casillas de un mismo dominio son, para
+Gmail, un solo remitente. El goteo elige primero el dominio que menos mandó
+hoy y recién adentro de ese, el buzón con más margen.
+
+*Revisar el DNS* consulta SPF, DKIM y DMARC de cada dominio. Para
+**subdominios** (ventas@mail.tudominio.co) hay que saber que **el SPF no se
+hereda**: cada subdominio necesita su propio registro y su propia clave DKIM.
+El DMARC sí se hereda del dominio padre.
+
 ## La cascada
 
 | Orden | Proveedor | Endpoint | Auth | Notas |

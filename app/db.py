@@ -157,6 +157,16 @@ CREATE TABLE IF NOT EXISTS email_campaigns (
 
 -- La cola. Cada fila tiene su hora: el goteo vive acá y no en memoria, así
 -- reiniciar la app no pierde lo que faltaba mandar ni reenvía lo ya mandado.
+-- Cómo está el DNS de cada dominio desde el que se manda. Se guarda por
+-- dominio y no por buzón: varios buzones del mismo dominio comparten los
+-- mismos registros, y consultarlos una vez alcanza.
+CREATE TABLE IF NOT EXISTS domain_dns (
+    domain     TEXT PRIMARY KEY,
+    ok         INTEGER NOT NULL DEFAULT 0,
+    detail     TEXT,
+    checked_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 -- Cada vez que alguien abre un correo o toca un enlace. Una fila por
 -- hecho, no un contador: sirve para saber quién y cuándo, que es lo que
 -- convierte una métrica en una llamada.
@@ -297,6 +307,14 @@ def _migrate(conn) -> None:
     _cuerpo_html(conn)
     _rastreo(conn)
     _lectura_del_buzon(conn)
+    conn.executescript("""
+        CREATE TABLE IF NOT EXISTS domain_dns (
+            domain     TEXT PRIMARY KEY,
+            ok         INTEGER NOT NULL DEFAULT 0,
+            detail     TEXT,
+            checked_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+    """)
 
 
 def _cuerpo_html(conn) -> None:
