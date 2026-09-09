@@ -4,6 +4,7 @@ import base64
 import datetime
 import json
 import os
+import re
 from pathlib import Path
 
 from dotenv import dotenv_values
@@ -180,6 +181,33 @@ def _con_version(html: str) -> str:
             html = html.replace(f"/static/{nombre}",
                                 f"/static/{nombre}?v={int(archivo.stat().st_mtime)}")
     return html
+
+
+# El manual se guarda como un fragmento —sin <html> ni <head>— porque el mismo
+# archivo se publica afuera como documento, y allá el envoltorio lo pone el
+# host. Acá se lo ponemos nosotros. Un solo archivo para los dos lados: si se
+# mantuvieran dos copias, en dos semanas dirían cosas distintas.
+_ENVOLTORIO = """<!doctype html>
+<html lang="es"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{titulo}</title>
+<style>:root{{color-scheme:light dark}} body{{margin:0}} img{{max-width:100%}}</style>
+</head><body>
+{cuerpo}
+</body></html>"""
+_TITULO = re.compile(r"(?is)<title>(.*?)</title>\s*")
+
+
+@app.get("/manual", response_class=HTMLResponse)
+def manual():
+    """El manual de uso, servido por la app: no depende de ningún sitio ajeno."""
+    cuerpo = (BASE_DIR / "templates" / "manual.html").read_text(encoding="utf-8")
+    # El título viene adentro del fragmento; acá sube al encabezado, que es
+    # donde el navegador lo lee para nombrar la pestaña.
+    m = _TITULO.search(cuerpo)
+    titulo = m.group(1).strip() if m else "Manual de B2K"
+    return _ENVOLTORIO.format(titulo=titulo, cuerpo=_TITULO.sub("", cuerpo, count=1))
 
 
 @app.get("/", response_class=HTMLResponse)

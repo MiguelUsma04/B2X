@@ -1133,13 +1133,18 @@ async function pollWebsite() {
 
 /* ======================= configuración ======================= */
 function switchAjustes(cual) {
-  const esBuz = cual === 'buzones';
-  $('set-buzones').hidden = !esBuz;
-  $('set-historial').hidden = esBuz;
-  for (const [id, on] of [['seg-buzones', esBuz], ['seg-historial', !esBuz]]) {
-    $(id).classList.toggle('active', on);
-    $(id).setAttribute('aria-selected', String(on));
+  const partes = ['buzones', 'historial', 'ayuda'];
+  const elegida = partes.includes(cual) ? cual : 'buzones';
+  for (const p of partes) {
+    const on = p === elegida;
+    $('set-' + p).hidden = !on;
+    $('seg-' + p).classList.toggle('active', on);
+    $('seg-' + p).setAttribute('aria-selected', String(on));
   }
+  // El manual se trae recién cuando alguien lo abre: es una página entera y
+  // no tiene por qué pesar en cada carga de la app.
+  const marco = $('manual-frame');
+  if (elegida === 'ayuda' && marco && !marco.src) marco.src = '/manual';
 }
 
 /* ======================= correos ======================= */

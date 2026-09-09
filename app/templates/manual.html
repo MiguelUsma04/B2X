@@ -1,0 +1,771 @@
+<title>Cómo se usa B2K</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700;800&family=Instrument+Sans:ital,wght@0,400;0,500;0,600;1,400&family=JetBrains+Mono:wght@500;700&display=swap">
+
+<style>
+/* ============================================================
+   B2K — manual de uso
+   Paleta: índigo profundo + verde menta, los colores de la app.
+   Los neutros van tirados al índigo para que nada se vea genérico.
+   ============================================================ */
+:root{
+  --ground:#F7F6FB;
+  --surface:#FFFFFF;
+  --surface-2:#F1EFF9;
+  --line:#E2DEF0;
+  --line-strong:#C9C2E4;
+  --ink:#171430;
+  --ink-2:#443E68;
+  --ink-3:#726B92;
+  --indigo:#3B23A8;
+  --indigo-soft:#EDE9FB;
+  --mint:#03875A;
+  --mint-soft:#DFF5EC;
+  --mint-line:#A6E0C9;
+  --warn:#8A5A00;
+  --warn-soft:#FBF0DA;
+  --warn-line:#E8CE96;
+  --danger:#A81F3C;
+  --danger-soft:#FBE6EB;
+  --shadow:0 1px 2px rgba(23,20,48,.05), 0 8px 24px -16px rgba(23,20,48,.28);
+  --r:14px;
+  --r-sm:9px;
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    --ground:#100D1C;
+    --surface:#191430;
+    --surface-2:#221A3D;
+    --line:#2E2650;
+    --line-strong:#453A70;
+    --ink:#EFECFB;
+    --ink-2:#BDB5DC;
+    --ink-3:#8E86B2;
+    --indigo:#A48CFF;
+    --indigo-soft:#241C46;
+    --mint:#3FE0A4;
+    --mint-soft:#123329;
+    --mint-line:#1E5C48;
+    --warn:#E7B75C;
+    --warn-soft:#312512;
+    --warn-line:#5B451C;
+    --danger:#FF869E;
+    --danger-soft:#38151F;
+    --shadow:0 1px 2px rgba(0,0,0,.4), 0 10px 30px -18px rgba(0,0,0,.9);
+  }
+}
+:root[data-theme="dark"]{
+  --ground:#100D1C;
+  --surface:#191430;
+  --surface-2:#221A3D;
+  --line:#2E2650;
+  --line-strong:#453A70;
+  --ink:#EFECFB;
+  --ink-2:#BDB5DC;
+  --ink-3:#8E86B2;
+  --indigo:#A48CFF;
+  --indigo-soft:#241C46;
+  --mint:#3FE0A4;
+  --mint-soft:#123329;
+  --mint-line:#1E5C48;
+  --warn:#E7B75C;
+  --warn-soft:#312512;
+  --warn-line:#5B451C;
+  --danger:#FF869E;
+  --danger-soft:#38151F;
+  --shadow:0 1px 2px rgba(0,0,0,.4), 0 10px 30px -18px rgba(0,0,0,.9);
+}
+
+*{box-sizing:border-box}
+body{
+  background:var(--ground);
+  color:var(--ink);
+  font-family:"Instrument Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  font-size:16px;
+  line-height:1.6;
+  -webkit-font-smoothing:antialiased;
+}
+h1,h2,h3,.eyebrow,.paso-n{font-family:Archivo,"Instrument Sans",system-ui,sans-serif}
+h1,h2,h3{text-wrap:balance;margin:0}
+a{color:var(--indigo)}
+:focus-visible{outline:2px solid var(--indigo);outline-offset:3px;border-radius:4px}
+
+/* ---------------------------------------------------- estructura */
+.hoja{
+  max-width:1180px;margin:0 auto;padding:0 20px 80px;
+  display:grid;gap:40px;
+  grid-template-columns:1fr;
+}
+@media (min-width:1000px){
+  .hoja{grid-template-columns:216px minmax(0,1fr);align-items:start;gap:56px}
+}
+
+/* El índice repite el menú de la app: el documento tiene la misma forma que
+   la pantalla, así que buscar acá es lo mismo que buscar allá. */
+.indice{display:none}
+@media (min-width:1000px){
+  .indice{
+    display:block;position:sticky;top:28px;
+    padding-top:8px;
+  }
+}
+.indice ol{list-style:none;margin:10px 0 0;padding:0;display:grid;gap:2px}
+.indice a{
+  display:flex;align-items:center;gap:10px;
+  padding:8px 10px;border-radius:var(--r-sm);
+  color:var(--ink-2);text-decoration:none;font-size:14px;font-weight:500;
+}
+.indice a:hover{background:var(--surface-2);color:var(--ink)}
+.indice .ic{
+  flex:none;width:24px;height:24px;display:grid;place-items:center;
+  border-radius:7px;background:var(--surface-2);color:var(--ink-3);font-size:13px;
+}
+.indice .extra{margin-top:14px;padding-top:14px;border-top:1px solid var(--line)}
+
+.eyebrow{
+  font-size:11.5px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;
+  color:var(--ink-3);margin:0;
+}
+
+/* ---------------------------------------------------- portada */
+.portada{padding:56px 0 8px;border-bottom:1px solid var(--line);margin-bottom:4px}
+.portada h1{
+  font-size:clamp(38px,6vw,62px);font-weight:800;letter-spacing:-.035em;
+  line-height:1.02;margin:14px 0 0;
+}
+.portada h1 em{font-style:normal;color:var(--indigo)}
+.bajada{
+  font-size:19px;color:var(--ink-2);max-width:60ch;margin:16px 0 0;
+}
+.meta{
+  display:flex;flex-wrap:wrap;gap:10px 22px;margin:26px 0 32px;
+  font-size:13.5px;color:var(--ink-3);
+}
+.meta b{color:var(--ink-2);font-weight:600}
+
+/* ---------------------------------------------------- el recorrido */
+.recorrido{
+  display:grid;gap:2px;grid-template-columns:1fr;
+  margin:0 0 8px;
+}
+@media (min-width:760px){.recorrido{grid-template-columns:repeat(5,1fr);gap:10px}}
+.tramo{
+  position:relative;padding:14px 16px;background:var(--surface);
+  border:1px solid var(--line);border-radius:var(--r-sm);box-shadow:var(--shadow);
+}
+.tramo .n{
+  font-family:"JetBrains Mono",ui-monospace,monospace;font-size:11px;font-weight:700;
+  color:var(--indigo);letter-spacing:.06em;
+}
+.tramo .q{display:block;font-weight:600;font-size:15px;margin-top:3px}
+.tramo .p{display:block;font-size:13px;color:var(--ink-3);line-height:1.4;margin-top:2px}
+
+/* ---------------------------------------------------- secciones */
+section{scroll-margin-top:24px}
+.paso{
+  border-top:1px solid var(--line);
+  padding-top:34px;margin-top:44px;
+}
+.paso-h{display:flex;align-items:flex-start;gap:14px}
+.paso-n{
+  flex:none;width:38px;height:38px;display:grid;place-items:center;
+  border-radius:10px;background:var(--indigo);color:#fff;
+  font-size:16px;font-weight:700;
+}
+:root[data-theme="dark"] .paso-n,
+:root:not([data-theme="light"]) .paso-n{color:#100D1C}
+@media (prefers-color-scheme:light){
+  :root:not([data-theme="dark"]) .paso-n{color:#fff}
+}
+.paso-h h2{font-size:27px;font-weight:700;letter-spacing:-.02em;line-height:1.15}
+.paso-h .para{display:block;font-size:15px;color:var(--ink-3);font-weight:400;
+  font-family:"Instrument Sans",sans-serif;letter-spacing:0;margin-top:3px}
+
+.cuerpo{margin-top:22px;display:grid;gap:20px}
+
+/* Lista de acciones. Es una secuencia real: el orden importa. */
+ol.acciones{
+  list-style:none;counter-reset:a;margin:0;padding:0;display:grid;gap:0;
+}
+ol.acciones li{
+  counter-increment:a;position:relative;
+  padding:12px 0 12px 40px;
+  border-bottom:1px solid var(--line);
+}
+ol.acciones li:last-child{border-bottom:0}
+ol.acciones li::before{
+  content:counter(a);position:absolute;left:0;top:12px;
+  width:24px;height:24px;display:grid;place-items:center;
+  border-radius:50%;border:1px solid var(--line-strong);
+  font-family:"JetBrains Mono",monospace;font-size:11px;font-weight:700;
+  color:var(--ink-3);
+}
+ol.acciones b{font-weight:600}
+ol.acciones .nota{display:block;font-size:14px;color:var(--ink-3);margin-top:2px}
+
+/* Lo que se toca en pantalla se ve como se ve en pantalla. */
+.btn,.campo,.pest{
+  display:inline-block;font-family:"JetBrains Mono",ui-monospace,monospace;
+  font-size:12.5px;font-weight:700;line-height:1.5;
+  padding:1px 8px;border-radius:6px;white-space:nowrap;
+}
+.btn{background:var(--mint-soft);color:var(--mint);border:1px solid var(--mint-line)}
+.campo{background:var(--surface-2);color:var(--ink-2);border:1px solid var(--line-strong)}
+.pest{background:var(--indigo-soft);color:var(--indigo);border:1px solid var(--line-strong)}
+
+/* Avisos. Solo donde hay plata de por medio o algo que no se deshace. */
+.aviso{
+  display:grid;grid-template-columns:auto 1fr;gap:12px;align-items:start;
+  padding:14px 16px;border-radius:var(--r-sm);font-size:14.5px;line-height:1.5;
+}
+.aviso .et{
+  font-family:Archivo,sans-serif;font-size:10.5px;font-weight:700;
+  letter-spacing:.1em;text-transform:uppercase;padding-top:3px;
+}
+.aviso.plata{background:var(--warn-soft);color:var(--ink-2);
+  border:1px solid var(--warn-line)}
+.aviso.plata .et{color:var(--warn)}
+.aviso.ojo{background:var(--danger-soft);color:var(--ink-2);
+  border:1px solid var(--line)}
+.aviso.ojo .et{color:var(--danger)}
+.aviso.tip{background:var(--mint-soft);color:var(--ink-2);
+  border:1px solid var(--mint-line)}
+.aviso.tip .et{color:var(--mint)}
+.aviso b{color:var(--ink)}
+
+/* Tablas */
+.tabla{overflow-x:auto;border:1px solid var(--line);border-radius:var(--r-sm);
+  background:var(--surface)}
+table{border-collapse:collapse;width:100%;font-size:14.5px;min-width:440px}
+th,td{padding:11px 14px;text-align:left;border-bottom:1px solid var(--line);
+  vertical-align:top}
+tbody tr:last-child td{border-bottom:0}
+th{font-family:Archivo,sans-serif;font-size:11px;font-weight:700;
+  letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3);
+  background:var(--surface-2)}
+td b{font-weight:600}
+.num{font-family:"JetBrains Mono",monospace;font-variant-numeric:tabular-nums;
+  white-space:nowrap}
+
+/* Definiciones */
+dl.gloss{margin:0;display:grid;gap:0}
+dl.gloss div{
+  display:grid;gap:2px 18px;padding:12px 0;border-bottom:1px solid var(--line);
+}
+@media (min-width:620px){dl.gloss div{grid-template-columns:170px minmax(0,1fr)}}
+dl.gloss div:last-child{border-bottom:0}
+dt{font-weight:600}
+dd{margin:0;color:var(--ink-2);font-size:15px}
+
+.subtitulo{
+  font-size:12px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;
+  color:var(--ink-3);font-family:Archivo,sans-serif;
+  margin:6px 0 -6px;
+}
+
+.pie{
+  margin-top:56px;padding-top:22px;border-top:1px solid var(--line);
+  font-size:13.5px;color:var(--ink-3);
+  display:flex;flex-wrap:wrap;gap:8px 20px;justify-content:space-between;
+}
+</style>
+
+<div class="hoja">
+
+  <!-- ================================ índice ================================ -->
+  <nav class="indice" aria-label="Contenido">
+    <p class="eyebrow">Contenido</p>
+    <ol>
+      <li><a href="#empezar"><span class="ic">▶</span> Antes de empezar</a></li>
+      <li><a href="#cargar"><span class="ic">⬆</span> 1 · Cargar</a></li>
+      <li><a href="#emails"><span class="ic">✉</span> 2 · Emails</a></li>
+      <li><a href="#contactos"><span class="ic">◆</span> 3 · Contactos</a></li>
+      <li><a href="#correos"><span class="ic">✈</span> 4 · Correos</a></li>
+      <li><a href="#resultados"><span class="ic">📈</span> 5 · Resultados</a></li>
+      <li><a href="#ajustes"><span class="ic">⚙</span> 6 · Ajustes</a></li>
+      <li class="extra"><a href="#costos"><span class="ic">$</span> Qué cuesta plata</a></li>
+      <li><a href="#problemas"><span class="ic">!</span> Si algo sale mal</a></li>
+      <li><a href="#palabras"><span class="ic">?</span> Palabras raras</a></li>
+    </ol>
+  </nav>
+
+  <main>
+    <!-- ================================ portada ============================= -->
+    <header class="portada">
+      <p class="eyebrow">gmarketing.co · Herramienta interna</p>
+      <h1>Cómo se usa <em>B2K</em></h1>
+      <p class="bajada">B2K busca empresas, encuentra el correo de cada una, les
+        escribe de a poco y te dice quién contestó. Este documento es el paso a
+        paso completo. No hace falta saber nada de prospección.</p>
+      <div class="meta">
+        <span><b>Para</b> el equipo de gmarketing.co</span>
+        <span><b>Se entra con</b> tu cuenta @gmarketing.co</span>
+        <span><b>Sirve en</b> computador y teléfono</span>
+      </div>
+    </header>
+
+    <section id="empezar">
+      <p class="subtitulo">El recorrido completo</p>
+      <p style="color:var(--ink-2);max-width:62ch;margin:10px 0 20px">
+        Son seis pantallas, en el menú de la izquierda. Las cinco primeras van
+        en orden: cada una necesita lo que hizo la anterior.</p>
+
+      <div class="recorrido">
+        <div class="tramo"><span class="n">01</span>
+          <span class="q">Cargar</span>
+          <span class="p">Aparecen las empresas</span></div>
+        <div class="tramo"><span class="n">02</span>
+          <span class="q">Emails</span>
+          <span class="p">Aparecen sus correos</span></div>
+        <div class="tramo"><span class="n">03</span>
+          <span class="q">Contactos</span>
+          <span class="p">Elegís a quién</span></div>
+        <div class="tramo"><span class="n">04</span>
+          <span class="q">Correos</span>
+          <span class="p">Les escribís</span></div>
+        <div class="tramo"><span class="n">05</span>
+          <span class="q">Resultados</span>
+          <span class="p">Ves quién contestó</span></div>
+      </div>
+
+      <div class="aviso tip" style="margin-top:20px">
+        <span class="et">Tu primera vez</span>
+        <span>Hacé todo el recorrido con <b>5 contactos</b> antes de tocar una
+          lista grande. Cuesta centavos y te muestra dónde te trabás. La sexta
+          pantalla, <b>Ajustes</b>, se configura una sola vez y casi no se
+          vuelve a tocar.</span>
+      </div>
+    </section>
+
+    <!-- ================================ 1 ================================== -->
+    <section class="paso" id="cargar">
+      <div class="paso-h">
+        <div class="paso-n">1</div>
+        <h2>Cargar
+          <span class="para">De dónde salen las empresas. Hay dos formas y las
+            dos están en la misma pantalla.</span></h2>
+      </div>
+
+      <div class="cuerpo">
+        <p class="subtitulo">Forma A · <span class="pest">Buscar en Maps</span></p>
+        <ol class="acciones">
+          <li>Escribí la búsqueda <b>como la escribirías en Google Maps</b>:
+            qué y dónde.
+            <span class="nota">Ejemplo: <em>agencias de viaje en Bogotá</em>.
+              No pongas filtros raros, es una búsqueda normal.</span></li>
+          <li>Elegí <span class="campo">CUÁNTOS</span> — empezá con 20.</li>
+          <li>Tocá <span class="btn">Buscar</span> y mirá la lista que aparece.
+            <span class="nota">Todavía no se guardó nada: vos decidís si la
+              guardás o si cambiás la búsqueda.</span></li>
+          <li>Si te sirve, guardala. Ya tenés empresas cargadas.</li>
+        </ol>
+
+        <div class="aviso plata">
+          <span class="et">Plata</span>
+          <span>Tenés <b>1.000 búsquedas gratis al mes</b>. El contador se ve
+            debajo del buscador y se reinicia el <b>1 de cada mes</b>. Pasado
+            ese tope, cada búsqueda cuesta <b>US$0,04</b>. Repetir la misma
+            búsqueda no trae los mismos negocios: trae los que faltaban.</span>
+        </div>
+
+        <p class="subtitulo">Forma B · <span class="pest">Subir un CSV</span></p>
+        <ol class="acciones">
+          <li>Exportá desde Apollo, <b>pestaña People</b>.
+            <span class="nota">No sirve el export de <em>Accounts</em>: ese trae
+              empresas sin personas, y no hay a quién escribirle.</span></li>
+          <li>Subí el archivo. B2K reconoce las columnas solo.</li>
+          <li>Revisá la vista previa y confirmá.
+            <span class="nota">Los repetidos se descartan solos.</span></li>
+        </ol>
+
+        <div class="aviso ojo">
+          <span class="et">Ojo</span>
+          <span><b>Google no da correos.</b> De Maps salen el nombre, el
+            teléfono, la dirección y el sitio web del negocio. El correo se
+            consigue en el paso siguiente.</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================================ 2 ================================== -->
+    <section class="paso" id="emails">
+      <div class="paso-h">
+        <div class="paso-n">2</div>
+        <h2>Emails
+          <span class="para">Conseguir el correo de cada empresa. Cuatro
+            herramientas: usalas en este orden.</span></h2>
+      </div>
+
+      <div class="cuerpo">
+        <ol class="acciones">
+          <li><b>Leer los sitios web</b> — <span class="btn">gratis</span>
+            <span class="nota">Entra al sitio de cada empresa y copia el correo,
+              el teléfono y el WhatsApp que estén publicados. Empezá siempre por
+              acá: es gratis y resuelve buena parte.</span></li>
+          <li><b>Buscar los emails que faltan</b> — consume créditos
+            <span class="nota">Para los que quedaron sin correo. Consulta tres
+              servicios, uno tras otro, hasta encontrarlo. Tocá
+              <span class="btn">Empezar</span>.</span></li>
+          <li><b>Ficha del negocio con IA</b> — cuesta por contacto
+            <span class="nota">Lee el sitio y arma un resumen: qué vende, a
+              quién, quién manda ahí, hace cuánto existe y un gancho para
+              arrancar la conversación. Sirve para escribir mejor.</span></li>
+          <li><b>Buscar teléfonos</b> — <b>10× más caro</b>
+            <span class="nota">Solo para los que de verdad vas a llamar.</span></li>
+        </ol>
+
+        <div class="aviso plata">
+          <span class="et">Plata</span>
+          <span>Un correo cuesta <b>1 crédito</b>. Un teléfono, <b>10</b>. Leer
+            sitios web no cuesta nada. La primera vez corré cada herramienta con
+            <b>5 contactos</b> para ver que todo funcione.</span>
+        </div>
+
+        <div class="aviso tip">
+          <span class="et">Normal</span>
+          <span>No todas las empresas tienen correo público. Que a algunas no
+            se les encuentre nada <b>no es un error</b>: quedan marcadas como
+            <em>No se encontró</em> y seguís con las demás.</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================================ 3 ================================== -->
+    <section class="paso" id="contactos">
+      <div class="paso-h">
+        <div class="paso-n">3</div>
+        <h2>Contactos
+          <span class="para">La lista completa. Acá elegís a quién le vas a
+            escribir y, si querés, lo mandás al CRM.</span></h2>
+      </div>
+
+      <div class="cuerpo">
+        <ol class="acciones">
+          <li>Buscá por nombre, empresa o correo, o usá
+            <span class="campo">Filtros</span>.</li>
+          <li>Marcá la casilla de cada uno que te sirva.
+            <span class="nota">O tocá <span class="campo">Marcar todos</span>
+              para marcar todo lo que estés viendo.</span></li>
+          <li>Abajo aparece una barra que dice cuántos llevás marcados.
+            <span class="nota">Desde ahí vas directo a escribirles
+              (<span class="btn">Correo</span>) o los mandás al CRM
+              (<span class="btn">Al CRM</span>).</span></li>
+        </ol>
+
+        <div class="aviso tip">
+          <span class="et">Al CRM</span>
+          <span>Van todos los que tengan <b>correo o teléfono</b>. Los que ya
+            están en el CRM <b>se saltean solos</b>, así que podés mandar la
+            misma lista dos veces sin duplicar nada.</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================================ 4 ================================== -->
+    <section class="paso" id="correos">
+      <div class="paso-h">
+        <div class="paso-n">4</div>
+        <h2>Correos
+          <span class="para">Escribir la campaña y mandarla de a poco. Necesita
+            un buzón configurado en Ajustes.</span></h2>
+      </div>
+
+      <div class="cuerpo">
+        <p class="subtitulo">Escribir el correo</p>
+        <ol class="acciones">
+          <li>Poné el <span class="campo">ASUNTO</span> y el mensaje.</li>
+          <li>Elegí <span class="pest">Texto</span> o
+            <span class="pest">Diseño HTML</span>.
+            <span class="nota">Texto es una carta simple y se ve igual en todos
+              lados. Diseño HTML permite colores, imágenes y un botón — y es el
+              único que se puede medir después.</span></li>
+          <li>Insertá variables tocándolas:
+            <span class="campo">{{nombre}}</span>
+            <span class="campo">{{empresa}}</span>
+            <span class="campo">{{ciudad}}</span>…
+            <span class="nota">Se reemplazan por los datos de cada contacto. Si
+              un dato falta, queda vacío; nunca sale el
+              <em>{{nombre}}</em> literal.</span></li>
+          <li>Tocá <span class="btn">Ver cómo queda</span> para verlo con
+            contactos reales.</li>
+          <li>Tocá <span class="btn">Probar en mi correo</span> y revisalo en
+            tu bandeja.
+            <span class="nota">Este paso no es opcional si usás diseño: Gmail
+              recorta cosas que el navegador sí muestra.</span></li>
+        </ol>
+
+        <p class="subtitulo">Mandarlo</p>
+        <ol class="acciones">
+          <li>Elegí <span class="campo">CUÁNTOS ENVIAR</span>, y cada cuántos
+            minutos sale uno.
+            <span class="nota">Por defecto: uno cada 3 minutos, con una
+              variación de 2. Está bien así.</span></li>
+          <li>Dejá marcado <span class="campo">Alternar entre los buzones
+            activos</span>.</li>
+          <li>Tocá <span class="btn">Programar el envío</span> y confirmá.</li>
+        </ol>
+
+        <div class="aviso ojo">
+          <span class="et">Ojo</span>
+          <span>Son <b>correos reales a empresas reales</b>. Salen de a uno,
+            despacio, y podés pausarlo en cualquier momento — pero lo que ya
+            salió no vuelve.</span>
+        </div>
+
+        <div class="aviso tip">
+          <span class="et">Por qué tan lento</span>
+          <span>Cien correos de golpe es la forma más rápida de que Gmail te
+            mande a spam para siempre. El goteo, a horas irregulares y repartido
+            entre varios buzones, es lo que mantiene el dominio sano.
+            <b>A quien ya se le escribió antes queda afuera</b> automáticamente.</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================================ 5 ================================== -->
+    <section class="paso" id="resultados">
+      <div class="paso-h">
+        <div class="paso-n">5</div>
+        <h2>Resultados
+          <span class="para">Qué pasó con los correos que salieron. Elegís el
+            envío arriba y ves todo.</span></h2>
+      </div>
+
+      <div class="cuerpo">
+        <div class="tabla">
+          <table>
+            <thead><tr><th>Número</th><th>Qué significa</th>
+              <th>¿Confiable?</th></tr></thead>
+            <tbody>
+              <tr><td><b>Respondieron</b></td>
+                <td>Te escribieron de vuelta. Es tu lista de llamadas.</td>
+                <td>Sí, es un hecho</td></tr>
+              <tr><td><b>Salieron</b></td>
+                <td>Correos entregados al servidor.</td>
+                <td>Sí</td></tr>
+              <tr><td><b>Abrieron</b></td>
+                <td>Cuántos abrieron el correo.</td>
+                <td>Aproximado</td></tr>
+              <tr><td><b>Tocaron un enlace</b></td>
+                <td>Hicieron clic en algo del correo.</td>
+                <td>Sí, es un hecho</td></tr>
+              <tr><td><b>Rebotaron</b></td>
+                <td>Esa dirección no existe. Borrala de la lista.</td>
+                <td>Sí</td></tr>
+              <tr><td><b>En cola</b></td>
+                <td>Todavía no salieron; el goteo sigue.</td>
+                <td>Sí</td></tr>
+              <tr><td><b>Con error</b></td>
+                <td>No se pudieron mandar. Pasá el mouse para ver por qué.</td>
+                <td>Sí</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="aviso ojo">
+          <span class="et">Importante</span>
+          <span><b>Las aperturas son una estimación.</b> Quien lee con las
+            imágenes apagadas no aparece, y algunos programas de correo las
+            cuentan solas sin que nadie haya leído. Tomalas como tendencia. El
+            <b>clic</b> y la <b>respuesta</b> sí son hechos: en esos dos
+            confiá.</span>
+        </div>
+
+        <ol class="acciones">
+          <li><b>Qué tocaron</b> — cada enlace del correo con cuánta gente lo
+            tocó. <span class="nota">Sirve para saber cuál botón funciona.</span></li>
+          <li><b>Uno por uno</b> — la lista completa: quién, a qué hora abrió,
+            a qué hora tocó, a qué hora respondió.
+            <span class="nota">Los que respondieron van primero. Esa es la
+              lista con la que trabajás.</span></li>
+          <li><span class="btn">Revisar el buzón</span> — trae las respuestas y
+            los rebotes al instante.
+            <span class="nota">Igual se revisa solo cada 10 minutos.</span></li>
+        </ol>
+
+        <div class="aviso plata">
+          <span class="et">Requisito</span>
+          <span>Para que haya números, el correo tiene que haber salido en
+            <b>Diseño HTML</b>. Un correo de texto plano no se puede medir, y
+            la pantalla te lo dice en vez de mostrarte ceros.</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================================ 6 ================================== -->
+    <section class="paso" id="ajustes">
+      <div class="paso-h">
+        <div class="paso-n">6</div>
+        <h2>Ajustes
+          <span class="para">Se configura una vez. Tres partes:
+            <span class="pest">Buzones</span>,
+            <span class="pest">Historial</span> y
+            <span class="pest">Cómo usar B2K</span>.</span></h2>
+      </div>
+
+      <div class="cuerpo">
+        <p class="subtitulo">Agregar un buzón</p>
+        <ol class="acciones">
+          <li>En Gmail o Workspace, activá la <b>verificación en dos pasos</b> y
+            generá una <b>contraseña de aplicación</b>.
+            <span class="nota">Cuenta de Google → Seguridad → Verificación en
+              dos pasos → Contraseñas de aplicaciones. La contraseña normal de
+              la cuenta <b>no funciona</b>.</span></li>
+          <li>En B2K, tocá <span class="btn">Agregar un buzón</span> y completá:
+            <span class="nota">
+              <span class="campo">Servidor</span> smtp.gmail.com ·
+              <span class="campo">Puerto</span> 587 ·
+              <span class="campo">Seguridad</span> STARTTLS ·
+              <span class="campo">Usuario</span> y
+              <span class="campo">Correo que ven</span> la misma dirección.
+            </span></li>
+          <li>Poné un <span class="campo">Tope por día</span>.
+            <span class="nota">Con una cuenta nueva, 20–30. Se sube de a poco a
+              lo largo de semanas, no de un día para otro.</span></li>
+          <li>Guardá y tocá <span class="btn">Probar</span>. Te llega un correo
+            de prueba.</li>
+          <li>Tocá <span class="btn">Revisar el DNS</span>.
+            <span class="nota">Tienen que dar los tres en verde: SPF, DKIM y
+              DMARC. Si alguno está en rojo, el correo va a llegar a spam.</span></li>
+        </ol>
+
+        <div class="aviso tip">
+          <span class="et">Varios buzones</span>
+          <span>Se agrupan por <b>dominio</b>, que es lo que mira quien recibe
+            el correo: tres buzones de un mismo dominio son, para Gmail, un solo
+            remitente. B2K manda primero por el dominio que menos usó hoy, así
+            ninguno se recalienta.</span>
+        </div>
+
+        <p style="color:var(--ink-2);margin:0">
+          <b>Historial</b> son las cargas anteriores, con cuántas filas trajo
+          cada una y cuántas eran repetidas. <b>Cómo usar B2K</b> es este mismo
+          documento: está adentro de la app, así que nadie tiene que buscar el
+          enlace en ningún lado.</p>
+      </div>
+    </section>
+
+    <!-- ================================ costos ============================== -->
+    <section class="paso" id="costos">
+      <div class="paso-h">
+        <div class="paso-n">$</div>
+        <h2>Qué cuesta plata
+          <span class="para">Todo lo demás es gratis.</span></h2>
+      </div>
+      <div class="cuerpo">
+        <div class="tabla">
+          <table>
+            <thead><tr><th>Acción</th><th>Costo</th><th>Cuándo usarla</th></tr></thead>
+            <tbody>
+              <tr><td>Buscar en Maps</td>
+                <td class="num">1.000 gratis/mes<br>luego US$0,04</td>
+                <td>Siempre. El contador se ve en pantalla.</td></tr>
+              <tr><td>Leer los sitios web</td>
+                <td class="num">gratis</td>
+                <td>Siempre, y antes que nada.</td></tr>
+              <tr><td>Buscar un email</td>
+                <td class="num">1 crédito</td>
+                <td>Para los que quedaron sin correo.</td></tr>
+              <tr><td>Ficha con IA</td>
+                <td class="num">por contacto</td>
+                <td>Cuando vas a escribir algo personalizado.</td></tr>
+              <tr><td>Buscar un teléfono</td>
+                <td class="num">10 créditos</td>
+                <td>Solo a quien vas a llamar de verdad.</td></tr>
+              <tr><td>Mandar correos</td>
+                <td class="num">gratis</td>
+                <td>Sale por tu propia cuenta de Google.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================================ problemas =========================== -->
+    <section class="paso" id="problemas">
+      <div class="paso-h">
+        <div class="paso-n">!</div>
+        <h2>Si algo sale mal
+          <span class="para">Lo que pasa más seguido, y qué mirar.</span></h2>
+      </div>
+      <div class="cuerpo">
+        <div class="tabla">
+          <table>
+            <thead><tr><th>Lo que ves</th><th>Qué hacer</th></tr></thead>
+            <tbody>
+              <tr><td><b>El botón de enviar está apagado</b></td>
+                <td>Falta una de tres cosas: contactos marcados, asunto y
+                  mensaje escritos, o un buzón activo en Ajustes.</td></tr>
+              <tr><td><b>"El servidor rechazó usuario o contraseña"</b></td>
+                <td>Estás usando la contraseña normal de la cuenta. Hace falta
+                  una <b>contraseña de aplicación</b>.</td></tr>
+              <tr><td><b>Los correos llegan a spam</b></td>
+                <td>Revisá el DNS en Ajustes: los tres tienen que estar en
+                  verde. Bajá el tope diario y subilo de a poco.</td></tr>
+              <tr><td><b>Todo en cero en Resultados</b></td>
+                <td>El correo salió en texto plano. Solo el
+                  <b>Diseño HTML</b> se puede medir.</td></tr>
+              <tr><td><b>La pantalla se ve rara o desactualizada</b></td>
+                <td>Recargá con <b>Ctrl+F5</b> una vez.</td></tr>
+              <tr><td><b>Muchos rebotes</b></td>
+                <td>La lista tiene direcciones viejas. Sacá las que rebotaron
+                  antes de volver a escribir.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================================ glosario ============================ -->
+    <section class="paso" id="palabras">
+      <div class="paso-h">
+        <div class="paso-n">?</div>
+        <h2>Palabras raras
+          <span class="para">Todo lo que aparece en pantalla y no se explica
+            solo.</span></h2>
+      </div>
+      <div class="cuerpo">
+        <dl class="gloss">
+          <div><dt>Prospección en frío</dt>
+            <dd>Escribirle a alguien que no te conoce ni te pidió nada.</dd></div>
+          <div><dt>CRM</dt>
+            <dd>El programa donde el equipo lleva a los clientes y su historia.
+              Acá es GoHighLevel.</dd></div>
+          <div><dt>Crédito</dt>
+            <dd>La ficha que se gasta al pedirle un dato a un proveedor. Un
+              correo gasta 1; un teléfono, 10.</dd></div>
+          <div><dt>Goteo</dt>
+            <dd>Mandar de a uno cada varios minutos en vez de todos juntos.
+              Evita el spam.</dd></div>
+          <div><dt>Buzón</dt>
+            <dd>La cuenta de correo desde la que sale el envío.</dd></div>
+          <div><dt>SMTP</dt>
+            <dd>El sistema por el que <b>salen</b> los correos.</dd></div>
+          <div><dt>IMAP</dt>
+            <dd>El sistema por el que se <b>leen</b> los que llegan. Es lo que
+              usa B2K para contar las respuestas.</dd></div>
+          <div><dt>Contraseña de aplicación</dt>
+            <dd>Una clave aparte que Google le da a un programa, sin entregarle
+              la de tu cuenta. Se puede anular cuando quieras.</dd></div>
+          <div><dt>Rebote</dt>
+            <dd>El correo volvió porque esa dirección no existe.</dd></div>
+          <div><dt>SPF, DKIM, DMARC</dt>
+            <dd>Tres anotaciones técnicas del dominio que le prueban a Gmail que
+              el correo es legítimo. Sin ellas, vas a spam.</dd></div>
+          <div><dt>Dominio</dt>
+            <dd>Lo que va después de la arroba. Es lo que se gana o se quema la
+              reputación, no cada casilla por separado.</dd></div>
+          <div><dt>Conmutador</dt>
+            <dd>El teléfono general de la empresa. Si llamás ahí te atiende
+              recepción, no la persona.</dd></div>
+        </dl>
+      </div>
+    </section>
+
+    <footer class="pie">
+      <span><b>B2K</b> — herramienta interna de gmarketing.co</span>
+      <span>Uso exclusivo del equipo</span>
+    </footer>
+  </main>
+</div>

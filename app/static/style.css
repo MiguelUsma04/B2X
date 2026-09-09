@@ -304,6 +304,13 @@ textarea.codigo{
 .dominio .mb{margin-left:12px}
 @media (max-width:620px){.dominio .mb{margin-left:0}}
 
+/* El manual, adentro de la app. Alto fijo y su propio scroll: si creciera con
+   el contenido, la página quedaría con dos barras peleándose. */
+.manual{
+  width:100%;height:78vh;min-height:460px;border:0;display:block;
+  border-radius:0 0 var(--r) var(--r);background:var(--surface);
+}
+
 /* consumo del mes contra el tramo gratis de Google */
 .usage{margin-top:14px;font-size:12.5px;color:var(--ink-3)}
 .usage .top{display:flex;justify-content:space-between;gap:12px;margin-bottom:5px}

@@ -471,6 +471,21 @@
       <button class="seg" id="seg-historial" role="tab" aria-selected="false"
               onclick="switchAjustes('historial')">
         <b>Historial</b><span>cargas anteriores</span></button>
+      <button class="seg" id="seg-ayuda" role="tab" aria-selected="false"
+              onclick="switchAjustes('ayuda')">
+        <b>Cómo usar B2K</b><span>el manual completo</span></button>
+    </div>
+
+    <div id="set-ayuda" hidden>
+      <div class="card">
+        <h2>Cómo usar B2K
+          <span class="hint"><a href="/manual" target="_blank" rel="noopener"
+            >abrir en otra pestaña ↗</a></span></h2>
+        <div class="body" style="padding:0">
+          <iframe id="manual-frame" class="manual" title="Manual de uso de B2K"
+                  loading="lazy"></iframe>
+        </div>
+      </div>
     </div>
 
     <div id="set-historial" hidden>
