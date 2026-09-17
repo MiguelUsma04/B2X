@@ -851,6 +851,16 @@ def track_click(token: str, request: Request, u: str = ""):
     return RedirectResponse(destino, status_code=302)
 
 
+@app.get("/api/mail/health")
+def api_mail_health(days: str = "30"):
+    """La salud de cada buzón: rebotes, rechazos, respuestas y ritmo."""
+    try:
+        dias = max(7, min(90, int(days)))
+    except (TypeError, ValueError):
+        dias = 30
+    return mailer.salud(dias)
+
+
 @app.post("/api/mail/dns/check")
 async def api_mail_dns(domain: str = Form("")):
     """Revisa SPF, DKIM y DMARC de los dominios desde los que se manda.

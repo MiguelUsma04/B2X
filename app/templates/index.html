@@ -471,9 +471,33 @@
       <button class="seg" id="seg-historial" role="tab" aria-selected="false"
               onclick="switchAjustes('historial')">
         <b>Historial</b><span>cargas anteriores</span></button>
+      <button class="seg" id="seg-salud" role="tab" aria-selected="false"
+              onclick="switchAjustes('salud')">
+        <b>Salud del envío</b><span>rebotes, rechazos y ritmo</span></button>
       <button class="seg" id="seg-ayuda" role="tab" aria-selected="false"
               onclick="switchAjustes('ayuda')">
         <b>Cómo usar B2K</b><span>el manual completo</span></button>
+    </div>
+
+    <div id="set-salud" hidden>
+      <div class="card">
+        <h2>Salud del envío <span class="hint" id="salud-hint"></span></h2>
+        <div class="body">
+          <p class="lede">Un buzón no avisa cuando empieza a caer: lo que se ve
+            acá son las señales que Google mira antes de mandarte a spam.</p>
+          <div id="salud-resumen"></div>
+        </div>
+      </div>
+      <div id="salud-buzones"></div>
+      <div class="card">
+        <h2>Lo que esto no puede ver</h2>
+        <div class="body">
+          <p class="lede">Nada de acá dice si tus correos <b>llegan a la bandeja
+            o a la carpeta de spam</b>: eso solo lo sabe Google, y hay que
+            mirarlo en Postmaster Tools con el dominio verificado. Estas señales
+            se adelantan a eso, no lo reemplazan.</p>
+        </div>
+      </div>
     </div>
 
     <div id="set-ayuda" hidden>

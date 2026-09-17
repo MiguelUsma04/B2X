@@ -598,9 +598,10 @@ dd{margin:0;color:var(--ink-2);font-size:15px}
       <div class="paso-h">
         <div class="paso-n">6</div>
         <h2>Ajustes
-          <span class="para">Se configura una vez. Tres partes:
+          <span class="para">Se configura una vez. Cuatro partes:
             <span class="pest">Buzones</span>,
-            <span class="pest">Historial</span> y
+            <span class="pest">Historial</span>,
+            <span class="pest">Salud del envío</span> y
             <span class="pest">Cómo usar B2K</span>.</span></h2>
       </div>
 
@@ -638,7 +639,35 @@ dd{margin:0;color:var(--ink-2);font-size:15px}
             ninguno se recalienta.</span>
         </div>
 
-        <p style="color:var(--ink-2);margin:0">
+        <p class="subtitulo">Salud del envío</p>
+        <p style="color:var(--ink-2);margin:0 0 6px">
+          Un buzón no avisa cuando empieza a caer. Esta pestaña muestra las
+          señales que Google mira antes de mandarte a spam, buzón por buzón y
+          dominio por dominio.</p>
+        <div class="tabla">
+          <table>
+            <thead><tr><th>Señal</th><th>Bien</th><th>Qué hacer si está en rojo</th></tr></thead>
+            <tbody>
+              <tr><td><b>Rebotes</b></td><td class="num">menos de 2%</td>
+                <td>Sacá de la lista las direcciones que rebotaron.</td></tr>
+              <tr><td><b>Rechazos del servidor</b></td><td class="num">menos de 2%</td>
+                <td>Bajá el tope diario y esperá un día.</td></tr>
+              <tr><td><b>Respuestas</b></td><td class="num">más de 2%</td>
+                <td>Si nadie contesta, revisá el mensaje o la lista.</td></tr>
+              <tr><td><b>Calentamiento</b></td><td class="num">20–30/día al empezar</td>
+                <td>Volvé al volumen anterior y subí de a poco.</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="aviso ojo" style="margin-top:14px">
+          <span class="et">Ojo</span>
+          <span>Con menos de <b>20 correos enviados</b> no muestra porcentajes:
+            un solo rebote sobre tres envíos daría 33% y sería una alarma
+            falsa. Y nada de esto dice si llegás a la bandeja o al spam — eso
+            solo lo sabe Google, en Postmaster Tools.</span>
+        </div>
+
+        <p style="color:var(--ink-2);margin:16px 0 0">
           <b>Historial</b> son las cargas anteriores, con cuántas filas trajo
           cada una y cuántas eran repetidas. <b>Cómo usar B2K</b> es este mismo
           documento: está adentro de la app, así que nadie tiene que buscar el

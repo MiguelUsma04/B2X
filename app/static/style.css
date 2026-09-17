@@ -306,6 +306,92 @@ textarea.codigo{
 
 /* El manual, adentro de la app. Alto fijo y su propio scroll: si creciera con
    el contenido, la página quedaría con dos barras peleándose. */
+/* ============================== salud del envío ======================== */
+:root{
+  --marca-ent:#0b5f9e;   /* entregados */
+  --marca-reb:#b02020;   /* rebotados  */
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){--marca-ent:#2f9ed6; --marca-reb:#ec5c73}
+}
+:root[data-theme="dark"]{--marca-ent:#2f9ed6; --marca-reb:#ec5c73}
+
+.salud-chip{
+  display:inline-block;font-size:11.5px;font-weight:700;letter-spacing:.02em;
+  padding:2px 9px;border-radius:999px;border:1px solid transparent;
+  vertical-align:middle;margin-left:8px;
+}
+.salud-chip.ok{background:var(--ok-soft);color:var(--ok);border-color:var(--ok-line)}
+.salud-chip.warn{background:var(--warn-soft);color:var(--warn);border-color:var(--warn-line)}
+.salud-chip.bad{background:var(--danger-soft);color:var(--danger);border-color:var(--danger-line)}
+.salud-chip.nuevo{background:var(--surface-3);color:var(--ink-3);border-color:var(--line-strong)}
+
+.salud-doms{display:grid;gap:10px;margin-top:12px}
+@media (min-width:760px){.salud-doms{grid-template-columns:repeat(auto-fit,minmax(240px,1fr))}}
+.salud-dom{
+  padding:12px 14px;border:1px solid var(--line);border-radius:var(--r-sm);
+  background:var(--surface-2);border-left-width:3px;
+}
+.salud-dom.ok{border-left-color:var(--ok)}
+.salud-dom.warn{border-left-color:var(--warn)}
+.salud-dom.bad{border-left-color:var(--danger)}
+.salud-dom.nuevo{border-left-color:var(--line-strong)}
+.salud-dom .h{display:flex;align-items:center;gap:4px;flex-wrap:wrap}
+.salud-dom .sub{font-size:12.5px;margin-top:3px}
+.aviso-dns{color:var(--warn)}
+
+.salud-buzon{margin-top:16px;border-left:3px solid var(--line-strong)}
+.salud-buzon.ok{border-left-color:var(--ok)}
+.salud-buzon.warn{border-left-color:var(--warn)}
+.salud-buzon.bad{border-left-color:var(--danger)}
+
+/* La tira diaria. Barras finas, apiladas, con 2px de aire entre una y otra. */
+.tira{margin:4px 0 18px}
+.tira .barras{
+  display:flex;align-items:flex-end;gap:2px;height:104px;
+  padding:0 2px 0;border-bottom:1px solid var(--line);
+}
+.tira .dia{flex:1 1 0;height:100%;display:flex;align-items:flex-end;min-width:0}
+.tira .col{
+  width:100%;min-height:2px;border-radius:3px 3px 0 0;overflow:hidden;
+  background:var(--marca-ent);display:flex;flex-direction:column;
+  justify-content:flex-start;
+}
+.tira .col .reb{display:block;width:100%;background:var(--marca-reb)}
+.tira .dia:hover .col{filter:brightness(1.15)}
+.tira-pie{
+  display:flex;justify-content:space-between;
+  font-size:11px;color:var(--ink-3);margin-top:5px;
+}
+.tira-leyenda{
+  display:flex;align-items:center;gap:14px;flex-wrap:wrap;
+  font-size:12px;color:var(--ink-2);margin-bottom:8px;
+}
+.tira-leyenda span{display:flex;align-items:center;gap:6px}
+.tira-leyenda .m{width:10px;height:10px;border-radius:3px;flex:none}
+.tira-leyenda .m.ent{background:var(--marca-ent)}
+.tira-leyenda .m.reb{background:var(--marca-reb)}
+.tira-leyenda .sub{margin-left:auto;color:var(--ink-3)}
+
+.controles{display:grid;gap:10px}
+@media (min-width:860px){.controles{grid-template-columns:repeat(2,1fr)}}
+.control{
+  padding:12px 14px;border:1px solid var(--line);border-radius:var(--r-sm);
+  background:var(--surface-2);
+}
+.control.warn{background:var(--warn-soft);border-color:var(--warn-line)}
+.control.bad{background:var(--danger-soft);border-color:var(--danger-line)}
+.control .c-h{display:flex;align-items:baseline;justify-content:space-between;gap:12px}
+.control .c-v{
+  font-size:19px;font-weight:700;letter-spacing:-.02em;
+  font-variant-numeric:tabular-nums;
+}
+.control.warn .c-v{color:var(--warn)}
+.control.bad .c-v{color:var(--danger)}
+.control .sub{font-size:12.5px;margin-top:2px}
+.control .c-q{font-size:13px;margin-top:8px;color:var(--ink)}
+.control .c-p{font-size:12.5px;margin-top:6px;color:var(--ink-3);line-height:1.45}
+
 .manual{
   width:100%;height:78vh;min-height:460px;border:0;display:block;
   border-radius:0 0 var(--r) var(--r);background:var(--surface);

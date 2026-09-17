@@ -216,6 +216,276 @@ def elegir_buzon() -> dict | None:
     return libres[0]
 
 
+# --------------------------------------------------------------- la salud
+# Cuántos correos hacen falta para que un porcentaje signifique algo. Con
+# menos, un solo rebote da 20% y el aviso sería mentira.
+MINIMO_PARA_JUZGAR = 20
+
+# Los cortes. No son opinión: por encima del 5% de rebotes Google empieza a
+# tratar al dominio como sospechoso, y el 2% es el techo que recomiendan
+# quedarse por debajo.
+CORTES = {
+    "rebotes":   {"ojo": 2.0, "mal": 5.0},
+    "errores":   {"ojo": 2.0, "mal": 10.0},
+}
+
+
+def _peor(estados: list[str]) -> str:
+    for e in ("mal", "ojo", "bien"):
+        if e in estados:
+            return e
+    return "nuevo"
+
+
+def _por_encima(pct: float, cortes: dict) -> str:
+    """Un número donde más alto es peor."""
+    if pct >= cortes["mal"]:
+        return "mal"
+    return "ojo" if pct >= cortes["ojo"] else "bien"
+
+
+def _serie_diaria(conn, mid: int, dias: int = 14) -> list[dict]:
+    """Cuántos salieron y cuántos rebotaron cada día.
+
+    Es lo único que muestra una caída: un promedio de treinta días esconde
+    que los últimos cuatro vienen mal.
+    """
+    filas = conn.execute(
+        """SELECT date(q.sent_at, 'localtime') dia,
+                  COUNT(*) enviados,
+                  COUNT(DISTINCT CASE WHEN e.kind='bounce' AND e.bot=0
+                                      THEN e.queue_id END) rebotes
+             FROM email_queue q
+             LEFT JOIN email_events e ON e.queue_id = q.id
+            WHERE q.smtp_id = ? AND q.status='sent'
+              AND date(q.sent_at,'localtime') >= date('now','localtime',?)
+            GROUP BY dia ORDER BY dia""",
+        (mid, f"-{dias - 1} days")).fetchall()
+    porDia = {f["dia"]: dict(f) for f in filas}
+
+    # Los días sin envíos también son información: un hueco en la mitad de
+    # una campaña dice que algo se frenó.
+    hoy = conn.execute("SELECT date('now','localtime') d").fetchone()["d"]
+    salida = []
+    from datetime import date, timedelta
+    fin = date.fromisoformat(hoy)
+    for i in range(dias - 1, -1, -1):
+        d = (fin - timedelta(days=i)).isoformat()
+        f = porDia.get(d)
+        salida.append({"dia": d,
+                       "enviados": (f or {}).get("enviados", 0),
+                       "rebotes": (f or {}).get("rebotes", 0)})
+    return salida
+
+
+def salud_de_buzon(conn, b: dict, dias: int = 30) -> dict:
+    """Los números de un buzón y qué dice cada uno."""
+    mid = b["id"]
+    ventana = f"-{dias} days"
+
+    env = conn.execute(
+        """SELECT SUM(status='sent') enviados,
+                  SUM(status='error') errores,
+                  MIN(CASE WHEN status='sent' THEN sent_at END) primero,
+                  MAX(CASE WHEN status='sent' THEN sent_at END) ultimo
+             FROM email_queue
+            WHERE smtp_id = ?
+              AND date(COALESCE(sent_at, created_at),'localtime')
+                  >= date('now','localtime',?)""", (mid, ventana)).fetchone()
+
+    vueltos = conn.execute(
+        """SELECT COUNT(DISTINCT CASE WHEN e.kind='bounce' AND e.bot=0
+                                      THEN e.queue_id END) rebotes,
+                  COUNT(DISTINCT CASE WHEN e.kind='reply' AND e.bot=0
+                                      THEN e.queue_id END) respuestas
+             FROM email_events e
+             JOIN email_queue q ON q.id = e.queue_id
+            WHERE q.smtp_id = ?
+              AND date(q.sent_at,'localtime') >= date('now','localtime',?)""",
+        (mid, ventana)).fetchone()
+
+    # Desde cuándo manda este buzón. Un buzón de tres días mandando cien por
+    # día es el caso que más rápido termina bloqueado.
+    edad = conn.execute(
+        """SELECT CAST(julianday('now') - julianday(MIN(sent_at)) AS INTEGER) d
+             FROM email_queue WHERE smtp_id=? AND status='sent'""",
+        (mid,)).fetchone()["d"]
+
+    enviados = env["enviados"] or 0
+    errores = env["errores"] or 0
+    rebotes = (vueltos["rebotes"] or 0) if vueltos else 0
+    respuestas = (vueltos["respuestas"] or 0) if vueltos else 0
+    intentos = enviados + errores
+    hay_datos = enviados >= MINIMO_PARA_JUZGAR
+
+    def pct(n, total):
+        return round(100 * n / total, 1) if total else 0.0
+
+    serie = _serie_diaria(conn, mid)
+    ultimos7 = sum(d["enviados"] for d in serie[-7:])
+    previos7 = sum(d["enviados"] for d in serie[:7])
+    promedio7 = round(ultimos7 / 7, 1)
+    # Para el calentamiento manda el día más cargado, no el promedio: quien
+    # manda 120 en un día y nada los otros seis promedia 17 y parece
+    # tranquilo, cuando es exactamente el patrón que bloquea una cuenta.
+    pico7 = max((d["enviados"] for d in serie[-7:]), default=0)
+
+    controles = []
+
+    # --- rebotes: el que más pesa
+    if hay_datos:
+        p = pct(rebotes, enviados)
+        controles.append({
+            "clave": "rebotes", "titulo": "Rebotes", "valor": f"{p}%",
+            "detalle": f"{rebotes} de {enviados} correos",
+            "estado": _por_encima(p, CORTES["rebotes"]),
+            "que_significa": "Direcciones que no existen. Por encima del 5% "
+                             "Google empieza a desconfiar del dominio entero.",
+            "que_hacer": "Sacá de la lista las direcciones que rebotaron antes "
+                         "de volver a escribir."})
+    else:
+        controles.append({
+            "clave": "rebotes", "titulo": "Rebotes", "valor": "—",
+            "detalle": f"{enviados} correos, hacen falta {MINIMO_PARA_JUZGAR}",
+            "estado": "nuevo",
+            "que_significa": "Con tan pocos envíos un porcentaje no dice nada.",
+            "que_hacer": "Seguí mandando: el número aparece solo."})
+
+    # --- errores del servidor
+    if intentos >= MINIMO_PARA_JUZGAR:
+        p = pct(errores, intentos)
+        controles.append({
+            "clave": "errores", "titulo": "Rechazos del servidor",
+            "valor": f"{p}%", "detalle": f"{errores} de {intentos} intentos",
+            "estado": _por_encima(p, CORTES["errores"]),
+            "que_significa": "Correos que ni salieron. Suele ser el propio "
+                             "Google frenando la cuenta por mandar de más.",
+            "que_hacer": "Bajá el tope diario del buzón y esperá un día."})
+    else:
+        controles.append({
+            "clave": "errores", "titulo": "Rechazos del servidor",
+            "valor": "—", "detalle": "todavía sin datos suficientes",
+            "estado": "nuevo", "que_significa": "", "que_hacer": ""})
+
+    # --- respuestas: la única señal buena que tenemos
+    p_resp = pct(respuestas, enviados)
+    if enviados >= 50:
+        estado_resp = "bien" if p_resp >= 2 else ("ojo" if p_resp >= 0.5 else "mal")
+    elif hay_datos:
+        estado_resp = "bien" if respuestas else "nuevo"
+    else:
+        estado_resp = "nuevo"
+    controles.append({
+        "clave": "respuestas", "titulo": "Respuestas", "valor": f"{p_resp}%",
+        "detalle": f"{respuestas} de {enviados} correos",
+        "estado": estado_resp,
+        "que_significa": "Es lo contrario del spam: un buzón al que le "
+                         "contestan es un buzón que Google considera bueno.",
+        "que_hacer": "Si nadie contesta, el problema es el mensaje o la lista, "
+                     "no el buzón."})
+
+    # --- calentamiento: la edad contra el volumen
+    edad = edad if edad is not None else 0
+    # Dos niveles y no uno: entre "esto conviene mirarlo" y "esto hay que
+    # frenarlo" hay una diferencia real, y un corte único la borra. La
+    # referencia es la de siempre: una cuenta nueva arranca en 20–30 por día.
+    if not enviados:
+        estado_cal, det = "nuevo", "todavía no mandó ningún correo"
+    elif edad < 14:
+        estado_cal = "mal" if pico7 > 50 else ("ojo" if pico7 > 30 else "bien")
+        det = f"hasta {pico7} en un día, con solo {edad} día(s) de uso"
+    elif edad < 30:
+        estado_cal = "mal" if pico7 > 120 else ("ojo" if pico7 > 60 else "bien")
+        det = f"hasta {pico7} en un día, con {edad} días de uso"
+    else:
+        estado_cal = "bien"
+        det = f"pico de {pico7} en un día · {edad} día(s) de uso"
+    controles.append({
+        "clave": "calentamiento", "titulo": "Calentamiento", "valor":
+            f"{pico7}/día", "detalle": det, "estado": estado_cal,
+        "que_significa": "Una cuenta nueva que arranca con mucho volumen es "
+                         "el caso que más rápido termina bloqueado.",
+        "que_hacer": "Arrancá en 20–30 por día y subí de a poco por semanas."})
+
+    # --- subida de volumen: lo que quema un dominio sano
+    if previos7 >= 10 and ultimos7 > previos7 * 3:
+        controles.append({
+            "clave": "salto", "titulo": "Subida de volumen",
+            "valor": f"×{round(ultimos7 / previos7, 1)}",
+            "detalle": f"{previos7} → {ultimos7} correos por semana",
+            "estado": "ojo",
+            "que_significa": "Triplicar el volumen de una semana a otra es una "
+                             "señal de robot para los filtros.",
+            "que_hacer": "Volvé al volumen anterior y subí de a 20% por semana."})
+
+    avisos = avisos_del_buzon(b)
+    if avisos:
+        controles.append({
+            "clave": "config", "titulo": "Configuración", "valor":
+                f"{len(avisos)} aviso(s)", "detalle": avisos[0],
+            "estado": "ojo", "que_significa": "", "que_hacer": ""})
+
+    return {
+        "id": mid,
+        "label": b.get("label") or b.get("from_email"),
+        "from_email": b.get("from_email"),
+        "domain": dominio_de(b),
+        "active": bool(b.get("active")),
+        "enviados": enviados, "errores": errores, "rebotes": rebotes,
+        "respuestas": respuestas,
+        "pct_rebotes": pct(rebotes, enviados),
+        "pct_respuestas": p_resp,
+        "primero": env["primero"], "ultimo": env["ultimo"],
+        "edad_dias": edad,
+        "promedio_dia": promedio7,
+        "pico_dia": pico7,
+        "serie": serie,
+        "controles": controles,
+        "estado": _peor([c["estado"] for c in controles]),
+    }
+
+
+def salud(dias: int = 30) -> dict:
+    """La salud de todos los buzones, y la del dominio de cada uno."""
+    with get_db() as conn:
+        filas = conn.execute(
+            "SELECT * FROM smtp_config ORDER BY active DESC, id").fetchall()
+        buzones = [salud_de_buzon(conn, dict(f), dias) for f in filas]
+
+        dns = {}
+        for r in conn.execute("SELECT * FROM domain_dns"):
+            import json
+            try:
+                detalle = json.loads(r["detail"] or "{}")
+            except ValueError:
+                detalle = {}
+            dns[r["domain"]] = {**detalle, "ok": bool(r["ok"]),
+                                "checked_at": r["checked_at"]}
+
+    # El dominio es la unidad que mira quien recibe: se junta lo de sus buzones.
+    dominios: dict[str, dict] = {}
+    for b in buzones:
+        d = dominios.setdefault(b["domain"], {
+            "domain": b["domain"], "buzones": 0, "enviados": 0, "rebotes": 0,
+            "respuestas": 0, "errores": 0, "dns": dns.get(b["domain"]),
+            "estados": []})
+        d["buzones"] += 1
+        for k in ("enviados", "rebotes", "respuestas", "errores"):
+            d[k] += b[k]
+        d["estados"].append(b["estado"])
+
+    for d in dominios.values():
+        d["pct_rebotes"] = (round(100 * d["rebotes"] / d["enviados"], 1)
+                            if d["enviados"] else 0.0)
+        d["estado"] = _peor(d.pop("estados"))
+        if d["dns"] and not d["dns"].get("ok") and d["estado"] == "bien":
+            d["estado"] = "ojo"
+
+    return {"dias": dias, "buzones": buzones,
+            "dominios": sorted(dominios.values(), key=lambda x: x["domain"]),
+            "estado": _peor([b["estado"] for b in buzones])}
+
+
 def resumen_por_dominio() -> list[dict]:
     """Cuánto salió de cada dominio hoy y cómo está su DNS."""
     buzones = [_fila_a_buzon(b) for b in buzones_disponibles()]

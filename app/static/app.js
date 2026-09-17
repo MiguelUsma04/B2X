@@ -129,6 +129,105 @@ function goToStep(name) {
   if (btn) btn.click();
 }
 
+/* ======================= salud del envío ======================= */
+// Cuatro estados y nada más. Un puntaje del 0 al 100 daría una precisión que
+// estos datos no tienen; "bien / ojo / parar" es lo que de verdad se sabe.
+const ESTADOS = {
+  bien:  { et: 'Bien',   cls: 'ok' },
+  ojo:   { et: 'Ojo',    cls: 'warn' },
+  mal:   { et: 'Parar',  cls: 'bad' },
+  nuevo: { et: 'Sin datos', cls: 'nuevo' },
+};
+
+function insignia(estado) {
+  const e = ESTADOS[estado] || ESTADOS.nuevo;
+  return `<span class="salud-chip ${e.cls}">${e.et}</span>`;
+}
+
+// Barras apiladas: entregados y, encima, los que rebotaron. Misma unidad —
+// correos— así que un solo eje. Es lo único que muestra una caída en curso.
+function tiraDiaria(serie) {
+  const tope = Math.max(1, ...serie.map((d) => d.enviados));
+  const barras = serie.map((d) => {
+    const alto = (d.enviados / tope) * 100;
+    const malo = d.enviados ? (d.rebotes / d.enviados) * 100 : 0;
+    const dia = d.dia.slice(8) + '/' + d.dia.slice(5, 7);
+    const titulo = d.enviados
+      ? `${dia}: ${d.enviados} enviado(s)` + (d.rebotes ? `, ${d.rebotes} rebotado(s)` : '')
+      : `${dia}: sin envíos`;
+    return `<div class="dia" title="${esc(titulo)}">
+      <div class="col" style="height:${alto.toFixed(1)}%">
+        <i class="reb" style="height:${malo.toFixed(1)}%"></i>
+      </div></div>`;
+  }).join('');
+  const primero = serie[0].dia.slice(8) + '/' + serie[0].dia.slice(5, 7);
+  return `<div class="tira" role="img"
+       aria-label="Correos por día de los últimos ${serie.length} días">
+      <div class="barras">${barras}</div>
+      <div class="tira-pie"><span>${primero}</span><span>hoy</span></div>
+    </div>`;
+}
+
+function leyendaTira() {
+  return `<div class="tira-leyenda">
+    <span><i class="m ent"></i>Entregados</span>
+    <span><i class="m reb"></i>Rebotados</span>
+    <span class="sub">últimos 14 días</span></div>`;
+}
+
+async function cargarSalud() {
+  const caja = $('salud-buzones');
+  caja.innerHTML = '<div class="alert info"><span class="pulse">●</span> Mirando…</div>';
+  const d = await (await fetch('/api/mail/health')).json();
+
+  const hint = $('salud-hint');
+  if (hint) hint.textContent = `últimos ${d.dias} días`;
+
+  if (!d.buzones || !d.buzones.length) {
+    $('salud-resumen').innerHTML = '';
+    caja.innerHTML = `<div class="empty"><strong>Todavía no hay buzones</strong>
+      Agregá uno en la pestaña Buzones.</div>`;
+    return;
+  }
+
+  const porDominio = (d.dominios || []).map((g) => `
+    <div class="salud-dom ${(ESTADOS[g.estado] || ESTADOS.nuevo).cls}">
+      <div class="h"><b>${esc(g.domain)}</b>${insignia(g.estado)}</div>
+      <div class="sub">${g.buzones} buzón(es) · ${g.enviados} enviado(s) ·
+        ${g.pct_rebotes}% rebotes</div>
+      ${g.dns && !g.dns.ok
+        ? `<div class="sub aviso-dns">Le falta ${esc((g.dns.falta || []).join(', ').toUpperCase())} en el DNS</div>`
+        : ''}
+    </div>`).join('');
+  $('salud-resumen').innerHTML = `<div class="salud-doms">${porDominio}</div>`;
+
+  caja.innerHTML = d.buzones.map((b) => `
+    <div class="card salud-buzon ${(ESTADOS[b.estado] || ESTADOS.nuevo).cls}">
+      <h2>${esc(b.label)} ${insignia(b.estado)}
+        ${!b.active ? '<span class="tag pin-none">pausado</span>' : ''}</h2>
+      <div class="body">
+        <div class="sub" style="margin:-4px 0 14px">${esc(b.from_email)}</div>
+
+        ${leyendaTira()}
+        ${tiraDiaria(b.serie)}
+
+        <div class="controles">
+          ${b.controles.map((c) => `
+            <div class="control ${(ESTADOS[c.estado] || ESTADOS.nuevo).cls}">
+              <div class="c-h"><b>${esc(c.titulo)}</b>
+                <span class="c-v">${esc(c.valor)}</span></div>
+              <div class="sub">${esc(c.detalle)}</div>
+              ${c.estado !== 'bien' && c.que_hacer
+                ? `<div class="c-q"><b>Qué hacer:</b> ${esc(c.que_hacer)}</div>`
+                : ''}
+              ${c.que_significa
+                ? `<div class="c-p">${esc(c.que_significa)}</div>` : ''}
+            </div>`).join('')}
+        </div>
+      </div>
+    </div>`).join('');
+}
+
 /* ======================= resultados del envío ======================= */
 // Fecha corta: la hora es lo que importa acá, el año se sobreentiende.
 function cuando(iso) {
@@ -1133,7 +1232,7 @@ async function pollWebsite() {
 
 /* ======================= configuración ======================= */
 function switchAjustes(cual) {
-  const partes = ['buzones', 'historial', 'ayuda'];
+  const partes = ['buzones', 'historial', 'salud', 'ayuda'];
   const elegida = partes.includes(cual) ? cual : 'buzones';
   for (const p of partes) {
     const on = p === elegida;
@@ -1145,6 +1244,7 @@ function switchAjustes(cual) {
   // no tiene por qué pesar en cada carga de la app.
   const marco = $('manual-frame');
   if (elegida === 'ayuda' && marco && !marco.src) marco.src = '/manual';
+  if (elegida === 'salud') cargarSalud();
 }
 
 /* ======================= correos ======================= */
