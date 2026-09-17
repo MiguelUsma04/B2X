@@ -1342,7 +1342,10 @@ async function loadSmtp() {
           <span class="tag ${m.active ? 'pin-site' : 'pin-none'}">
             ${m.active ? 'activo' : 'pausado'}</span>
           ${!m.has_password ? '<span class="tag pin-none">sin contraseña</span>' : ''}
+          ${m.auto_pause ? '<span class="tag pin-none">pausado solo</span>' : ''}
         </div>
+        ${m.auto_pause ? `<div class="alert warn" style="margin:8px 0 0">
+          ${esc(m.auto_pause)}</div>` : ''}
         <div class="sub">${esc(m.from_email)} · ${esc(m.host)}:${m.port}</div>
         <div class="mb-bar" title="${m.sent_today} enviados hoy de ${m.daily_cap}">
           <i style="width:${m.daily_cap ? Math.min(100, m.sent_today / m.daily_cap * 100) : 0}%"></i>

@@ -66,6 +66,109 @@ async def campos(client: httpx.AsyncClient, refrescar: bool = False) -> dict:
     return encontrados
 
 
+# --------------------------------------------------- los campos del lead
+# La pestaña propia dentro de la tarjeta del lead, y lo que va adentro. Son
+# los datos que B2K averigua y que el comercial necesita ver sin salir de
+# Kommo. Se crean solos la primera vez; si ya existen, se reusan.
+GRUPO_B2K = "B2K"
+CAMPOS_LEAD = [
+    ("Resumen del negocio", "textarea"),
+    ("Gancho", "textarea"),
+    ("Ciudad", "text"),
+    ("Rubro", "text"),
+    ("Sitio web", "url"),
+    ("Calificación en Google", "text"),
+    ("De dónde salió", "text"),
+]
+
+_CAMPOS_LEAD: dict | None = None
+
+
+async def campos_lead(client: httpx.AsyncClient, refrescar: bool = False) -> dict:
+    """Los ids de los campos de B2K en la tarjeta del lead.
+
+    Crea la pestaña y los campos que falten. Es idempotente a propósito: la
+    cuenta ya tiene decenas de campos de otros procesos y duplicarlos sería
+    ensuciar el CRM de todo el equipo.
+    """
+    global _CAMPOS_LEAD
+    if _CAMPOS_LEAD is not None and not refrescar:
+        return _CAMPOS_LEAD
+
+    r = await client.get(f"{base_url()}/leads/custom_fields/groups")
+    if r.status_code != 200:
+        _CAMPOS_LEAD = {}
+        return _CAMPOS_LEAD
+    grupos = r.json().get("_embedded", {}).get("custom_field_groups", [])
+    mio = next((g for g in grupos
+                if (g.get("name") or "").strip().upper() == GRUPO_B2K), None)
+
+    if not mio:
+        rc = await client.post(f"{base_url()}/leads/custom_fields/groups",
+                               json=[{"name": GRUPO_B2K}])
+        if rc.status_code not in (200, 201):
+            _CAMPOS_LEAD = {}
+            return _CAMPOS_LEAD
+        creados = rc.json().get("_embedded", {}).get("custom_field_groups", [])
+        mio = creados[0] if creados else None
+        if not mio:
+            _CAMPOS_LEAD = {}
+            return _CAMPOS_LEAD
+
+    grupo_id = mio["id"]
+
+    r = await client.get(f"{base_url()}/leads/custom_fields",
+                         params={"limit": 250})
+    existentes = {}
+    if r.status_code == 200:
+        for f in r.json().get("_embedded", {}).get("custom_fields", []):
+            existentes[(f.get("name") or "").strip().lower()] = f["id"]
+
+    faltan = [{"name": n, "type": t, "group_id": grupo_id}
+              for n, t in CAMPOS_LEAD if n.lower() not in existentes]
+    if faltan:
+        rc = await client.post(f"{base_url()}/leads/custom_fields", json=faltan)
+        if rc.status_code in (200, 201):
+            for f in rc.json().get("_embedded", {}).get("custom_fields", []):
+                existentes[(f.get("name") or "").strip().lower()] = f["id"]
+
+    _CAMPOS_LEAD = {n: existentes.get(n.lower()) for n, _ in CAMPOS_LEAD
+                    if existentes.get(n.lower())}
+    return _CAMPOS_LEAD
+
+
+def datos_del_lead(c: dict) -> dict:
+    """Lo que B2K sabe de esta empresa, con el nombre de cada campo."""
+    perfil = {}
+    if c.get("ai_profile"):
+        try:
+            import json
+            perfil = json.loads(c["ai_profile"]) or {}
+        except Exception:
+            perfil = {}
+
+    ciudades = perfil.get("ciudades") or []
+    calificacion = ""
+    if c.get("rating"):
+        calificacion = str(c["rating"]).replace(".", ",")
+        if c.get("rating_count"):
+            calificacion += f" · {c['rating_count']} reseñas"
+
+    sitio = c.get("company_domain") or ""
+    if sitio and not sitio.startswith("http"):
+        sitio = "https://" + sitio
+
+    return {
+        "Resumen del negocio": (perfil.get("resumen") or c.get("ai_summary") or ""),
+        "Gancho": perfil.get("gancho") or "",
+        "Ciudad": (ciudades[0] if ciudades else "") or "",
+        "Rubro": c.get("category") or "",
+        "Sitio web": sitio,
+        "Calificación en Google": calificacion,
+        "De dónde salió": "Google Maps" if c.get("place_id") else "Archivo de Apollo",
+    }
+
+
 def pais() -> str:
     """El indicativo que se le pone a los números que no traen uno."""
     return (os.getenv("KOMMO_COUNTRY_CODE") or "57").strip().lstrip("+")
@@ -146,7 +249,7 @@ def armar_contacto(c: dict, ids: dict) -> dict:
     return cuerpo
 
 
-def armar_lead(c: dict, tag: str | None) -> dict:
+def armar_lead(c: dict, tag: str | None, campos_ids: dict | None = None) -> dict:
     """El lead: la oportunidad que va a avanzar por el embudo."""
     nombre = (c.get("company_name") or c.get("full_name")
               or c.get("email") or "Prospecto").strip()
@@ -167,6 +270,18 @@ def armar_lead(c: dict, tag: str | None) -> dict:
                  if t.strip()]
     if etiquetas:
         lead["_embedded"] = {"tags": [{"name": t} for t in etiquetas]}
+
+    # La pestaña B2K de la tarjeta. Un campo vacío no se manda: en Kommo
+    # escribir vacío borra lo que un comercial pudo haber puesto a mano.
+    if campos_ids:
+        valores = []
+        for nombre, texto in datos_del_lead(c).items():
+            cid = campos_ids.get(nombre)
+            if cid and str(texto).strip():
+                valores.append({"field_id": cid,
+                                "values": [{"value": str(texto)[:2000]}]})
+        if valores:
+            lead["custom_fields_values"] = valores
     return lead
 
 
@@ -233,6 +348,7 @@ async def send_contacts(contact_ids: list[int], tag: str | None = None) -> dict:
 
     async with httpx.AsyncClient(timeout=TIEMPO, headers=_headers()) as client:
         ids = await campos(client)
+        ids_lead = await campos_lead(client)
         if not ids.get("phone") and not ids.get("email"):
             return {"error": "No se pudieron leer los campos de Kommo. "
                              "Revisá el token.", "sent": 0, "failed": 0,
@@ -275,7 +391,7 @@ async def send_contacts(contact_ids: list[int], tag: str | None = None) -> dict:
                 # Lead y contacto juntos: si se crearan por separado y la
                 # segunda llamada fallara, quedaría un contacto huérfano que
                 # nadie va a trabajar.
-                lead = armar_lead(c, tag)
+                lead = armar_lead(c, tag, ids_lead)
                 dentro = lead.pop("_embedded", {})
                 dentro["contacts"] = [armar_contacto(c, ids)]
                 lead["_embedded"] = dentro

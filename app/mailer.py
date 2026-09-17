@@ -108,6 +108,13 @@ def get_mailbox(mid: int) -> dict | None:
     return _fila_a_buzon(r) if r else None
 
 
+def reactivar(mid: int) -> None:
+    """Vuelve a poner en juego un buzón que se había pausado solo."""
+    with get_db() as conn:
+        conn.execute("UPDATE smtp_config SET active=1, auto_pause=NULL, "
+                     "updated_at=datetime('now') WHERE id=?", (mid,))
+
+
 def save_mailbox(datos: dict) -> dict:
     """Crea o actualiza un buzón.
 
@@ -1287,6 +1294,55 @@ async def _tanda() -> None:
                          "AND status='running'", (fila["campaign_id"],))
 
 
+def cuidar_buzones() -> list[dict]:
+    """Pausa los buzones que se están quemando y deja que sigan los sanos.
+
+    Solo pausa si queda otro buzón sano para tomar el relevo. Un buzón malo
+    mandando es un problema; la campaña entera frenada sin que nadie se entere
+    es otro, y no está claro que sea menor. Cuando es el único, no se pausa:
+    se avisa, que es lo único honesto que se puede hacer.
+
+    No pausa por calentamiento: un buzón nuevo mandando de más no está roto,
+    está yendo rápido, y para eso está el tope diario.
+    """
+    estado = salud()
+    pausados = []
+
+    quemados = [b for b in estado["buzones"] if b["active"] and _quemado(b)]
+    if not quemados:
+        return pausados
+
+    sanos = [b for b in estado["buzones"]
+             if b["active"] and not _quemado(b)]
+
+    for b in quemados:
+        # El relevo: otro buzón sano y activo. Si no hay, no se pausa.
+        if not sanos:
+            continue
+        motivo = _motivo(b)
+        with get_db() as conn:
+            conn.execute("UPDATE smtp_config SET active=0, auto_pause=?, "
+                         "updated_at=datetime('now') WHERE id=?",
+                         (motivo, b["id"]))
+        pausados.append({"id": b["id"], "label": b["label"], "motivo": motivo,
+                         "reemplazo": [s["label"] for s in sanos]})
+    return pausados
+
+
+def _quemado(b: dict) -> bool:
+    """Si este buzón está para frenar, por rebotes o por rechazos."""
+    return any(c["estado"] == "mal" and c["clave"] in ("rebotes", "errores")
+               for c in b["controles"])
+
+
+def _motivo(b: dict) -> str:
+    malos = [c for c in b["controles"]
+             if c["estado"] == "mal" and c["clave"] in ("rebotes", "errores")]
+    partes = [f"{c['titulo'].lower()} en {c['valor']}" for c in malos]
+    return ("Pausado solo: " + " y ".join(partes)
+            + ". Se reanuda cuando lo actives a mano.")
+
+
 # Cada cuánto se entra al buzón. Diez minutos: una respuesta no es urgente
 # y entrar cada minuto es una forma de que el servidor te corte el acceso.
 _CADA_BUZON = 600
@@ -1299,6 +1355,13 @@ async def loop_buzones() -> None:
             await revisar_buzones()
         except Exception:
             # Que no se caiga el ciclo: el próximo intento es en diez minutos.
+            pass
+        try:
+            # Los rebotes que acaba de leer pueden haber dejado un buzón en
+            # rojo: se revisa justo después, no en otro ciclo aparte.
+            for p in cuidar_buzones():
+                print(f"[buzones] {p['label']}: {p['motivo']}")
+        except Exception:
             pass
         await asyncio.sleep(_CADA_BUZON)
 

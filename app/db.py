@@ -138,6 +138,8 @@ CREATE TABLE IF NOT EXISTS smtp_config (
     imap_last_uid INTEGER NOT NULL DEFAULT 0,
     imap_error TEXT,
     imap_checked TEXT,
+    -- Por qué se pausó solo. Vacío = lo pausó una persona, o está activo.
+    auto_pause TEXT,
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -391,7 +393,8 @@ def _lectura_del_buzon(conn) -> None:
                      ("imap_port", "INTEGER NOT NULL DEFAULT 993"),
                      ("imap_last_uid", "INTEGER NOT NULL DEFAULT 0"),
                      ("imap_error", "TEXT"),
-                     ("imap_checked", "TEXT")):
+                     ("imap_checked", "TEXT"),
+                     ("auto_pause", "TEXT")):
         cols = {r["name"] for r in conn.execute("PRAGMA table_info(smtp_config)")}
         if col not in cols:
             conn.execute(f"ALTER TABLE smtp_config ADD COLUMN {col} {ddl}")
