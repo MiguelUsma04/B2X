@@ -100,7 +100,12 @@ def _explicar(status: int, body: dict) -> str:
 def normalize(place: dict) -> dict:
     """Deja el negocio con los mismos nombres de campo que usa la app."""
     web = place.get("websiteUri") or None
-    phone = place.get("nationalPhoneNumber") or place.get("internationalPhoneNumber")
+    # El internacional primero: trae el indicativo del país puesto por Google,
+    # que es el único dato confiable cuando se prospecta en varios países. El
+    # nacional se ve más lindo pero no dice de dónde es, y un número de diez
+    # dígitos sin indicativo puede ser de México, de Colombia o de Argentina.
+    # WhatsApp, además, solo trabaja en formato internacional.
+    phone = place.get("internationalPhoneNumber") or place.get("nationalPhoneNumber")
     dominio = clean_domain(web) if web else None
     red = _es_red(dominio)
     return {

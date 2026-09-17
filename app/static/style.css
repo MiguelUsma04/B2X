@@ -245,7 +245,7 @@ button.tile:hover{transform:translateY(-2px);box-shadow:var(--shadow-md);
   border-radius:var(--r);padding:6px;margin-bottom:14px;box-shadow:var(--shadow);
 }
 .seg{
-  flex:1 1 0;min-width:0;min-height:0;display:flex;flex-direction:column;
+  min-width:0;min-height:0;display:flex;flex-direction:column;
   align-items:flex-start;gap:1px;padding:9px 12px;text-align:left;
   border:1px solid transparent;border-radius:var(--r-sm);
   background:none;color:var(--ink-2);cursor:pointer;
@@ -255,9 +255,16 @@ button.tile:hover{transform:translateY(-2px);box-shadow:var(--shadow-md);
 .seg.active{background:var(--brand-soft);border-color:var(--brand-line)}
 .seg.active b{color:var(--brand-dark)}
 .seg:hover:not(.active){background:var(--surface-2);border-color:transparent}
-/* Dos opciones repartidas en pantalla ancha quedan tan grandes que dejan de
-   leerse como un interruptor. */
-#panel-settings .segmented{max-width:520px}
+/* El ancho lo pone la cantidad de opciones, no un número fijo: con dos, un
+   tope angosto las mantiene legibles como interruptor; con cuatro, ese mismo
+   tope les parte el rótulo en tres renglones. */
+.segmented{flex-wrap:wrap}
+.seg{flex:1 1 170px}
+#panel-settings .segmented{max-width:760px}
+@media (max-width:620px){
+  /* En el teléfono se acomodan de a dos por fila en vez de cuatro apretadas. */
+  .seg{flex:1 1 44%}
+}
 
 /* ============================== correo en HTML ========================= */
 /* El código y el correo dibujado, uno al lado del otro: se escribe mirando
