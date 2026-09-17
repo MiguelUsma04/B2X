@@ -466,7 +466,7 @@ const FILTERS = [
   }],
   ['f-status', 'email_status', STATUS_TXT],
   ['f-source', 'email_source', SOURCE_TXT],
-  ['f-ghl', 'ghl_status', GHL_TXT],
+  ['f-ghl', 'crm_status', GHL_TXT],
   ['f-batch', 'import_batch_id', null],
 ];
 
@@ -568,9 +568,9 @@ async function loadContacts() {
           ? '<div class="sub" title="Prospeo tiene su celular pero no lo reveló. Se desbloquea desde Buscar teléfonos.">hay celular</div>'
           : ''}</td>
       <td class="c-tag" data-label="Fuente">${pill(c.email_source, SOURCE_TXT)}</td>
-      <td class="c-tag" data-label="CRM">${pill(c.ghl_status, GHL_TXT)}
-        ${c.ghl_error_message
-          ? `<div class="sub" title="${esc(c.ghl_error_message)}">${esc(c.ghl_error_message.slice(0, 34))}…</div>`
+      <td class="c-tag" data-label="CRM">${pill(c.crm_status, GHL_TXT)}
+        ${c.crm_error
+          ? `<div class="sub" title="${esc(c.crm_error)}">${esc(c.crm_error.slice(0, 34))}…</div>`
           : ''}</td>
       <td class="c-act"><button class="sm ghost" onclick="showDetail(${c.id})">Ver detalle</button></td>
     </tr>`).join('');
@@ -2148,9 +2148,9 @@ async function showDetail(id) {
       ${c.category ? `<dt>Rubro</dt><dd>${esc(c.category)}</dd>` : ''}
       ${c.social_url ? `<dt>Redes</dt><dd><a href="${esc(c.social_url)}" target="_blank"
         rel="noopener" style="color:var(--brand)">${esc(c.social_url.slice(0, 60))}</a></dd>` : ''}
-      <dt>En el CRM</dt><dd>${pill(c.ghl_status, GHL_TXT)}</dd>
-      ${c.ghl_error_message
-        ? `<dt>Error del CRM</dt><dd style="color:var(--danger)">${esc(c.ghl_error_message)}</dd>`
+      <dt>En el CRM</dt><dd>${pill(c.crm_status, GHL_TXT)}</dd>
+      ${c.crm_error
+        ? `<dt>Error del CRM</dt><dd style="color:var(--danger)">${esc(c.crm_error)}</dd>`
         : ''}
     </dl>
     ${c.ai_profile ? renderPerfil(c) : ''}

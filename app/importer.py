@@ -198,14 +198,14 @@ def delete_batch(conn, batch_id: int, delete_contacts: bool = False) -> dict:
     total = conn.execute(
         "SELECT COUNT(*) c FROM contacts WHERE import_batch_id=?", (batch_id,)).fetchone()["c"]
     sent = conn.execute(
-        "SELECT COUNT(*) c FROM contacts WHERE import_batch_id=? AND ghl_status='sent'",
+        "SELECT COUNT(*) c FROM contacts WHERE import_batch_id=? AND crm_status='sent'",
         (batch_id,)).fetchone()["c"]
 
     deleted = 0
     if delete_contacts:
         # Los enviados al CRM se conservan siempre.
         deleted = conn.execute(
-            "DELETE FROM contacts WHERE import_batch_id=? AND ghl_status<>'sent'",
+            "DELETE FROM contacts WHERE import_batch_id=? AND crm_status<>'sent'",
             (batch_id,)).rowcount
 
     # Lo que quede (o todo, si no se borran) pierde el vínculo con la carga.

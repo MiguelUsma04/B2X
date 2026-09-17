@@ -40,7 +40,8 @@ _load_env()
 from .db import get_db, init_db          # noqa: E402
 from .importer import (delete_batch, import_contacts,      # noqa: E402
                        import_places, preview_csv)
-from . import ai, auth, dnscheck, enrichment, ghl, mailer, places  # noqa: E402
+from . import (ai, auth, dnscheck, enrichment, ghl,   # noqa: E402
+               kommo, mailer, places)
 from .providers import build_chain       # noqa: E402
 
 app = FastAPI(title="B2X", docs_url="/api/docs")
@@ -250,7 +251,7 @@ async def api_confirm(icp_tag: str = Form("")):
 # ------------------------------------------------------------------ contactos
 @app.get("/api/contacts")
 def api_contacts(email_status: str = "", email_source: str = "",
-                 ghl_status: str = "", import_batch_id: str = "",
+                 crm_status: str = "", import_batch_id: str = "",
                  reach: str = "", q: str = "", limit: int = 500, offset: int = 0):
     # "Con celular" sigue significando número directo; "contactable" es más
     # amplio: cualquier teléfono sirve para enviarlo al CRM y trabajarlo.
@@ -280,8 +281,8 @@ def api_contacts(email_status: str = "", email_source: str = "",
         where.append("email_status=?"); params.append(email_status)
     if email_source:
         where.append("email_source=?"); params.append(email_source)
-    if ghl_status:
-        where.append("ghl_status=?"); params.append(ghl_status)
+    if crm_status:
+        where.append("crm_status=?"); params.append(crm_status)
     if import_batch_id:
         where.append("import_batch_id=?"); params.append(import_batch_id)
     if q:
@@ -333,8 +334,8 @@ def api_metrics():
             "SELECT email_status, COUNT(*) c FROM contacts GROUP BY email_status")}
         by_source = {r["email_source"] or "sin_fuente": r["c"] for r in conn.execute(
             "SELECT email_source, COUNT(*) c FROM contacts GROUP BY email_source")}
-        by_ghl = {r["ghl_status"]: r["c"] for r in conn.execute(
-            "SELECT ghl_status, COUNT(*) c FROM contacts GROUP BY ghl_status")}
+        by_ghl = {r["crm_status"]: r["c"] for r in conn.execute(
+            "SELECT crm_status, COUNT(*) c FROM contacts GROUP BY crm_status")}
         # "Contactable" = tiene email o algún teléfono. El conmutador de la
         # empresa vale menos que el celular —por eso se cuenta aparte— pero
         # igual permite trabajar el contacto, así que suma y se envía al CRM.
@@ -377,7 +378,7 @@ def api_metrics():
         "providers": ([{"name": p.name, "enabled": p.enabled} for p in build_chain()]
                       + [{"name": "maps", "enabled": places.configured()},
                          {"name": "IA", "enabled": ai.configured()}]),
-        "ghl_configured": bool(__import__("os").getenv("GHL_API_TOKEN")
+        "ghl_configured": bool(kommo.configured()) or bool(__import__("os").getenv("GHL_API_TOKEN")
                                and __import__("os").getenv("GHL_LOCATION_ID")),
     }
 
@@ -989,7 +990,7 @@ def api_ai_usage():
 @app.get("/api/ghl/pipelines")
 async def api_ghl_pipelines():
     """Lista los embudos del sub-account para elegir en la UI."""
-    return await ghl.list_pipelines()
+    return await kommo.listar_embudos()
 
 
 @app.get("/api/ghl/settings")
@@ -1045,7 +1046,7 @@ async def api_ghl_send(contact_ids: str = Form(...), tag: str = Form("")):
         raise HTTPException(400, "contact_ids debe ser un array JSON de enteros.")
     if not ids:
         raise HTTPException(400, "No se seleccionó ningún contacto.")
-    result = await ghl.send_contacts(ids, tag or None)
+    result = await kommo.send_contacts(ids, tag or None)
     if result.get("error"):
         return JSONResponse(result, status_code=400)
     return result

@@ -57,6 +57,12 @@ CREATE TABLE IF NOT EXISTS contacts (
     -- 1 = algún proveedor tiene su móvil pero no lo reveló (cuesta créditos).
     mobile_available  INTEGER NOT NULL DEFAULT 0,
     ghl_error_message TEXT,
+    -- El CRM de hoy es Kommo. Las columnas ghl_* quedan como historia de lo
+    -- que se subió a GoHighLevel: son de otro sistema y no se pisan.
+    crm_status        TEXT NOT NULL DEFAULT 'pending',
+    crm_contact_id    TEXT,
+    crm_lead_id       TEXT,
+    crm_error         TEXT,
     created_at        TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at        TEXT NOT NULL DEFAULT (datetime('now'))
 );
@@ -282,6 +288,13 @@ def get_db():
 _NEW_COLUMNS = [
     ("phone_type", "TEXT"),
     ("ghl_opportunity_id", "TEXT"),
+    # El estado en Kommo. Arranca en 'pending' para todos, incluidos los que
+    # ya estaban en GHL: estar en un CRM no es estar en el otro, y heredar la
+    # marca los dejaría fuera del nuevo para siempre.
+    ("crm_status", "TEXT NOT NULL DEFAULT 'pending'"),
+    ("crm_contact_id", "TEXT"),
+    ("crm_lead_id", "TEXT"),
+    ("crm_error", "TEXT"),
     ("mobile_available", "INTEGER NOT NULL DEFAULT 0"),
     ("place_id", "TEXT"),
     ("address", "TEXT"),
@@ -302,6 +315,10 @@ def _migrate(conn) -> None:
     for name, ddl in _NEW_COLUMNS:
         if name not in cols:
             conn.execute(f"ALTER TABLE contacts ADD COLUMN {name} {ddl}")
+    # El índice va acá y no en el esquema: en una base que ya existía, la
+    # columna la acaba de agregar el bucle de arriba, y el esquema corre antes.
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_contacts_crm_status "
+                 "ON contacts(crm_status)")
     _allow_web_as_source(conn)
     _varios_buzones(conn)
     _cuerpo_html(conn)

@@ -1,0 +1,356 @@
+"""Envío de contactos a Kommo.
+
+Reemplaza a GoHighLevel como destino. Las diferencias que importan:
+
+- En Kommo un prospecto son **dos cosas**: un *contacto* (la persona o el
+  negocio) y un *lead* (la oportunidad que avanza por el embudo). Se crean
+  juntos, en una sola llamada, para que no quede un contacto suelto si la
+  segunda mitad falla.
+- El teléfono y el correo no son campos fijos: son **campos personalizados**
+  con un id distinto en cada cuenta. Se preguntan una vez al arrancar y se
+  guardan en memoria; escribirlos a mano es la causa número uno de contactos
+  que entran sin teléfono.
+- El WhatsApp tiene su propio campo (código USERNAME, tipo WHATSAPP), que es
+  lo que lee el chat de Kommo. Un WhatsApp cargado como teléfono común no le
+  sirve a nadie.
+"""
+import os
+
+import httpx
+
+from .db import get_db
+
+TIEMPO = 30.0
+
+
+def configured() -> bool:
+    return bool(os.getenv("KOMMO_SUBDOMAIN") and os.getenv("KOMMO_TOKEN"))
+
+
+def base_url() -> str:
+    return f"https://{os.getenv('KOMMO_SUBDOMAIN', '').strip()}.kommo.com/api/v4"
+
+
+def _headers() -> dict:
+    return {"Authorization": f"Bearer {os.getenv('KOMMO_TOKEN', '').strip()}",
+            "Content-Type": "application/json"}
+
+
+# Los ids de los campos personalizados de esta cuenta. Se resuelven una vez.
+_CAMPOS: dict | None = None
+
+
+async def campos(client: httpx.AsyncClient, refrescar: bool = False) -> dict:
+    """Los ids de teléfono, correo y WhatsApp en esta cuenta de Kommo."""
+    global _CAMPOS
+    if _CAMPOS is not None and not refrescar:
+        return _CAMPOS
+
+    encontrados: dict = {}
+    r = await client.get(f"{base_url()}/contacts/custom_fields",
+                         params={"limit": 250})
+    if r.status_code == 200:
+        for f in r.json().get("_embedded", {}).get("custom_fields", []):
+            code = (f.get("code") or "").upper()
+            if code in ("PHONE", "EMAIL"):
+                encontrados[code.lower()] = f["id"]
+            elif code == "USERNAME":
+                # El campo del chat. Su enum WHATSAPP es el que hace que el
+                # número aparezca como conversación y no como dato muerto.
+                wa = [e for e in (f.get("enums") or [])
+                      if (e.get("value") or "").upper() == "WHATSAPP"]
+                if wa:
+                    encontrados["whatsapp"] = f["id"]
+                    encontrados["whatsapp_enum"] = wa[0]["id"]
+    _CAMPOS = encontrados
+    return encontrados
+
+
+def pais() -> str:
+    """El indicativo que se le pone a los números que no traen uno."""
+    return (os.getenv("KOMMO_COUNTRY_CODE") or "57").strip().lstrip("+")
+
+
+def con_indicativo(numero: str) -> str:
+    """El número en formato internacional: +57 300 123 4567 → +573001234567.
+
+    El chat de Kommo abre la conversación de WhatsApp con este número. Sin el
+    indicativo del país no encuentra nada: un 3001234567 a secas no existe
+    para WhatsApp, que trabaja siempre en formato internacional.
+
+    Es conservador a propósito: solo agrega el indicativo cuando el número
+    tiene el largo nacional exacto. Un número raro se manda tal cual antes que
+    quedar convertido en otro número.
+    """
+    crudo = (numero or "").strip()
+    if not crudo:
+        return ""
+
+    mas = crudo.startswith("+")
+    digitos = "".join(ch for ch in crudo if ch.isdigit())
+    if not digitos:
+        return crudo
+
+    if mas:
+        return "+" + digitos
+    if digitos.startswith("00"):          # forma vieja de marcar al exterior
+        return "+" + digitos[2:]
+
+    ind = pais()
+    if digitos.startswith(ind) and len(digitos) == len(ind) + 10:
+        return "+" + digitos              # ya lo traía, sin el +
+    if len(digitos) == 10:                # nacional: celular 3xx o fijo 60x
+        return f"+{ind}{digitos}"
+    return crudo                          # no se sabe: mejor no inventar
+
+
+def _valor(campo_id: int, valor: str, enum_code: str | None = None,
+           enum_id: int | None = None) -> dict:
+    v: dict = {"value": valor}
+    if enum_code:
+        v["enum_code"] = enum_code
+    if enum_id:
+        v["enum_id"] = enum_id
+    return {"field_id": campo_id, "values": [v]}
+
+
+def armar_contacto(c: dict, ids: dict) -> dict:
+    """El contacto tal como lo espera Kommo."""
+    nombre = (c.get("full_name") or c.get("company_name") or c.get("email")
+              or "Sin nombre").strip()
+    cuerpo: dict = {"name": nombre[:250]}
+
+    responsable = (os.getenv("KOMMO_RESPONSIBLE_ID") or "").strip()
+    if responsable.isdigit():
+        cuerpo["responsible_user_id"] = int(responsable)
+
+    campos_valores = []
+    if c.get("email") and ids.get("email"):
+        campos_valores.append(_valor(ids["email"], c["email"], "WORK"))
+
+    telefono = con_indicativo(c.get("phone") or "")
+    if telefono and ids.get("phone"):
+        # Un celular es MOB y el conmutador es WORK: en Kommo eso cambia el
+        # ícono y, en las cuentas con telefonía, a qué número marca.
+        tipo = "MOB" if c.get("phone_type") in ("personal", "whatsapp") else "WORK"
+        campos_valores.append(_valor(ids["phone"], telefono, tipo))
+
+    # El WhatsApp va además en el campo del chat, no en lugar del teléfono.
+    if (telefono and c.get("phone_type") == "whatsapp"
+            and ids.get("whatsapp") and ids.get("whatsapp_enum")):
+        campos_valores.append(
+            _valor(ids["whatsapp"], telefono, enum_id=ids["whatsapp_enum"]))
+
+    if campos_valores:
+        cuerpo["custom_fields_values"] = campos_valores
+    return cuerpo
+
+
+def armar_lead(c: dict, tag: str | None) -> dict:
+    """El lead: la oportunidad que va a avanzar por el embudo."""
+    nombre = (c.get("company_name") or c.get("full_name")
+              or c.get("email") or "Prospecto").strip()
+    lead: dict = {"name": nombre[:250]}
+
+    for var, clave in (("KOMMO_PIPELINE_ID", "pipeline_id"),
+                       ("KOMMO_STATUS_ID", "status_id")):
+        v = (os.getenv(var) or "").strip()
+        if v.isdigit():
+            lead[clave] = int(v)
+
+    responsable = (os.getenv("KOMMO_RESPONSIBLE_ID") or "").strip()
+    if responsable.isdigit():
+        lead["responsible_user_id"] = int(responsable)
+
+    etiquetas = [t.strip() for t in
+                 (tag or os.getenv("KOMMO_DEFAULT_TAG") or "").split(",")
+                 if t.strip()]
+    if etiquetas:
+        lead["_embedded"] = {"tags": [{"name": t} for t in etiquetas]}
+    return lead
+
+
+async def existe_contacto(client: httpx.AsyncClient, cid: str) -> bool | None:
+    """Si el contacto sigue estando en Kommo.
+
+    Devuelve None cuando no se pudo averiguar: ahí conviene no reenviar, para
+    no duplicar por una caída de red.
+    """
+    try:
+        r = await client.get(f"{base_url()}/contacts/{cid}")
+    except Exception:
+        return None
+    if r.status_code == 200:
+        return True
+    if r.status_code in (204, 404):
+        return False
+    return None
+
+
+def _explicar(r: httpx.Response) -> str:
+    """El error de Kommo en algo accionable."""
+    if r.status_code == 401:
+        return ("Kommo rechazó el token. Revisá que sea el de larga duración "
+                "y que la integración siga activa.")
+    if r.status_code == 403:
+        return ("El token no tiene permisos sobre leads o contactos. "
+                "Revisá los scopes de la integración.")
+    if r.status_code == 402:
+        return "La cuenta de Kommo no tiene plan activo."
+    try:
+        d = r.json()
+    except Exception:
+        return f"HTTP {r.status_code}: {r.text[:200]}"
+    # Kommo devuelve el detalle adentro de validation-errors.
+    detalles = []
+    for v in (d.get("validation-errors") or []):
+        for e in (v.get("errors") or []):
+            detalles.append(f"{e.get('path', '')}: {e.get('detail', '')}".strip(": "))
+    if detalles:
+        return f"HTTP {r.status_code}: " + " · ".join(detalles[:3])
+    return f"HTTP {r.status_code}: {(d.get('title') or r.text)[:200]}"
+
+
+async def send_contacts(contact_ids: list[int], tag: str | None = None) -> dict:
+    """Sube los contactos marcados a Kommo, de a uno.
+
+    Sin reintento automático: lo que falla queda en crm_status='error' con el
+    motivo, y quien mira decide si reintenta.
+    """
+    if not configured():
+        return {"error": "Faltan KOMMO_SUBDOMAIN y KOMMO_TOKEN en el .env",
+                "sent": 0, "failed": 0, "results": []}
+    if not contact_ids:
+        return {"sent": 0, "failed": 0, "skipped": 0, "results": []}
+
+    marcas = ",".join("?" * len(contact_ids))
+    with get_db() as conn:
+        filas = [dict(r) for r in conn.execute(
+            f"SELECT * FROM contacts WHERE id IN ({marcas})", contact_ids)]
+
+    enviados = fallidos = saltados = ya = sin_confirmar = rehechos = 0
+    resultados = []
+
+    async with httpx.AsyncClient(timeout=TIEMPO, headers=_headers()) as client:
+        ids = await campos(client)
+        if not ids.get("phone") and not ids.get("email"):
+            return {"error": "No se pudieron leer los campos de Kommo. "
+                             "Revisá el token.", "sent": 0, "failed": 0,
+                    "results": []}
+
+        for c in filas:
+            cid = c["id"]
+            try:
+                # Ya está en Kommo: no se vuelve a subir. Antes de saltearlo se
+                # confirma allá, porque si lo borraron la marca local miente y
+                # el contacto quedaría afuera para siempre.
+                if c.get("crm_contact_id"):
+                    hay = await existe_contacto(client, c["crm_contact_id"])
+                    if hay is not False:
+                        ya += 1
+                        if hay is None:
+                            sin_confirmar += 1
+                        resultados.append({
+                            "id": cid, "status": "already",
+                            "message": "Ya estaba en Kommo." if hay else
+                                       "Figura en Kommo pero no se pudo "
+                                       "confirmar; no se reenvía para no "
+                                       "duplicarlo."})
+                        continue
+                    rehechos += 1
+                    with get_db() as conn:
+                        conn.execute(
+                            """UPDATE contacts SET crm_contact_id=NULL,
+                                 crm_lead_id=NULL, crm_status='pending'
+                               WHERE id=?""", (cid,))
+
+                if not c.get("email") and not c.get("phone"):
+                    saltados += 1
+                    resultados.append({
+                        "id": cid, "status": "skipped",
+                        "message": "Sin email ni teléfono: no hay por dónde "
+                                   "contactarlo."})
+                    continue
+
+                # Lead y contacto juntos: si se crearan por separado y la
+                # segunda llamada fallara, quedaría un contacto huérfano que
+                # nadie va a trabajar.
+                lead = armar_lead(c, tag)
+                dentro = lead.pop("_embedded", {})
+                dentro["contacts"] = [armar_contacto(c, ids)]
+                lead["_embedded"] = dentro
+                r = await client.post(f"{base_url()}/leads/complex", json=[lead])
+
+                if r.status_code in (200, 201):
+                    d = r.json()
+                    item = d[0] if isinstance(d, list) and d else {}
+                    lead_id = str(item.get("id") or "")
+                    # Este endpoint devuelve el id del contacto arriba de todo,
+                    # no adentro de _embedded. Sin esto el contacto queda sin
+                    # marca y el próximo envío lo sube duplicado.
+                    contacto_id = str(item.get("contact_id") or "")
+                    if not contacto_id:
+                        for ct in (item.get("_embedded", {}).get("contacts") or []):
+                            contacto_id = str(ct.get("id") or "")
+                            break
+                    with get_db() as conn:
+                        conn.execute(
+                            """UPDATE contacts SET crm_status='sent',
+                                 crm_contact_id=?, crm_lead_id=?, crm_error=NULL,
+                                 updated_at=datetime('now') WHERE id=?""",
+                            (contacto_id or None, lead_id or None, cid))
+                    enviados += 1
+                    resultados.append({"id": cid, "status": "sent",
+                                       "message": f"Lead {lead_id} creado."})
+                else:
+                    msg = _explicar(r)
+                    with get_db() as conn:
+                        conn.execute(
+                            """UPDATE contacts SET crm_status='error', crm_error=?,
+                               updated_at=datetime('now') WHERE id=?""", (msg, cid))
+                    fallidos += 1
+                    resultados.append({"id": cid, "status": "error", "message": msg})
+
+            except Exception as exc:
+                msg = f"{type(exc).__name__}: {exc}"[:400]
+                with get_db() as conn:
+                    conn.execute(
+                        """UPDATE contacts SET crm_status='error', crm_error=?,
+                           updated_at=datetime('now') WHERE id=?""", (msg, cid))
+                fallidos += 1
+                resultados.append({"id": cid, "status": "error", "message": msg})
+
+    return {"sent": enviados, "failed": fallidos, "skipped": saltados,
+            "already_in_crm": ya, "not_verified": sin_confirmar,
+            "recreated": rehechos,
+            "pipeline_configured": bool((os.getenv("KOMMO_PIPELINE_ID") or "").strip()),
+            "results": resultados}
+
+
+async def listar_embudos() -> dict:
+    """Los embudos con sus etapas, para elegir a dónde caen los contactos."""
+    if not configured():
+        return {"error": "Faltan KOMMO_SUBDOMAIN y KOMMO_TOKEN en el .env",
+                "pipelines": []}
+    async with httpx.AsyncClient(timeout=TIEMPO, headers=_headers()) as client:
+        r = await client.get(f"{base_url()}/leads/pipelines")
+        if r.status_code != 200:
+            return {"error": _explicar(r), "pipelines": []}
+        salida = []
+        for p in r.json().get("_embedded", {}).get("pipelines", []):
+            salida.append({
+                "id": p["id"], "name": p.get("name"),
+                "is_main": bool(p.get("is_main")),
+                "statuses": [{"id": e["id"], "name": e.get("name")}
+                             for e in p.get("_embedded", {}).get("statuses", [])]})
+
+        usuarios = []
+        ru = await client.get(f"{base_url()}/users", params={"limit": 250})
+        if ru.status_code == 200:
+            usuarios = [{"id": u["id"], "name": u.get("name") or u.get("email")}
+                        for u in ru.json().get("_embedded", {}).get("users", [])]
+
+    return {"pipelines": salida, "users": usuarios,
+            "selected_pipeline": (os.getenv("KOMMO_PIPELINE_ID") or "").strip(),
+            "selected_status": (os.getenv("KOMMO_STATUS_ID") or "").strip(),
+            "selected_user": (os.getenv("KOMMO_RESPONSIBLE_ID") or "").strip()}
