@@ -1450,6 +1450,24 @@ async def _tanda() -> None:
         if ok and cfg.get("id"):
             conn.execute("UPDATE smtp_config SET last_used=datetime('now') WHERE id=?",
                          (cfg["id"],))
+
+    # El correo que salió queda anotado en la tarjeta del lead. Un comercial
+    # que abre el lead sin ver qué se le escribió no sabe con qué está
+    # entrando: la conversación tiene que vivir donde él trabaja.
+    if ok:
+        try:
+            with get_db() as conn:
+                c = conn.execute(
+                    "SELECT crm_lead_id FROM contacts WHERE id=?",
+                    (fila["contact_id"],)).fetchone()
+            if c and c["crm_lead_id"]:
+                from . import kommo
+                await kommo.anotar(
+                    c["crm_lead_id"],
+                    kommo._nota_correo(fila["subject"], fila["body"],
+                                       cfg.get("from_email", "")))
+        except Exception:
+            pass          # anotar es un extra: nunca puede romper el envío
         # Sin pendientes, la campaña se da por terminada.
         quedan = conn.execute(
             """SELECT COUNT(*) n FROM email_queue

@@ -477,6 +477,40 @@ async def send_contacts(contact_ids: list[int], tag: str | None = None) -> dict:
             "results": resultados}
 
 
+async def anotar(lead_id: str, texto: str) -> bool:
+    """Deja una nota en la tarjeta del lead.
+
+    Es lo que hace que la conversación se vea en Kommo: quien abre el lead lee
+    lo que B2K le escribió y lo que contestaron, sin tener que ir a buscar a
+    otro lado. Un comercial que no ve el hilo no sabe con qué está entrando.
+    """
+    if not configured() or not lead_id or not (texto or "").strip():
+        return False
+    try:
+        async with httpx.AsyncClient(timeout=TIEMPO, headers=_headers()) as c:
+            r = await _con_reintento(
+                c, "POST", f"{base_url()}/leads/{lead_id}/notes",
+                json=[{"note_type": "common",
+                       "params": {"text": texto[:10000]}}])
+        return r.status_code in (200, 201)
+    except Exception:
+        # Que no se pueda anotar no puede frenar un envío: el correo ya salió.
+        return False
+
+
+def _nota_correo(asunto: str, cuerpo: str, desde: str) -> str:
+    return (f"📤 B2K envió un correo\n"
+            f"Desde: {desde}\n"
+            f"Asunto: {asunto}\n\n{(cuerpo or '').strip()[:4000]}")
+
+
+def _nota_respuesta(de: str, cuando: str) -> str:
+    return (f"📥 Respondieron el correo de B2K\n"
+            f"De: {de}\n"
+            f"Cuándo: {cuando}\n\n"
+            "El contenido está en el buzón desde el que se mandó.")
+
+
 async def listar_embudos() -> dict:
     """Los embudos con sus etapas, para elegir a dónde caen los contactos."""
     if not configured():
