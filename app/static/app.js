@@ -396,6 +396,11 @@ async function loadMetrics() {
           <span class="n">${m.mobile_available
             ? `${m.mobile_available} más por desbloquear` : 'número directo'}</span>
         </button>
+        <button class="tile" onclick="applyReach('whatsapp')">
+          <span class="k">Con WhatsApp</span>
+          <span class="v" data-count="${m.with_whatsapp || 0}"
+                data-key="wa">0</span>
+          <span class="n">se les escribe directo</span></button>
         <button class="tile" onclick="applyGhl('sent')">
           <span class="k">En el CRM</span>
           <span class="v" data-count="${m.by_ghl.sent || 0}" data-key="crm">0</span>
@@ -456,7 +461,8 @@ async function loadMetrics() {
 const FILTERS = [
   ['f-reach', 'reach', {
     contactable: 'Contactables', both: 'Email y celular', email: 'Con email',
-    phone: 'Con celular', switchboard: 'Teléfono no directo', none: 'Sin dato',
+    phone: 'Con celular', whatsapp: 'Con WhatsApp',
+    switchboard: 'Teléfono no directo', none: 'Sin dato',
   }],
   ['f-status', 'email_status', STATUS_TXT],
   ['f-source', 'email_source', SOURCE_TXT],

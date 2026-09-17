@@ -266,6 +266,9 @@ def api_contacts(email_status: str = "", email_source: str = "",
         "contactable": f"(({HAS_EMAIL}) OR ({HAS_ANY_PHONE}))",
         "email":       f"({HAS_EMAIL})",
         "phone":       f"({HAS_PHONE})",
+        # El WhatsApp es el número que la empresa publica para que le
+        # escriban: se le llega por ahí sin llamar y sin pedir permiso.
+        "whatsapp":    f"({HAS_ANY_PHONE} AND phone_type = 'whatsapp')",
         "switchboard": f"(NOT ({HAS_EMAIL}) AND ({HAS_ANY_PHONE}) AND {NOT_PERSONAL})",
         "both":        f"(({HAS_EMAIL}) AND ({HAS_PHONE}))",
         "none":        f"(NOT ({HAS_EMAIL}) AND NOT ({HAS_ANY_PHONE}))",
@@ -346,6 +349,8 @@ def api_metrics():
               SUM(CASE WHEN {HAS_PHONE} THEN 1 ELSE 0 END)                          AS with_phone,
               SUM(CASE WHEN {HAS_EMAIL} AND {HAS_PHONE} THEN 1 ELSE 0 END)          AS with_both,
               SUM(CASE WHEN {HAS_EMAIL} OR  {HAS_ANY_PHONE} THEN 1 ELSE 0 END)      AS contactable,
+              SUM(CASE WHEN {HAS_ANY_PHONE} AND phone_type='whatsapp'
+                       THEN 1 ELSE 0 END)                                           AS with_whatsapp,
               SUM(CASE WHEN NOT ({HAS_EMAIL}) AND ({HAS_ANY_PHONE})
                         AND {NOT_PERSONAL} THEN 1 ELSE 0 END)                       AS only_switchboard,
               SUM(CASE WHEN NOT ({HAS_EMAIL}) AND NOT ({HAS_ANY_PHONE})
@@ -363,6 +368,7 @@ def api_metrics():
         "total": total, "with_email": with_email,
         "with_phone": with_phone, "with_both": with_both,
         "contactable": contactable, "only_switchboard": only_switchboard,
+        "with_whatsapp": counts["with_whatsapp"] or 0,
         "mobile_available": mobile_avail,
         "pct_with_email": round(with_email / total * 100, 1) if total else 0.0,
         "pct_contactable": round(contactable / total * 100, 1) if total else 0.0,
