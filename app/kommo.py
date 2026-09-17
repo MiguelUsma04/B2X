@@ -14,6 +14,7 @@ Reemplaza a GoHighLevel como destino. Las diferencias que importan:
   lo que lee el chat de Kommo. Un WhatsApp cargado como teléfono común no le
   sirve a nadie.
 """
+import asyncio
 import os
 
 import httpx
@@ -21,6 +22,11 @@ import httpx
 from .db import get_db
 
 TIEMPO = 30.0
+# Kommo corta a las siete llamadas por segundo. Con una espera corta entre
+# contactos no se llega nunca al límite, y 0,2 s por contacto es invisible al
+# lado de lo que tarda la llamada.
+ESPERA = 0.2
+REINTENTOS = 3
 
 
 def configured() -> bool:
@@ -285,6 +291,31 @@ def armar_lead(c: dict, tag: str | None, campos_ids: dict | None = None) -> dict
     return lead
 
 
+async def _con_reintento(client: httpx.AsyncClient, metodo: str, url: str,
+                         **kw) -> httpx.Response:
+    """Reintenta cuando Kommo pide esperar o se cae un momento.
+
+    Un 429 no es un error del dato: es "vas muy rápido". Fallar ahí dejaría
+    contactos sin subir por un motivo que se resuelve esperando un segundo.
+    """
+    espera = 1.0
+    r = None
+    for intento in range(REINTENTOS):
+        r = await client.request(metodo, url, **kw)
+        if r.status_code not in (429, 502, 503, 504):
+            return r
+        if intento < REINTENTOS - 1:
+            # Si el servidor dice cuánto esperar, se le hace caso.
+            dice = r.headers.get("Retry-After")
+            try:
+                pausa = float(dice) if dice else espera
+            except ValueError:
+                pausa = espera
+            await asyncio.sleep(min(pausa, 10))
+            espera *= 2
+    return r
+
+
 async def existe_contacto(client: httpx.AsyncClient, cid: str) -> bool | None:
     """Si el contacto sigue estando en Kommo.
 
@@ -395,7 +426,10 @@ async def send_contacts(contact_ids: list[int], tag: str | None = None) -> dict:
                 dentro = lead.pop("_embedded", {})
                 dentro["contacts"] = [armar_contacto(c, ids)]
                 lead["_embedded"] = dentro
-                r = await client.post(f"{base_url()}/leads/complex", json=[lead])
+                r = await _con_reintento(client, "POST",
+                                         f"{base_url()}/leads/complex",
+                                         json=[lead])
+                await asyncio.sleep(ESPERA)
 
                 if r.status_code in (200, 201):
                     d = r.json()

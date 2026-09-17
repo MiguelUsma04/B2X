@@ -165,6 +165,16 @@ CREATE TABLE IF NOT EXISTS email_campaigns (
 
 -- La cola. Cada fila tiene su hora: el goteo vive acá y no en memoria, así
 -- reiniciar la app no pierde lo que faltaba mandar ni reenvía lo ya mandado.
+-- A quién no hay que volver a escribirle nunca. Va por dirección y no por
+-- contacto: la misma dirección puede entrar dos veces desde fuentes
+-- distintas, y una baja tiene que valer para todas.
+CREATE TABLE IF NOT EXISTS suppression (
+    email      TEXT PRIMARY KEY,
+    reason     TEXT,
+    contact_id INTEGER,
+    at         TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 -- Cómo está el DNS de cada dominio desde el que se manda. Se guarda por
 -- dominio y no por buzón: varios buzones del mismo dominio comparten los
 -- mismos registros, y consultarlos una vez alcanza.
@@ -207,6 +217,9 @@ CREATE TABLE IF NOT EXISTS email_queue (
     subject     TEXT NOT NULL,
     body        TEXT NOT NULL,
     body_html   TEXT,
+    -- Cuántas veces se intentó mandar. Un fallo pasajero no quema el correo:
+    -- se reintenta más tarde, hasta tres veces.
+    intentos    INTEGER NOT NULL DEFAULT 0,
     -- La marca que identifica a este correo en el enlace de rastreo. Al azar
     -- para que nadie pueda adivinar el de otro y ensuciar los números.
     token       TEXT UNIQUE,
@@ -327,6 +340,12 @@ def _migrate(conn) -> None:
     _rastreo(conn)
     _lectura_del_buzon(conn)
     conn.executescript("""
+        CREATE TABLE IF NOT EXISTS suppression (
+            email      TEXT PRIMARY KEY,
+            reason     TEXT,
+            contact_id INTEGER,
+            at         TEXT NOT NULL DEFAULT (datetime('now'))
+        );
         CREATE TABLE IF NOT EXISTS domain_dns (
             domain     TEXT PRIMARY KEY,
             ok         INTEGER NOT NULL DEFAULT 0,
@@ -400,6 +419,9 @@ def _lectura_del_buzon(conn) -> None:
             conn.execute(f"ALTER TABLE smtp_config ADD COLUMN {col} {ddl}")
 
     cols = {r["name"] for r in conn.execute("PRAGMA table_info(email_queue)")}
+    if "intentos" not in cols:
+        conn.execute("ALTER TABLE email_queue ADD COLUMN "
+                     "intentos INTEGER NOT NULL DEFAULT 0")
     if "message_id" not in cols:
         conn.execute("ALTER TABLE email_queue ADD COLUMN message_id TEXT")
         conn.execute("CREATE INDEX IF NOT EXISTS ix_queue_msgid "

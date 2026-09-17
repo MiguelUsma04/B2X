@@ -2,7 +2,20 @@
 FROM python:3.12-slim
 
 ENV PYTHONUNBUFFERED=1 \
-    PYTHONDONTWRITEBYTECODE=1
+    PYTHONDONTWRITEBYTECODE=1 \
+    TZ=America/Bogota
+
+# La zona horaria no es un detalle de presentación: el tope diario de cada
+# buzón se mide en hora local. En UTC el día se corta a las 7 de la tarde en
+# Colombia y el goteo puede soltar otra tanda entera esa misma noche, que es
+# justo lo que el tope existe para evitar.
+# La imagen slim no trae la base de zonas horarias: sin esto, fijar TZ no
+# hace nada y el contenedor sigue en UTC.
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends tzdata && \
+    ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && \
+    echo $TZ > /etc/timezone && \
+    rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 

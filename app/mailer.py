@@ -14,6 +14,7 @@ import base64
 import email as _email
 import html as _html
 import imaplib
+import os
 import random
 import re
 import secrets
@@ -285,6 +286,15 @@ def _serie_diaria(conn, mid: int, dias: int = 14) -> list[dict]:
     return salida
 
 
+def _puede_leer_rebotes(b: dict) -> bool:
+    """Si este buzón tiene la lectura del correo entrante funcionando."""
+    if b.get("imap_error"):
+        return False
+    # Nunca se revisó: puede ser que recién se configuró, o que nadie lo
+    # intentó. En los dos casos, todavía no hay con qué afirmar nada.
+    return bool(b.get("imap_checked"))
+
+
 def salud_de_buzon(conn, b: dict, dias: int = 30) -> dict:
     """Los números de un buzón y qué dice cada uno."""
     mid = b["id"]
@@ -340,7 +350,18 @@ def salud_de_buzon(conn, b: dict, dias: int = 30) -> dict:
     controles = []
 
     # --- rebotes: el que más pesa
-    if hay_datos:
+    # Si nunca se pudo leer el buzón, no hay rebotes que contar y un 0% sería
+    # mentira: el silencio se vería igual que la salud, justo cuando más
+    # importa distinguirlos.
+    if not _puede_leer_rebotes(b):
+        controles.append({
+            "clave": "rebotes", "titulo": "Rebotes", "valor": "?",
+            "detalle": "no se pudo leer el buzón, así que no se sabe",
+            "estado": "ojo",
+            "que_significa": "Los rebotes se detectan entrando al buzón. Sin "
+                             "eso, este número no existe: no es cero.",
+            "que_hacer": "Revisá el servidor de entrada en la pestaña Buzones."})
+    elif hay_datos:
         p = pct(rebotes, enviados)
         controles.append({
             "clave": "rebotes", "titulo": "Rebotes", "valor": f"{p}%",
@@ -663,12 +684,20 @@ def marcar_html(cuerpo_html: str, base: str, token: str) -> str:
     if not (cuerpo_html or "").strip() or not base:
         return cuerpo_html
 
+    baja = f"{base}/u/"
+
     def desviar(m):
         # El href está escrito en HTML: un & aparece como &amp;. Se vuelve a
         # texto antes de guardarlo, o el clic terminaría en una dirección con
         # el "&amp;" adentro, que no lleva a ningún lado.
         destino = _html.unescape(m.group(3))
         if not destino or destino.lower().startswith(_NO_RASTREAR):
+            return m.group(0)
+        # El enlace de baja no se rastrea. Si pasara por el desvío contaría
+        # como un clic —inflando justo la métrica que usamos para decidir— y
+        # le agregaría un salto a una baja, que es lo último que conviene
+        # complicar.
+        if destino.startswith(baja):
             return m.group(0)
         return f'{m.group(1)}{m.group(2)}{_html.escape(_url_rastreo(base, "click", token, destino), quote=True)}{m.group(2)}'
 
@@ -726,6 +755,67 @@ def _es_maquina(agent: str, sent_at: str | None) -> bool:
         except ValueError:
             pass
     return False
+
+
+# --------------------------------------------------------------- la baja
+# Quién manda y desde dónde. Va en el pie de cada correo: un correo comercial
+# sin remitente identificable es exactamente lo que un filtro de spam busca,
+# y en varios países además es obligatorio.
+def firma_legal() -> dict:
+    return {
+        "empresa": (os.getenv("EMPRESA_NOMBRE") or "gmarketing.co").strip(),
+        "direccion": (os.getenv("EMPRESA_DIRECCION") or "").strip(),
+    }
+
+
+def suprimir(email: str, motivo: str = "baja", contact_id: int | None = None) -> bool:
+    """Anota que a esta dirección no hay que volver a escribirle."""
+    correo = (email or "").strip().lower()
+    if "@" not in correo:
+        return False
+    with get_db() as conn:
+        conn.execute(
+            """INSERT INTO suppression (email, reason, contact_id)
+               VALUES (?,?,?)
+               ON CONFLICT(email) DO UPDATE SET reason=excluded.reason,
+                 at=datetime('now')""", (correo, motivo, contact_id))
+    return True
+
+
+def suprimidos() -> list[dict]:
+    with get_db() as conn:
+        return [dict(r) for r in conn.execute(
+            "SELECT * FROM suppression ORDER BY at DESC")]
+
+
+def baja_por_marca(token: str) -> dict:
+    """Da de baja a quien llegó por el enlace de un correo concreto."""
+    with get_db() as conn:
+        fila = conn.execute(
+            "SELECT email, contact_id, campaign_id FROM email_queue WHERE token=?",
+            (token,)).fetchone()
+    if not fila:
+        return {"ok": False}
+    suprimir(fila["email"], "pidió la baja desde el correo", fila["contact_id"])
+    return {"ok": True, "email": fila["email"]}
+
+
+def _pie_de_baja(base: str, token: str, html: bool) -> str:
+    """El pie con quién manda y cómo dejar de recibir."""
+    f = firma_legal()
+    quien = f["empresa"] + (f" · {f['direccion']}" if f["direccion"] else "")
+    url = f"{base}/u/{token}"
+    if not html:
+        return (f"\n\n—\n{quien}\n"
+                f"Si no querés recibir más correos nuestros, entrá acá: {url}")
+    return (
+        '<div style="margin-top:28px;padding-top:14px;border-top:1px solid #e0e0e0;'
+        'font-family:Arial,Helvetica,sans-serif;font-size:12px;color:#888;'
+        'line-height:1.5">'
+        f'{_html.escape(quien)}<br>'
+        f'<a href="{_html.escape(url, quote=True)}" '
+        'style="color:#888;text-decoration:underline">'
+        'No quiero recibir más correos</a></div>')
 
 
 # ------------------------------------------------------- leer el buzón
@@ -931,13 +1021,20 @@ def nuevo_message_id(cfg: dict, token: str = "") -> str:
 
 def _enviar_sincrono(cfg: dict, destino: str, asunto: str, cuerpo: str,
                      cuerpo_html: str | None = None,
-                     message_id: str | None = None) -> None:
+                     message_id: str | None = None,
+                     baja_url: str | None = None) -> None:
     """Manda un correo. Bloquea: se llama siempre dentro de un hilo aparte."""
     msg = EmailMessage()
     msg["From"] = formataddr((cfg.get("from_name") or "", cfg["from_email"]))
     msg["To"] = destino
     msg["Subject"] = asunto
     msg["Message-ID"] = message_id or nuevo_message_id(cfg)
+    if baja_url:
+        # Lo que Gmail lee para poner su propio botón de "cancelar
+        # suscripción" arriba del correo. Sin esto, quien no quiere recibir
+        # más tiene un solo camino a mano: marcarlo como spam.
+        msg["List-Unsubscribe"] = f"<{baja_url}>"
+        msg["List-Unsubscribe-Post"] = "List-Unsubscribe=One-Click"
     # Primero el texto y después el HTML: el orden importa, cada programa
     # muestra la última versión que sabe leer.
     msg.set_content(cuerpo or html_a_texto(cuerpo_html or ""))
@@ -963,6 +1060,20 @@ def _enviar_sincrono(cfg: dict, destino: str, asunto: str, cuerpo: str,
             servidor.quit()
         except Exception:
             servidor.close()
+
+
+# Lo que falla por el momento y no por el dato. Una casilla llena o un
+# servidor caído se arreglan solos; una dirección que no existe, no.
+_PASAJEROS = ("temporarily", "try again", "timeout", "timed out", "connection",
+              "too many", "rate", "4.7.0", "4.4.2", "server busy",
+              "service not available", "quota")
+
+
+def _vale_reintentar(error: str | None) -> bool:
+    e = (error or "").lower()
+    if "no existe" in e or "rechazó la dirección" in e:
+        return False
+    return any(p in e for p in _PASAJEROS)
 
 
 def _explicar(exc: Exception) -> str:
@@ -1018,6 +1129,10 @@ def contactos_enviables(contact_ids: list[int], repetir: bool = False) -> list[d
     ph = ",".join("?" * len(contact_ids))
     extra = "" if repetir else """
         AND c.id NOT IN (SELECT contact_id FROM email_queue WHERE status = 'sent')"""
+    # La baja no la levanta ni el 'repetir': quien pidió no recibir más, no
+    # recibe más, aunque alguien marque la casilla de volver a escribir.
+    extra += """
+        AND LOWER(c.email) NOT IN (SELECT email FROM suppression)"""
     with get_db() as conn:
         return [dict(r) for r in conn.execute(
             f"""SELECT c.* FROM contacts c
@@ -1058,6 +1173,12 @@ def crear_campania(nombre: str, asunto: str, cuerpo: str, contactos: list[dict],
             # La versión de texto se saca ANTES de marcar: si no, el enlace
             # que se lee en texto plano sería el del desvío y no el real.
             marca = secrets.token_urlsafe(16)
+            if base_rastreo:
+                # El pie va antes de marcar: así su enlace de baja también
+                # queda dentro del cuerpo que se guarda y se manda.
+                texto += _pie_de_baja(base_rastreo, marca, html=False)
+                if html_armado:
+                    html_armado += _pie_de_baja(base_rastreo, marca, html=True)
             if html_armado and base_rastreo:
                 html_armado = marcar_html(html_armado, base_rastreo, marca)
             filas.append((campania, c["id"], c["email"], render(asunto, c),
@@ -1247,6 +1368,8 @@ _lector: asyncio.Task | None = None
 
 async def _tanda() -> None:
     """Manda lo que ya venció. Uno por vuelta: el goteo no se acelera solo."""
+    if not en_horario():
+        return          # fuera de horario se espera; nada se pierde
     cfg = _credenciales()
     if not cfg:
         return
@@ -1266,12 +1389,32 @@ async def _tanda() -> None:
                      (msg_id, fila["id"]))
 
     try:
+        base = None
+        with get_db() as conn:
+            c = conn.execute("SELECT track_base FROM email_campaigns WHERE id=?",
+                             (fila["campaign_id"],)).fetchone()
+            base = (c["track_base"] if c else None)
+        baja = f"{base}/u/{fila['token']}" if base and fila["token"] else None
         await asyncio.to_thread(_enviar_sincrono, cfg, fila["email"],
                                 fila["subject"], fila["body"], fila["body_html"],
-                                msg_id)
+                                msg_id, baja)
         ok, error = True, None
     except Exception as exc:
         ok, error = False, _explicar(exc)
+
+    # Un fallo de red o un rechazo momentáneo no es un correo perdido: se
+    # vuelve a intentar más tarde, hasta tres veces. Lo que falla por el dato
+    # —una dirección que no existe— no se reintenta: fallaría igual.
+    if not ok and _vale_reintentar(error) and (fila["intentos"] or 0) + 1 < 3:
+        with get_db() as conn:
+            conn.execute(
+                """UPDATE email_queue
+                     SET intentos = COALESCE(intentos,0) + 1,
+                         error = ?,
+                         send_after = datetime('now', '+' || (15 *
+                           (COALESCE(intentos,0) + 1)) || ' minutes')
+                   WHERE id = ?""", (error, fila["id"]))
+        return
 
     with get_db() as conn:
         # Queda anotado por qué buzón salió: así se reparte el tope diario y
@@ -1341,6 +1484,29 @@ def _motivo(b: dict) -> str:
     partes = [f"{c['titulo'].lower()} en {c['valor']}" for c in malos]
     return ("Pausado solo: " + " y ".join(partes)
             + ". Se reanuda cuando lo actives a mano.")
+
+
+# Entre qué horas sale el correo. Un correo comercial a las 3 de la mañana se
+# lee como robot: no rompe nada técnico, pero baja la respuesta. Fuera de la
+# ventana el goteo espera, no descarta.
+def ventana() -> tuple[int, int, bool]:
+    def hora(var, x):
+        v = (os.getenv(var) or "").strip()
+        try:
+            return min(23, max(0, int(v)))
+        except ValueError:
+            return x
+    fines = (os.getenv("ENVIO_FIN_DE_SEMANA") or "").lower() in ("1", "true", "si", "sí")
+    return hora("ENVIO_DESDE", 8), hora("ENVIO_HASTA", 19), fines
+
+
+def en_horario(ahora: datetime | None = None) -> bool:
+    """Si este es un momento razonable para que salga un correo."""
+    desde, hasta, fines = ventana()
+    t = ahora or datetime.now()
+    if not fines and t.weekday() >= 5:      # sábado y domingo
+        return False
+    return desde <= t.hour < hasta
 
 
 # Cada cuánto se entra al buzón. Diez minutos: una respuesta no es urgente

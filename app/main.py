@@ -2,6 +2,7 @@
 import asyncio
 import base64
 import datetime
+import html as html_mod
 import json
 import os
 import re
@@ -856,6 +857,91 @@ def track_click(token: str, request: Request, u: str = ""):
     except Exception:
         pass
     return RedirectResponse(destino, status_code=302)
+
+
+# --------------------------------------------------------------- la baja
+_BAJA = """<!doctype html>
+<html lang="es"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{titulo}</title>
+<style>
+  :root{{color-scheme:light dark}}
+  body{{margin:0;min-height:100vh;display:grid;place-items:center;
+       background:#f4f4f7;color:#1a1a2e;
+       font-family:system-ui,-apple-system,"Segoe UI",sans-serif;padding:24px}}
+  @media (prefers-color-scheme:dark){{
+    body{{background:#14101f;color:#eceafa}}
+    .caja{{background:#1d1730 !important;border-color:#2e2650 !important}}
+    .sub{{color:#9a92bd !important}}
+  }}
+  .caja{{background:#fff;border:1px solid #e2def0;border-radius:14px;
+        padding:32px;max-width:460px;width:100%;
+        box-shadow:0 10px 40px -24px rgba(0,0,0,.4)}}
+  h1{{margin:0 0 10px;font-size:22px;letter-spacing:-.02em}}
+  p{{margin:0 0 18px;line-height:1.55;font-size:15px}}
+  .sub{{color:#6b6b8a;font-size:14px}}
+  button{{background:#241a5c;color:#fff;border:0;border-radius:9px;
+         padding:13px 22px;font-size:15px;font-weight:600;cursor:pointer;
+         font-family:inherit}}
+  button:hover{{opacity:.9}}
+  .ok{{color:#03875a;font-weight:600}}
+</style></head><body>
+<div class="caja">{cuerpo}</div>
+</body></html>"""
+
+
+@app.get("/u/{token}", response_class=HTMLResponse)
+def baja_pagina(token: str):
+    """Muestra el pedido de baja, pero NO lo aplica todavía.
+
+    Los antivirus y los filtros corporativos abren todos los enlaces de un
+    correo para revisarlos. Si esto diera de baja con solo abrirlo, media
+    lista se daría de baja sola sin que ninguna persona lo haya pedido. Por
+    eso hace falta el botón: dar de baja es una acción, no una visita.
+    """
+    cuerpo = f"""
+      <h1>¿Dejamos de escribirte?</h1>
+      <p>Si confirmás, no vas a volver a recibir correos nuestros.</p>
+      <form method="post" action="/u/{html_mod.escape(token)}">
+        <button type="submit">Sí, no quiero recibir más</button>
+      </form>
+      <p class="sub" style="margin-top:18px">Si llegaste acá sin querer,
+        cerrá esta página: no pasa nada.</p>"""
+    return _BAJA.format(titulo="Dejar de recibir correos", cuerpo=cuerpo)
+
+
+@app.post("/u/{token}", response_class=HTMLResponse)
+def baja_confirmar(token: str):
+    """Aplica la baja. Es también lo que llama el botón de Gmail."""
+    r = mailer.baja_por_marca(token)
+    if not r.get("ok"):
+        cuerpo = """
+          <h1>No encontramos ese correo</h1>
+          <p>El enlace puede haber vencido. Si querés que dejemos de
+            escribirte, respondé al correo que recibiste y lo hacemos a
+            mano.</p>"""
+        return HTMLResponse(_BAJA.format(titulo="No se pudo", cuerpo=cuerpo),
+                            status_code=404)
+    cuerpo = f"""
+      <h1>Listo</h1>
+      <p class="ok">{html_mod.escape(r["email"])}</p>
+      <p>No vas a volver a recibir correos nuestros. Perdón por la
+        molestia.</p>"""
+    return _BAJA.format(titulo="Baja confirmada", cuerpo=cuerpo)
+
+
+@app.get("/api/mail/suppression")
+def api_suppression():
+    """A quiénes no hay que volver a escribirles."""
+    return {"items": mailer.suprimidos()}
+
+
+@app.post("/api/mail/suppression")
+def api_suppression_add(email: str = Form(...), reason: str = Form("agregado a mano")):
+    if not mailer.suprimir(email, reason):
+        raise HTTPException(400, "Eso no parece una dirección de correo.")
+    return {"ok": True, "email": email.strip().lower()}
 
 
 @app.get("/api/mail/health")
