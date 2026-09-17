@@ -193,7 +193,8 @@ CREATE TABLE IF NOT EXISTS email_events (
     queue_id    INTEGER NOT NULL REFERENCES email_queue(id) ON DELETE CASCADE,
     campaign_id INTEGER NOT NULL REFERENCES email_campaigns(id) ON DELETE CASCADE,
     contact_id  INTEGER REFERENCES contacts(id) ON DELETE SET NULL,
-    kind        TEXT NOT NULL CHECK (kind IN ('open', 'click', 'reply', 'bounce')),
+    kind        TEXT NOT NULL
+                CHECK (kind IN ('open', 'click', 'reply', 'bounce', 'unsub')),
     url         TEXT,
     -- El Message-ID del correo que llegó. Sirve para no contar dos veces la
     -- misma respuesta si se vuelve a leer el buzón.
@@ -339,6 +340,7 @@ def _migrate(conn) -> None:
     _cuerpo_html(conn)
     _rastreo(conn)
     _lectura_del_buzon(conn)
+    _bajas_medibles(conn)
     conn.executescript("""
         CREATE TABLE IF NOT EXISTS suppression (
             email      TEXT PRIMARY KEY,
@@ -402,6 +404,45 @@ def _rastreo(conn) -> None:
     """)
 
 
+def _bajas_medibles(conn) -> None:
+    """Deja que email_events acepte también las bajas.
+
+    SQLite no deja tocar un CHECK: hay que rehacer la tabla. Se conserva todo
+    lo que tenga, que es el historial de aperturas, clics y respuestas.
+    """
+    fila = conn.execute("SELECT sql FROM sqlite_master WHERE type='table' "
+                        "AND name='email_events'").fetchone()
+    if not fila or "'unsub'" in (fila["sql"] or ""):
+        return
+
+    conn.execute("ALTER TABLE email_events RENAME TO email_events_previa")
+    conn.executescript("""
+        CREATE TABLE email_events (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            queue_id    INTEGER NOT NULL REFERENCES email_queue(id) ON DELETE CASCADE,
+            campaign_id INTEGER NOT NULL REFERENCES email_campaigns(id) ON DELETE CASCADE,
+            contact_id  INTEGER REFERENCES contacts(id) ON DELETE SET NULL,
+            kind        TEXT NOT NULL
+                        CHECK (kind IN ('open', 'click', 'reply', 'bounce',
+                                        'unsub')),
+            url         TEXT,
+            ref         TEXT,
+            agent       TEXT,
+            bot         INTEGER NOT NULL DEFAULT 0,
+            at          TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        INSERT INTO email_events
+            (id, queue_id, campaign_id, contact_id, kind, url, ref, agent, bot, at)
+            SELECT id, queue_id, campaign_id, contact_id, kind, url, ref, agent,
+                   bot, at
+              FROM email_events_previa;
+        DROP TABLE email_events_previa;
+        CREATE INDEX IF NOT EXISTS ix_events_camp
+            ON email_events(campaign_id, kind, bot);
+        CREATE INDEX IF NOT EXISTS ix_events_queue ON email_events(queue_id, kind);
+    """)
+
+
 def _lectura_del_buzon(conn) -> None:
     """Lo que hace falta para leer respuestas y rebotes.
 
@@ -443,7 +484,8 @@ def _lectura_del_buzon(conn) -> None:
             campaign_id INTEGER NOT NULL REFERENCES email_campaigns(id) ON DELETE CASCADE,
             contact_id  INTEGER REFERENCES contacts(id) ON DELETE SET NULL,
             kind        TEXT NOT NULL
-                        CHECK (kind IN ('open', 'click', 'reply', 'bounce')),
+                        CHECK (kind IN ('open', 'click', 'reply', 'bounce',
+                                        'unsub')),
             url         TEXT,
             ref         TEXT,
             agent       TEXT,

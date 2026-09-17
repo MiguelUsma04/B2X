@@ -789,14 +789,31 @@ def suprimidos() -> list[dict]:
 
 
 def baja_por_marca(token: str) -> dict:
-    """Da de baja a quien llegó por el enlace de un correo concreto."""
+    """Da de baja a quien llegó por el enlace de un correo concreto.
+
+    Además de la lista, queda anotada como un hecho del envío: sin eso se
+    sabría que alguien se fue, pero no de qué campaña ni quién, que es
+    justamente lo que hay que mirar para entender por qué se fue.
+    """
     with get_db() as conn:
         fila = conn.execute(
-            "SELECT email, contact_id, campaign_id FROM email_queue WHERE token=?",
-            (token,)).fetchone()
+            "SELECT id, email, contact_id, campaign_id FROM email_queue "
+            "WHERE token=?", (token,)).fetchone()
     if not fila:
         return {"ok": False}
+
     suprimir(fila["email"], "pidió la baja desde el correo", fila["contact_id"])
+    with get_db() as conn:
+        # Una sola por correo: si vuelve a tocar el enlace no cuenta doble.
+        ya = conn.execute(
+            "SELECT 1 FROM email_events WHERE queue_id=? AND kind='unsub'",
+            (fila["id"],)).fetchone()
+        if not ya:
+            conn.execute(
+                """INSERT INTO email_events
+                     (queue_id, campaign_id, contact_id, kind, ref, bot)
+                   VALUES (?,?,?, 'unsub', ?, 0)""",
+                (fila["id"], fila["campaign_id"], fila["contact_id"], token))
     return {"ok": True, "email": fila["email"]}
 
 
@@ -1238,12 +1255,14 @@ def metricas(campania: int) -> dict:
         # de verdad, no cuántas veces se abrió el mismo correo.
         gente = conn.execute(
             """SELECT SUM(abrio) abrieron, SUM(clic) clicaron,
-                      SUM(resp) respondieron, SUM(reb) rebotaron FROM (
+                      SUM(resp) respondieron, SUM(reb) rebotaron,
+                      SUM(baja) bajas FROM (
                  SELECT queue_id,
                         MAX(kind='open'   AND bot=0) abrio,
                         MAX(kind='click'  AND bot=0) clic,
                         MAX(kind='reply'  AND bot=0) resp,
-                        MAX(kind='bounce' AND bot=0) reb
+                        MAX(kind='bounce' AND bot=0) reb,
+                        MAX(kind='unsub') baja
                    FROM email_events WHERE campaign_id=? GROUP BY queue_id)""",
             (campania,)).fetchone()
 
@@ -1266,6 +1285,7 @@ def metricas(campania: int) -> dict:
                       MAX(CASE WHEN e.kind='click'  AND e.bot=0 THEN e.at END) clico,
                       MAX(CASE WHEN e.kind='reply'  AND e.bot=0 THEN e.at END) respondio,
                       MAX(CASE WHEN e.kind='bounce' AND e.bot=0 THEN e.at END) reboto,
+                      MAX(CASE WHEN e.kind='unsub' THEN e.at END) se_dio_baja,
                       SUM(e.kind='click' AND e.bot=0) clics
                  FROM email_queue q
                  LEFT JOIN contacts ct ON ct.id = q.contact_id
@@ -1282,6 +1302,7 @@ def metricas(campania: int) -> dict:
     clicaron = (gente["clicaron"] or 0) if gente else 0
     respondieron = (gente["respondieron"] or 0) if gente else 0
     rebotaron = (gente["rebotaron"] or 0) if gente else 0
+    bajas = (gente["bajas"] or 0) if gente else 0
 
     def parte(n):
         return round(100 * n / enviados, 1) if enviados else 0.0
@@ -1296,6 +1317,8 @@ def metricas(campania: int) -> dict:
         "clicaron": clicaron,
         "respondieron": respondieron,
         "rebotaron": rebotaron,
+        "bajas": bajas,
+        "pct_bajas": parte(bajas),
         "pct_abrieron": parte(abrieron),
         "pct_clicaron": parte(clicaron),
         "pct_respondieron": parte(respondieron),

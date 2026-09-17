@@ -306,6 +306,8 @@ async function cargarMetricas(cual) {
                                                  : 'no se midió') +
     t('Rebotaron', m.rebotaron, m.rebotaron ? 'esas direcciones no existen'
                                             : 'ninguna dirección rebotó') +
+    t('Se dieron de baja', m.bajas, m.bajas
+        ? `${m.pct_bajas}% de los que salieron` : 'nadie pidió salir') +
     t('En cola', m.pendientes, m.pendientes ? 'todavía por salir' : 'no queda nada') +
     t('Con error', m.errores, m.errores ? 'no se pudieron mandar' : 'ninguno');
 
@@ -330,7 +332,9 @@ async function cargarMetricas(cual) {
       <td>${g.abrio ? cuando(g.abrio) : '—'}</td>
       <td>${g.clico ? `<b>${cuando(g.clico)}</b>${g.clics > 1 ? ` ·&nbsp;${g.clics}` : ''}`
                     : '—'}</td>
-      <td>${g.respondio ? `<b class="respondio">${cuando(g.respondio)}</b>` : '—'}</td></tr>`;
+      <td>${g.respondio ? `<b class="respondio">${cuando(g.respondio)}</b>` : '—'}</td>
+      <td>${g.se_dio_baja ? `<span class="pill error">${cuando(g.se_dio_baja)}</span>`
+                          : '—'}</td></tr>`;
   }).join('');
 }
 
