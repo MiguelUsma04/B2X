@@ -2150,6 +2150,7 @@ async function showDetail(id) {
     : '<div class="empty">Todavía no se buscó el email de este contacto.</div>';
 
   $('modal-body').innerHTML = `
+    <div id="compras-box"></div>
     <dl class="kv">
       <dt>Email</dt><dd>${c.email
         ? `<a href="mailto:${esc(c.email)}" style="color:var(--brand)">${esc(c.email)}</a>`
@@ -2185,7 +2186,68 @@ async function showDetail(id) {
     <h3 style="font-size:15px;font-weight:700;margin:20px 0 10px">Cómo se buscó su email</h3>
     ${logs}`;
   $('modal').classList.add('open');
+  cargarCompras(c.id, c.crm_status);
 }
+
+/* ------------------------- cuántas veces compró ------------------------- */
+// Una compra es un lead que llegó a ventas ganadas en Kommo. Se pregunta al
+// abrir la ficha y no al listar: son cientos de contactos en pantalla y esto
+// es una llamada al CRM por cada uno.
+async function cargarCompras(id, estadoCrm) {
+  const caja = $('compras-box');
+  if (!caja) return;
+  if (estadoCrm !== 'sent') {
+    caja.innerHTML = '';
+    return;
+  }
+  caja.innerHTML = `<div class="compras cargando"><span class="pulse">●</span>
+    Preguntándole a Kommo…</div>`;
+
+  let d;
+  try {
+    d = await (await fetch(`/api/contacts/${id}/compras`)).json();
+  } catch (e) {
+    caja.innerHTML = '';
+    return;
+  }
+  if (d.error || !d.en_crm) {
+    caja.innerHTML = d.error
+      ? `<div class="compras"><span class="sub">No se pudo leer Kommo:
+         ${esc(d.error)}</span></div>` : '';
+    return;
+  }
+
+  const plata = (n) => n
+    ? new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP',
+        maximumFractionDigits: 0 }).format(n) : '';
+  const fecha = (t) => t
+    ? new Date(t * 1000).toLocaleDateString('es-CO',
+        { day: '2-digit', month: 'short', year: 'numeric' }) : '';
+
+  const veces = d.compras === 0 ? 'Todavía no compró'
+    : d.compras === 1 ? 'Compró una vez' : `Compró ${d.compras} veces`;
+
+  caja.innerHTML = `
+    <div class="compras ${d.compras ? 'cliente' : ''}">
+      <div class="c-h">
+        <b>${veces}</b>
+        ${d.monto ? `<span class="c-monto">${plata(d.monto)}</span>` : ''}
+      </div>
+      <div class="sub">
+        ${d.ultima ? `Última: ${fecha(d.ultima)} · ` : ''}
+        ${d.abiertos} abierto(s) · ${d.perdidos} perdido(s)
+      </div>
+      ${d.leads.length ? `<ul class="c-leads">${d.leads.slice(0, 6).map((l) => `
+        <li>
+          <span class="p ${l.ganado ? 'ok' : l.perdido ? 'no' : ''}"></span>
+          <span>${esc(l.nombre || 'Sin nombre')}</span>
+          <span class="sub">${l.ganado ? fecha(l.cerrado) || 'ganado'
+            : l.perdido ? 'perdido' : 'en curso'}${
+            l.precio ? ' · ' + plata(l.precio) : ''}</span>
+        </li>`).join('')}</ul>` : ''}
+    </div>`;
+}
+
 function closeModal() { $('modal').classList.remove('open'); }
 document.addEventListener('keydown', (e) => {
   if (e.key !== 'Escape') return;

@@ -982,6 +982,20 @@ def api_suppression_add(email: str = Form(...), reason: str = Form("agregado a m
     return {"ok": True, "email": email.strip().lower()}
 
 
+@app.get("/api/contacts/{contact_id}/compras")
+async def api_contacto_compras(contact_id: int):
+    """Cuántas veces compró este contacto, según Kommo."""
+    with get_db() as conn:
+        f = conn.execute("SELECT crm_contact_id FROM contacts WHERE id=?",
+                         (contact_id,)).fetchone()
+    if not f:
+        raise HTTPException(404, "Ese contacto no existe.")
+    if not f["crm_contact_id"]:
+        return {"en_crm": False, "compras": 0, "leads": []}
+    r = await kommo.historial_del_contacto(f["crm_contact_id"])
+    return {"en_crm": True, **r}
+
+
 @app.get("/api/actividad")
 def api_actividad(limit: int = 100):
     """Quién hizo qué, de lo más reciente a lo más viejo."""

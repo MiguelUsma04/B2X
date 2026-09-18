@@ -493,6 +493,71 @@ def _nota_respuesta(de: str, cuando: str) -> str:
             "El contenido está en el buzón desde el que se mandó.")
 
 
+# Los dos estados que Kommo reserva en todos los embudos. Aunque el equipo los
+# renombre —"SESIÓN EJECUTIVA AGENDADA", "Logrado con éxito"— el número no
+# cambia, así que contar por número funciona en cualquier embudo.
+GANADO = 142
+PERDIDO_ID = 143
+
+
+async def historial_del_contacto(crm_contact_id: str) -> dict:
+    """Cuántas veces le compró este contacto, según Kommo.
+
+    Una compra es un lead que llegó a ventas ganadas. Se cuenta por el estado
+    y no por el nombre de la etapa: cada embudo la llama distinto y el equipo
+    la puede renombrar mañana.
+    """
+    vacio = {"compras": 0, "abiertos": 0, "perdidos": 0, "monto": 0,
+             "ultima": None, "leads": []}
+    if not configured() or not crm_contact_id:
+        return vacio
+
+    async with httpx.AsyncClient(timeout=TIEMPO, headers=_headers()) as c:
+        r = await c.get(f"{base_url()}/contacts/{crm_contact_id}",
+                        params={"with": "leads"})
+        if r.status_code != 200:
+            return {**vacio, "error": _explicar(r)}
+        ids = [str(x.get("id")) for x
+               in (r.json().get("_embedded", {}).get("leads") or [])
+               if x.get("id")]
+        if not ids:
+            return vacio
+
+        # Se piden todos de una: uno por uno serían N llamadas por ficha.
+        params = [("filter[id][]", i) for i in ids[:200]]
+        params.append(("limit", "250"))
+        rl = await c.get(f"{base_url()}/leads", params=params)
+        if rl.status_code != 200:
+            return {**vacio, "error": _explicar(rl)}
+        leads = rl.json().get("_embedded", {}).get("leads", [])
+
+    compras, abiertos, perdidos, monto, ultima = 0, 0, 0, 0, None
+    detalle = []
+    for l in leads:
+        estado = l.get("status_id")
+        precio = l.get("price") or 0
+        cerrado = l.get("closed_at")
+        if estado == GANADO:
+            compras += 1
+            monto += precio
+            if cerrado and (ultima is None or cerrado > ultima):
+                ultima = cerrado
+        elif estado == PERDIDO_ID:
+            perdidos += 1
+        else:
+            abiertos += 1
+        detalle.append({"id": l.get("id"), "nombre": l.get("name"),
+                        "precio": precio, "cerrado": cerrado,
+                        "ganado": estado == GANADO,
+                        "perdido": estado == PERDIDO_ID})
+
+    # Lo ganado primero y lo más reciente arriba: es el orden en que alguien
+    # lee esto antes de llamar.
+    detalle.sort(key=lambda d: (not d["ganado"], -(d["cerrado"] or 0)))
+    return {"compras": compras, "abiertos": abiertos, "perdidos": perdidos,
+            "monto": monto, "ultima": ultima, "leads": detalle}
+
+
 async def listar_embudos() -> dict:
     """Los embudos con sus etapas, para elegir a dónde caen los contactos."""
     if not configured():

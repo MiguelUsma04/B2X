@@ -296,6 +296,34 @@ textarea.codigo{
 /* Una respuesta es la mejor noticia de la tabla: que se vea. */
 .respondio{color:var(--ok)}
 
+/* ============================== historial de compras =================== */
+/* Va arriba de la ficha: que alguien ya sea cliente cambia la conversación
+   entera, así que no puede estar enterrado entre los datos de contacto. */
+.compras{
+  padding:14px 16px;border:1px solid var(--line);border-radius:var(--r-sm);
+  background:var(--surface-2);margin-bottom:16px;
+}
+.compras.cargando{color:var(--ink-3);font-size:14px}
+.compras.cliente{background:var(--ok-soft);border-color:var(--ok-line)}
+.compras .c-h{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap}
+.compras .c-h b{font-size:16px}
+.compras.cliente .c-h b{color:var(--ok)}
+.compras .c-monto{
+  margin-left:auto;font-weight:700;font-variant-numeric:tabular-nums;
+}
+.compras .sub{font-size:12.5px;margin-top:3px}
+.compras .c-leads{list-style:none;margin:12px 0 0;padding:0;display:grid;gap:6px}
+.compras .c-leads li{
+  display:grid;grid-template-columns:8px 1fr auto;gap:9px;align-items:center;
+  font-size:13.5px;
+}
+.compras .c-leads .p{
+  width:8px;height:8px;border-radius:50%;background:var(--line-strong);
+}
+.compras .c-leads .p.ok{background:var(--ok)}
+.compras .c-leads .p.no{background:var(--danger)}
+.compras .c-leads .sub{margin:0;white-space:nowrap}
+
 /* ============================== buzones por dominio ==================== */
 /* El dominio manda: es lo que mira quien recibe el correo. Los buzones se
    ven colgando de él y no como una lista plana donde no se nota que tres
