@@ -170,6 +170,19 @@ CREATE TABLE IF NOT EXISTS email_campaigns (
 
 -- La cola. Cada fila tiene su hora: el goteo vive acá y no en memoria, así
 -- reiniciar la app no pierde lo que faltaba mandar ni reenvía lo ya mandado.
+-- Quién hizo qué. No es un registro de todo: solo de lo que gasta plata,
+-- sale hacia afuera o no se puede deshacer. Un registro de todo no se mira
+-- nunca; uno de diez cosas importantes, sí.
+CREATE TABLE IF NOT EXISTS actividad (
+    id      INTEGER PRIMARY KEY AUTOINCREMENT,
+    quien   TEXT,
+    accion  TEXT NOT NULL,
+    detalle TEXT,
+    cuantos INTEGER,
+    at      TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS ix_actividad_at ON actividad(at DESC);
+
 -- A quién no hay que volver a escribirle nunca. Va por dirección y no por
 -- contacto: la misma dirección puede entrar dos veces desde fuentes
 -- distintas, y una baja tiene que valer para todas.
@@ -389,6 +402,15 @@ def _telefonos_al_dia(conn) -> None:
             conn.execute("UPDATE contacts SET phone=?, phone_type=? WHERE id=?",
                          (nuevo, tipo, f["id"]))
     conn.executescript("""
+        CREATE TABLE IF NOT EXISTS actividad (
+            id      INTEGER PRIMARY KEY AUTOINCREMENT,
+            quien   TEXT,
+            accion  TEXT NOT NULL,
+            detalle TEXT,
+            cuantos INTEGER,
+            at      TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        CREATE INDEX IF NOT EXISTS ix_actividad_at ON actividad(at DESC);
         CREATE TABLE IF NOT EXISTS suppression (
             email      TEXT PRIMARY KEY,
             reason     TEXT,

@@ -166,6 +166,29 @@ _PENDING_UPLOAD: dict = {}
 _PENDING_PLACES: dict = {}
 
 
+def _quien(request: Request) -> str:
+    """Quién está haciendo esto, para el registro."""
+    return ((auth.sesion(request) or {}).get("email") or "").strip() or "el equipo"
+
+
+def anotar(request: Request, accion: str, detalle: str = "",
+           cuantos: int | None = None) -> None:
+    """Deja constancia de una acción que gasta plata o sale hacia afuera.
+
+    No se anota todo: un registro de todo no lo mira nadie. Se anotan las
+    diez cosas por las que alguien preguntaría después — quién mandó ese
+    correo, quién gastó esos créditos, quién subió esos contactos.
+    """
+    try:
+        with get_db() as conn:
+            conn.execute(
+                "INSERT INTO actividad (quien, accion, detalle, cuantos) "
+                "VALUES (?,?,?,?)",
+                (_quien(request), accion, detalle or None, cuantos))
+    except Exception:
+        pass          # el registro nunca puede hacer fallar la acción
+
+
 _ESTATICOS = ("style.css", "app.js")
 
 
@@ -385,19 +408,24 @@ def api_metrics():
 
 
 @app.post("/api/batches/{batch_id}/delete")
-def api_delete_batch(batch_id: int, delete_contacts: str = Form("")):
+def api_delete_batch(request: Request, batch_id: int,
+                     delete_contacts: str = Form("")):
     """Borra una carga. Sin delete_contacts solo se quita del historial."""
     wipe = str(delete_contacts).lower() in ("1", "true", "yes", "on")
     try:
         with get_db() as conn:
-            return delete_batch(conn, batch_id, wipe)
+            r = delete_batch(conn, batch_id, wipe)
+        anotar(request, "Borró una carga",
+               "con sus contactos" if wipe else "solo del historial", batch_id)
+        return r
     except ValueError as exc:
         raise HTTPException(404, str(exc))
 
 
 # -------------------------------------------------------------- enriquecimiento
 @app.post("/api/enrich/start")
-async def api_enrich_start(limit: str = Form(""), batch_id: str = Form("")):
+async def api_enrich_start(request: Request, limit: str = Form(""),
+                           batch_id: str = Form("")):
     if enrichment.PROGRESS.running:
         raise HTTPException(409, "Ya hay un enriquecimiento en curso.")
     lim = int(limit) if str(limit).strip().isdigit() else None
@@ -406,6 +434,7 @@ async def api_enrich_start(limit: str = Form(""), batch_id: str = Form("")):
     if not pending:
         return {"started": False, "message": "No hay contactos pendientes."}
     asyncio.create_task(enrichment.run_enrichment(limit=lim, batch_id=bid))
+    anotar(request, "Buscó emails", "consume créditos", pending)
     return {"started": True, "queued": pending}
 
 
@@ -510,7 +539,8 @@ def _places_usage() -> dict:
 def api_places_usage():
     return _places_usage()
 @app.post("/api/places/search")
-async def api_places_search(query: str = Form(...), max_results: str = Form("20")):
+async def api_places_search(request: Request, query: str = Form(...),
+                            max_results: str = Form("20")):
     """Busca negocios por ubicación. No guarda nada: primero se miran.
 
     Repetir la misma búsqueda tiene que traer negocios nuevos. Google contesta
@@ -548,6 +578,9 @@ async def api_places_search(query: str = Form(...), max_results: str = Form("20"
     _PENDING_PLACES.update({"query": query.strip(), "places": r["places"]})
 
     conocidos = r.get("seen", [])
+    # La búsqueda le cuesta plata a la cuenta de Google aunque después nadie
+    # guarde los resultados: se anota igual.
+    anotar(request, "Buscó en Google Maps", query.strip()[:80], len(r["places"]))
     return {
         "query": query.strip(),
         "total": len(r["places"]),
@@ -570,13 +603,16 @@ async def api_places_search(query: str = Form(...), max_results: str = Form("20"
 
 
 @app.post("/api/places/import")
-def api_places_import(icp_tag: str = Form("")):
+def api_places_import(request: Request, icp_tag: str = Form("")):
     if not _PENDING_PLACES.get("places"):
         raise HTTPException(400, "No hay una búsqueda pendiente. Buscá de nuevo.")
     with get_db() as conn:
         resumen = import_places(conn, _PENDING_PLACES["query"],
                                 _PENDING_PLACES["places"], icp_tag)
+    consulta = _PENDING_PLACES.get("query", "")
     _PENDING_PLACES.clear()
+    anotar(request, "Guardó negocios de Maps", consulta[:80],
+           resumen.get("new_contacts"))
     return resumen
 
 
@@ -811,6 +847,8 @@ def api_mail_schedule(request: Request,
         cuerpo_html=body_html,
         base_rastreo=_base_publica(request))
     mailer.arrancar_worker()
+    anotar(request, "Lanzó una campaña de correo",
+           f"{subject[:80]}", r.get("queued"))
     return {"started": True, **r}
 
 
@@ -944,6 +982,16 @@ def api_suppression_add(email: str = Form(...), reason: str = Form("agregado a m
     return {"ok": True, "email": email.strip().lower()}
 
 
+@app.get("/api/actividad")
+def api_actividad(limit: int = 100):
+    """Quién hizo qué, de lo más reciente a lo más viejo."""
+    with get_db() as conn:
+        filas = conn.execute(
+            "SELECT * FROM actividad ORDER BY at DESC, id DESC LIMIT ?",
+            (max(1, min(500, limit)),)).fetchall()
+    return {"items": [dict(f) for f in filas]}
+
+
 @app.get("/api/mail/health")
 def api_mail_health(days: str = "30"):
     """La salud de cada buzón: rebotes, rechazos, respuestas y ritmo."""
@@ -1014,7 +1062,8 @@ def api_mail_metrics(request: Request, campaign: str = ""):
 
 
 @app.post("/api/mail/control")
-def api_mail_control(campaign_id: str = Form(...), action: str = Form(...)):
+def api_mail_control(request: Request, campaign_id: str = Form(...),
+                     action: str = Form(...)):
     acciones = {"pause": "paused", "resume": "running", "cancel": "cancelled"}
     if action not in acciones:
         raise HTTPException(400, "Acción desconocida.")
@@ -1022,12 +1071,16 @@ def api_mail_control(campaign_id: str = Form(...), action: str = Form(...)):
         cid = int(campaign_id)
     except ValueError:
         raise HTTPException(400, "campaign_id inválido.")
-    return mailer.cambiar_estado(cid, acciones[action])
+    r = mailer.cambiar_estado(cid, acciones[action])
+    anotar(request, {"pause": "Pausó un envío", "resume": "Reanudó un envío",
+                     "cancel": "Canceló un envío"}[action], f"campaña {cid}")
+    return r
 
 
 # ------------------------------------------------------------------ ficha IA
 @app.post("/api/ai/start")
-async def api_ai_start(contact_ids: str = Form(...), redo: str = Form("")):
+async def api_ai_start(request: Request, contact_ids: str = Form(...),
+                       redo: str = Form("")):
     """Arma la ficha del negocio leyendo su sitio con IA. Cuesta por contacto."""
     if enrichment.AI_PROGRESS.running:
         raise HTTPException(409, "Ya hay un análisis en curso.")
@@ -1044,6 +1097,7 @@ async def api_ai_start(contact_ids: str = Form(...), redo: str = Form("")):
         return {"started": False,
                 "message": "Los marcados ya tienen ficha, o no tienen sitio web."}
     asyncio.create_task(enrichment.run_ai_profile(ids, rehacer))
+    anotar(request, "Armó fichas con IA", "cuesta por contacto", len(pendientes))
     return {"started": True, "queued": len(pendientes)}
 
 
@@ -1125,7 +1179,8 @@ def api_ghl_settings_save(pipeline_id: str = Form(""), stage_id: str = Form(""))
 
 
 @app.post("/api/ghl/send")
-async def api_ghl_send(contact_ids: str = Form(...), tag: str = Form("")):
+async def api_ghl_send(request: Request, contact_ids: str = Form(...),
+                       tag: str = Form("")):
     try:
         ids = [int(i) for i in json.loads(contact_ids)]
     except Exception:
@@ -1133,6 +1188,9 @@ async def api_ghl_send(contact_ids: str = Form(...), tag: str = Form("")):
     if not ids:
         raise HTTPException(400, "No se seleccionó ningún contacto.")
     result = await kommo.send_contacts(ids, tag or None)
+    anotar(request, "Subió contactos a Kommo",
+           f"{result.get('sent', 0)} nuevos · {result.get('already_in_crm', 0)} ya estaban",
+           len(ids))
     if result.get("error"):
         return JSONResponse(result, status_code=400)
     return result

@@ -129,6 +129,26 @@ function goToStep(name) {
   if (btn) btn.click();
 }
 
+/* ======================= quién hizo qué ======================= */
+async function cargarActividad() {
+  const cuerpo = $('act-tbody');
+  if (!cuerpo) return;
+  const d = await (await fetch('/api/actividad?limit=100')).json();
+  const items = d.items || [];
+  $('act-hint').textContent = items.length ? `últimas ${items.length}` : '';
+  cuerpo.innerHTML = items.length ? items.map((a) => `
+    <tr>
+      <td class="sub">${cuando(a.at)}</td>
+      <td><b>${esc((a.quien || '').split('@')[0])}</b></td>
+      <td>${esc(a.accion)}${a.cuantos != null
+        ? ` <span class="pill pending">${a.cuantos}</span>` : ''}</td>
+      <td class="sub">${esc(a.detalle || '')}</td>
+    </tr>`).join('')
+    : `<tr><td colspan="4" class="sub">Todavía no hay nada anotado. Acá va a
+       quedar quién buscó, quién gastó créditos, quién subió al CRM y quién
+       lanzó cada campaña.</td></tr>`;
+}
+
 /* ======================= salud del envío ======================= */
 // Cuatro estados y nada más. Un puntaje del 0 al 100 daría una precisión que
 // estos datos no tienen; "bien / ojo / parar" es lo que de verdad se sabe.
@@ -1255,6 +1275,7 @@ function switchAjustes(cual) {
   const marco = $('manual-frame');
   if (elegida === 'ayuda' && marco && !marco.src) marco.src = '/manual';
   if (elegida === 'salud') cargarSalud();
+  if (elegida === 'historial') cargarActividad();
 }
 
 /* ======================= correos ======================= */
