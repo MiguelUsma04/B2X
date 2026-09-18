@@ -1,5 +1,7 @@
 """Inserción de contactos con deduplicación contra la base existente."""
 import sqlite3
+
+from . import telefonos
 from .csv_import import read_csv_bytes, detect_mapping, detect_export_kind, row_to_contact
 
 
@@ -135,16 +137,26 @@ def import_places(conn: sqlite3.Connection, query: str, lugares: list[dict],
             repetidos += 1
             continue
 
+        # El teléfono se guarda ya entendido: en formato internacional y
+        # sabiendo si es celular o fijo. La regla es la del país de la
+        # empresa, no una escrita a mano que solo sirve en Colombia.
+        pais = (l.get("country") or "").strip().upper() or None
+        region = pais or telefonos.region_de_direccion(l.get("address"))
+        telefono = telefonos.normalizar(l.get("phone") or "", region) or None
+        clase = telefonos.tipo(telefono or "", region) if telefono else ""
+        tipo_telefono = ("personal" if clase == telefonos.CELULAR
+                         else ("company" if telefono else None))
+
         try:
             conn.execute(
                 """INSERT INTO contacts
                    (full_name, company_name, company_domain, phone, phone_type,
-                    email_status, place_id, address, rating, rating_count,
-                    maps_url, category, social_url, import_batch_id)
-                   VALUES (?,?,?,?,?,'pending',?,?,?,?,?,?,?,?)""",
-                (l["name"], l["name"], l.get("domain"), l.get("phone"),
-                 "company" if l.get("phone") else None,
-                 l.get("place_id"), l.get("address"), l.get("rating"),
+                    email_status, place_id, address, country, rating,
+                    rating_count, maps_url, category, social_url,
+                    import_batch_id)
+                   VALUES (?,?,?,?,?,'pending',?,?,?,?,?,?,?,?,?)""",
+                (l["name"], l["name"], l.get("domain"), telefono, tipo_telefono,
+                 l.get("place_id"), l.get("address"), pais, l.get("rating"),
                  l.get("rating_count"), l.get("maps_url"), l.get("category"),
                  l.get("social_url"), batch_id))
         except sqlite3.IntegrityError:

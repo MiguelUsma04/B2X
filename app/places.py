@@ -37,6 +37,10 @@ FIELDS = ",".join([
     "places.id",
     "places.displayName",
     "places.formattedAddress",
+    # El país en código de dos letras, para saber qué indicativo lleva el
+    # teléfono. Va en un tier más barato que los campos de contacto que ya se
+    # piden, así que no encarece la consulta.
+    "places.addressComponents",
     "places.nationalPhoneNumber",
     "places.internationalPhoneNumber",
     "places.websiteUri",
@@ -97,6 +101,16 @@ def _explicar(status: int, body: dict) -> str:
     return f"Google respondió {status}: {msg or 'sin detalle'}"
 
 
+def _pais(place: dict) -> str | None:
+    """El código de dos letras del país, tal como lo informa Google."""
+    for c in place.get("addressComponents") or []:
+        if "country" in (c.get("types") or []):
+            corto = (c.get("shortText") or "").strip().upper()
+            if len(corto) == 2:
+                return corto
+    return None
+
+
 def normalize(place: dict) -> dict:
     """Deja el negocio con los mismos nombres de campo que usa la app."""
     web = place.get("websiteUri") or None
@@ -112,6 +126,7 @@ def normalize(place: dict) -> dict:
         "place_id": place.get("id"),
         "name": (place.get("displayName") or {}).get("text") or "",
         "address": place.get("formattedAddress") or None,
+        "country": _pais(place),
         "phone": phone or None,
         "website": web,
         "domain": None if red else dominio,

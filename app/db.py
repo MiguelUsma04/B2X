@@ -39,6 +39,11 @@ CREATE TABLE IF NOT EXISTS contacts (
     -- Datos del negocio cuando el contacto viene de Google Maps.
     place_id          TEXT,
     address           TEXT,
+    -- El país, en código de dos letras. Lo informa Google con la dirección y
+    -- es lo que decide el indicativo del teléfono: un número de diez dígitos
+    -- puede ser de México o de Colombia, y ponerle el indicativo equivocado
+    -- lo convierte en el número de otra persona.
+    country           TEXT,
     rating            REAL,
     rating_count      INTEGER,
     maps_url          TEXT,
@@ -314,6 +319,7 @@ _NEW_COLUMNS = [
     ("mobile_available", "INTEGER NOT NULL DEFAULT 0"),
     ("place_id", "TEXT"),
     ("address", "TEXT"),
+    ("country", "TEXT"),
     ("rating", "REAL"),
     ("rating_count", "INTEGER"),
     ("maps_url", "TEXT"),
@@ -341,6 +347,47 @@ def _migrate(conn) -> None:
     _rastreo(conn)
     _lectura_del_buzon(conn)
     _bajas_medibles(conn)
+    _telefonos_al_dia(conn)
+
+
+def _telefonos_al_dia(conn) -> None:
+    """Pone en formato internacional los teléfonos que se guardaron antes.
+
+    Los contactos viejos quedaron con el número nacional y marcados todos como
+    'company', porque cuando se cargaron no había forma de distinguir. Ahora
+    la librería de numeración sabe la regla de cada país, así que se rehace la
+    cuenta una sola vez.
+
+    Solo toca lo que puede afirmar: si el número no se entiende con el país de
+    esa empresa, se deja como está. Un número mal convertido es el de otra
+    persona.
+    """
+    from . import telefonos
+
+    filas = conn.execute(
+        """SELECT id, phone, phone_type, address, country FROM contacts
+            WHERE phone IS NOT NULL AND phone <> ''
+              AND (phone NOT LIKE '+%' OR phone_type IS NULL)""").fetchall()
+    if not filas:
+        return
+
+    for f in filas:
+        region = telefonos.region_del_contacto(dict(f))
+        nuevo = telefonos.normalizar(f["phone"], region)
+        clase = telefonos.tipo(nuevo, region)
+
+        # El WhatsApp se detectó leyendo el sitio: eso no se pisa, es un dato
+        # más fuerte que deducir el tipo del número.
+        tipo = f["phone_type"]
+        if tipo != "whatsapp":
+            if clase == telefonos.CELULAR:
+                tipo = "personal"
+            elif clase == telefonos.FIJO:
+                tipo = "company"
+
+        if nuevo != f["phone"] or tipo != f["phone_type"]:
+            conn.execute("UPDATE contacts SET phone=?, phone_type=? WHERE id=?",
+                         (nuevo, tipo, f["id"]))
     conn.executescript("""
         CREATE TABLE IF NOT EXISTS suppression (
             email      TEXT PRIMARY KEY,

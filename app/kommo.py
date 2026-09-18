@@ -19,6 +19,7 @@ import os
 
 import httpx
 
+from . import telefonos
 from .db import get_db
 
 TIEMPO = 30.0
@@ -175,42 +176,15 @@ def datos_del_lead(c: dict) -> dict:
     }
 
 
-def pais() -> str:
-    """El indicativo que se le pone a los números que no traen uno."""
-    return (os.getenv("KOMMO_COUNTRY_CODE") or "57").strip().lstrip("+")
+def con_indicativo(numero: str, region: str | None = None) -> str:
+    """El número en formato internacional, con la regla del país que sea.
 
-
-def con_indicativo(numero: str) -> str:
-    """El número en formato internacional: +57 300 123 4567 → +573001234567.
-
-    El chat de Kommo abre la conversación de WhatsApp con este número. Sin el
-    indicativo del país no encuentra nada: un 3001234567 a secas no existe
-    para WhatsApp, que trabaja siempre en formato internacional.
-
-    Es conservador a propósito: solo agrega el indicativo cuando el número
-    tiene el largo nacional exacto. Un número raro se manda tal cual antes que
-    quedar convertido en otro número.
+    La cuenta la hace la librería de numeración de Google, que sabe cuántos
+    dígitos tiene un número en cada país y cómo se escribe. Antes acá había
+    una regla a mano para Colombia, que con prospección afuera convertía un
+    número mexicano en uno colombiano que existe y es de otra persona.
     """
-    crudo = (numero or "").strip()
-    if not crudo:
-        return ""
-
-    mas = crudo.startswith("+")
-    digitos = "".join(ch for ch in crudo if ch.isdigit())
-    if not digitos:
-        return crudo
-
-    if mas:
-        return "+" + digitos
-    if digitos.startswith("00"):          # forma vieja de marcar al exterior
-        return "+" + digitos[2:]
-
-    ind = pais()
-    if digitos.startswith(ind) and len(digitos) == len(ind) + 10:
-        return "+" + digitos              # ya lo traía, sin el +
-    if len(digitos) == 10:                # nacional: celular 3xx o fijo 60x
-        return f"+{ind}{digitos}"
-    return crudo                          # no se sabe: mejor no inventar
+    return telefonos.normalizar(numero, region)
 
 
 def _valor(campo_id: int, valor: str, enum_code: str | None = None,
@@ -237,12 +211,20 @@ def armar_contacto(c: dict, ids: dict) -> dict:
     if c.get("email") and ids.get("email"):
         campos_valores.append(_valor(ids["email"], c["email"], "WORK"))
 
-    telefono = con_indicativo(c.get("phone") or "")
+    # El país sale de lo que Google informó para esa empresa, o de su
+    # dirección. Recién si no hay nada de eso se usa el país por defecto.
+    region = telefonos.region_del_contacto(c)
+    telefono = con_indicativo(c.get("phone") or "", region)
     if telefono and ids.get("phone"):
         # Un celular es MOB y el conmutador es WORK: en Kommo eso cambia el
-        # ícono y, en las cuentas con telefonía, a qué número marca.
-        tipo = "MOB" if c.get("phone_type") in ("personal", "whatsapp") else "WORK"
-        campos_valores.append(_valor(ids["phone"], telefono, tipo))
+        # ícono y, en las cuentas con telefonía, a qué número marca. Se
+        # pregunta por el número, que es más confiable que lo que quedó
+        # guardado cuando se importó.
+        clase = telefonos.tipo(telefono, region)
+        movil = (clase == telefonos.CELULAR
+                 or c.get("phone_type") in ("personal", "whatsapp"))
+        campos_valores.append(_valor(ids["phone"], telefono,
+                                     "MOB" if movil else "WORK"))
 
     # El WhatsApp va además en el campo del chat, no en lugar del teléfono.
     if (telefono and c.get("phone_type") == "whatsapp"
