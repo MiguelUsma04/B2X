@@ -1161,7 +1161,8 @@ def contactos_enviables(contact_ids: list[int], repetir: bool = False) -> list[d
 
 def crear_campania(nombre: str, asunto: str, cuerpo: str, contactos: list[dict],
                    cada_segundos: int, jitter: int, tope_diario: int,
-                   cuerpo_html: str = "", base_rastreo: str = "") -> dict:
+                   cuerpo_html: str = "", base_rastreo: str = "",
+                   escritos: dict | None = None) -> dict:
     """Arma la campaña y reparte las horas de salida del goteo."""
     with get_db() as conn:
         cur = conn.execute(
@@ -1185,8 +1186,15 @@ def crear_campania(nombre: str, asunto: str, cuerpo: str, contactos: list[dict],
                 dia, enviados_hoy = momento.date(), 0
             # El correo se arma acá, contacto por contacto, y queda guardado:
             # así lo que sale es exactamente lo que se vio en la vista previa.
+            # Con la IA cada contacto trae su propio correo, ya escrito para
+            # él. Sin eso, todos comparten la plantilla con sus variables.
+            suyo = (escritos or {}).get(c["id"]) or {}
+            asunto_suyo = suyo.get("asunto") or asunto
+            cuerpo_suyo = suyo.get("cuerpo") or cuerpo
+
             html_armado = render(cuerpo_html, c, para_html=True) if cuerpo_html else ""
-            texto = render(cuerpo, c) if cuerpo else html_a_texto(html_armado)
+            texto = (render(cuerpo_suyo, c) if cuerpo_suyo
+                     else html_a_texto(html_armado))
             # La versión de texto se saca ANTES de marcar: si no, el enlace
             # que se lee en texto plano sería el del desvío y no el real.
             marca = secrets.token_urlsafe(16)
@@ -1198,7 +1206,7 @@ def crear_campania(nombre: str, asunto: str, cuerpo: str, contactos: list[dict],
                     html_armado += _pie_de_baja(base_rastreo, marca, html=True)
             if html_armado and base_rastreo:
                 html_armado = marcar_html(html_armado, base_rastreo, marca)
-            filas.append((campania, c["id"], c["email"], render(asunto, c),
+            filas.append((campania, c["id"], c["email"], render(asunto_suyo, c),
                           texto, html_armado or None, marca, _iso(momento)))
             enviados_hoy += 1
             # El jitter evita el patrón de reloj: mandar exacto cada 180 s es
