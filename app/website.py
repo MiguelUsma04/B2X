@@ -41,12 +41,18 @@ def max_paginas() -> int:
 
 
 def presupuesto_texto() -> int:
-    """Cuánto texto se guarda en total. Es lo que después lee la IA."""
+    """Cuánto texto se guarda en total. Es lo que después lee la IA.
+
+    Sesenta mil alcanzan de sobra desde que no se guarda dos veces la misma
+    frase: un sitio de agencia queda entre 8.000 y 20.000, y el tope solo
+    aparece en los sitios muy grandes, donde de todas formas el rendimiento
+    de seguir leyendo es cada vez menor.
+    """
     try:
         return max(10_000, min(400_000,
-                               int(os.getenv("SITIO_MAX_TEXTO") or "120000")))
+                               int(os.getenv("SITIO_MAX_TEXTO") or "60000")))
     except ValueError:
-        return 120_000
+        return 60_000
 
 
 def presupuesto_tiempo() -> float:
@@ -121,6 +127,22 @@ TEL_LIMPIO = re.compile(r"[^\d+]")
 TEL_TEXTO = re.compile(
     r"(?<![\d/])(?:\+\d{1,3}[\s.\-]?\(?\d{1,4}\)?|\(\d{2,4}\))"
     r"[\s.\-]?\d{2,4}[\s.\-]?\d{2,4}(?:[\s.\-]?\d{2,4})?(?![\d/])")
+
+
+# Un bloque más corto que esto no vale la pena comparar: "Inicio", "Ver más".
+BLOQUE_MINIMO = 25
+CORTE_BLOQUES = re.compile(r"(?<=[.!?:])\s+|\s{2,}")
+
+
+def bloques(texto: str) -> list[str]:
+    """Corta el texto en frases, que es la unidad que se repite."""
+    return [t.strip() for t in CORTE_BLOQUES.split(texto or "")
+            if len(t.strip()) >= BLOQUE_MINIMO]
+
+
+def _huella(bloque: str) -> str:
+    """La misma frase escrita con otros espacios o mayúsculas es la misma."""
+    return re.sub(r"[^a-z0-9áéíóúñü ]", "", bloque.lower())[:160]
 
 
 def prioridad(url: str, texto_link: str = "") -> int:
@@ -333,6 +355,8 @@ async def scrape(client: httpx.AsyncClient, dominio: str,
     telefonos: dict[str, str] = {}     # valor -> tipo
     visitadas: list[str] = []
     conocidas: set[str] = set()        # todo lo que ya se vio, visitado o no
+    vistos: set[str] = set()           # frases ya guardadas, para no repetirlas
+    secas = 0                          # páginas seguidas que no aportaron nada
     # La fila, por prioridad: {3: [...], 2: [...], 1: [...]}
     pendientes: dict[int, list[str]] = {3: [], 2: [], 1: []}
 
@@ -418,9 +442,29 @@ async def scrape(client: httpx.AsyncClient, dominio: str,
                     continue
                 encolar(p._replace(fragment="", query="").geturl(), _txt)
 
+        # Los correos y los teléfonos se buscan en la página ENTERA: suelen
+        # estar justamente en el pie, que es lo que se va a deduplicar abajo.
         texto = pg.texto
-        if texto.strip() and largo_texto < tope_texto:
-            trozo = "--- " + url + chr(10) + texto[:TEXT_PER_PAGE]
+
+        # El menú, el pie y el banner de cookies están en todas las páginas.
+        # Mandárselos al modelo una vez por página es pagar quince veces por
+        # el mismo texto: medido contra un sitio real, el 99% de lo que se
+        # juntaba era repetido. Cada frase se guarda la primera vez y nada más.
+        nuevo = []
+        for b in bloques(pg.texto[:TEXT_PER_PAGE]):
+            h = _huella(b)
+            if h and h not in vistos:
+                vistos.add(h)
+                nuevo.append(b)
+        propio = " ".join(nuevo)
+
+        nonlocal secas
+        if len(propio) < 200:
+            secas += 1                 # esta página no contó nada nuevo
+        else:
+            secas = 0
+        if propio and largo_texto < tope_texto:
+            trozo = "--- " + url + chr(10) + propio
             trozo = trozo[:max(0, tope_texto - largo_texto)]
             textos.append(trozo)
             largo_texto += len(trozo)
@@ -454,6 +498,12 @@ async def scrape(client: httpx.AsyncClient, dominio: str,
     while len(visitadas) < max_pages:
         if time.monotonic() > hasta or largo_texto >= tope_texto:
             truncado = True
+            break
+        # Cuando varias páginas seguidas no dicen nada que no se haya leído,
+        # el sitio es el mismo molde con otra dirección: seguir cuesta tiempo
+        # y no agrega una línea. Es el caso de los sitios hechos con
+        # JavaScript, donde todas las rutas devuelven el mismo HTML.
+        if secas >= 4:
             break
         tanda = siguientes(min(A_LA_VEZ, max_pages - len(visitadas)))
         if not tanda:
