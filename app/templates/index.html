@@ -315,7 +315,7 @@
     <div class="card">
       <h2>El correo</h2>
       <div class="body">
-        <div class="field" style="flex:1 1 100%">
+        <div class="field" style="flex:1 1 100%" id="campo-asunto">
           <label class="fld" for="mail-subject">Asunto</label>
           <input id="mail-subject" placeholder="Una idea para {{empresa}}">
         </div>
@@ -327,6 +327,9 @@
           <button class="seg" id="seg-html" role="tab" aria-selected="false"
                   onclick="switchFormato('html')">
             <b>Diseño HTML</b><span>colores, imágenes, botón</span></button>
+          <button class="seg" id="seg-ia" role="tab" aria-selected="false"
+                  onclick="switchFormato('ia')">
+            <b>Escribe la IA</b><span>uno distinto para cada empresa</span></button>
         </div>
 
         <div id="modo-texto">
@@ -368,15 +371,40 @@
           </details>
         </div>
 
-        <p class="help">Tocá una variable para insertarla donde está el cursor:</p>
-        <div class="fchips" id="mail-vars"></div>
-        <div class="row" style="margin-top:14px">
-          <button onclick="previewMail()">Ver cómo queda</button>
-          <button class="ghost" onclick="probarEsteCorreo()">Probar en mi
-            correo</button>
-          <button class="ghost" onclick="saveTemplate()">Guardar como plantilla</button>
+        <div id="modo-ia" hidden>
+          <p class="lede" style="margin-top:12px">La IA lee el sitio de cada
+            empresa y le escribe un correo propio: problema, agitación,
+            solución y una pregunta. <b>Nada sale sin que lo apruebes.</b></p>
+          <div class="field" style="flex:1 1 100%;margin-top:12px">
+            <label class="fld" for="ia-propuesta">Qué ofrecemos nosotros</label>
+            <textarea id="ia-propuesta" rows="4" style="resize:vertical"
+              placeholder="En una o dos frases: qué vendemos y a quién le sirve."></textarea>
+          </div>
+          <p class="help">El asunto y el saludo los pone la IA. Si encuentra en
+            el sitio quién maneja esa dirección, lo saluda por su nombre; si no,
+            saluda a la empresa entera.</p>
+          <div class="row" style="margin-top:14px">
+            <button class="go" id="btn-ia-escribir" onclick="escribirConIA()">
+              Escribir los correos</button>
+            <button class="ghost" onclick="borrarBorradores()">Empezar de
+              cero</button>
+          </div>
+          <div id="ia-progreso" style="margin-top:14px"></div>
+          <div id="ia-resumen" style="margin-top:14px"></div>
+          <div id="ia-lista" class="borradores"></div>
         </div>
-        <div id="mail-preview" style="margin-top:14px"></div>
+
+        <div id="herramientas-plantilla">
+          <p class="help">Tocá una variable para insertarla donde está el cursor:</p>
+          <div class="fchips" id="mail-vars"></div>
+          <div class="row" style="margin-top:14px">
+            <button onclick="previewMail()">Ver cómo queda</button>
+            <button class="ghost" onclick="probarEsteCorreo()">Probar en mi
+              correo</button>
+            <button class="ghost" onclick="saveTemplate()">Guardar como plantilla</button>
+          </div>
+          <div id="mail-preview" style="margin-top:14px"></div>
+        </div>
       </div>
     </div>
 

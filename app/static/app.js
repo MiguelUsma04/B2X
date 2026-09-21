@@ -1604,19 +1604,27 @@ async function testMailbox(id) {
 let MODO_CORREO = 'texto';
 
 function switchFormato(cual) {
-  MODO_CORREO = cual === 'html' ? 'html' : 'texto';
+  MODO_CORREO = ['html', 'ia'].includes(cual) ? cual : 'texto';
   const esHtml = MODO_CORREO === 'html';
+  const esIA = MODO_CORREO === 'ia';
   $('modo-html').hidden = !esHtml;
-  $('modo-texto').hidden = esHtml;
-  for (const [id, on] of [['seg-html', esHtml], ['seg-texto', !esHtml]]) {
+  $('modo-texto').hidden = esHtml || esIA;
+  $('modo-ia').hidden = !esIA;
+  // Con la IA, cada correo trae su asunto y su cuerpo: la plantilla de arriba
+  // no interviene, y mostrarla haría creer que sí.
+  $('campo-asunto').hidden = esIA;
+  $('herramientas-plantilla').hidden = esIA;
+  for (const [id, on] of [['seg-html', esHtml], ['seg-ia', esIA],
+                          ['seg-texto', !esHtml && !esIA]]) {
     $(id).classList.toggle('active', on);
     $(id).setAttribute('aria-selected', String(on));
   }
   if (esHtml) verHtmlEnVivo();
+  if (esIA) cargarBorradores();
   updateMailBtn();
 }
 
-function cuerpoTexto() { return MODO_CORREO === 'html' ? '' : $('mail-body').value; }
+function cuerpoTexto() { return MODO_CORREO === 'texto' ? $('mail-body').value : ''; }
 function cuerpoHtml() { return MODO_CORREO === 'html' ? $('mail-html').value : ''; }
 
 function verHtmlEnVivo() {
@@ -1716,10 +1724,21 @@ function updateMailBtn() {
   const activos = MAILBOXES.filter((m) => m.active && m.configured);
   const capacidad = activos.reduce((a, m) => a + (m.remaining || 0), 0);
 
-  const hayCuerpo = (MODO_CORREO === 'html' ? $('mail-html').value : $('mail-body').value)
-                    .trim();
-  b.disabled = SELECTED.size === 0 || !$('mail-subject').value.trim()
-               || !hayCuerpo || !activos.length;
+  // Con la IA lo que habilita el envío no es la plantilla, sino que haya al
+  // menos un correo aprobado: es toda la idea de la aprobación previa.
+  const aprobados = BORRADORES.filter((x) => x.estado === 'aprobado').length;
+  if (MODO_CORREO === 'ia') {
+    b.disabled = !aprobados || !activos.length;
+    b.textContent = aprobados
+      ? `Programar el envío de ${aprobados} aprobado(s)`
+      : 'Programar el envío';
+  } else {
+    const hayCuerpo = (MODO_CORREO === 'html' ? $('mail-html').value
+                                              : $('mail-body').value).trim();
+    b.disabled = SELECTED.size === 0 || !$('mail-subject').value.trim()
+                 || !hayCuerpo || !activos.length;
+    b.textContent = 'Programar el envío';
+  }
 
   const listo = $('mail-ready');
   if (listo) {
@@ -1828,6 +1847,7 @@ async function probarEsteCorreo() {
 }
 
 async function scheduleMail() {
+  if (MODO_CORREO === 'ia') { await programarEnvioIA(); return; }
   const ids = [...SELECTED];
   if (!ids.length) return;
 
@@ -2401,3 +2421,253 @@ if (_html) _html.addEventListener('input', verHtmlEnVivo);
   await refreshPending();
   loadPipelines();   // en segundo plano: depende de una llamada al CRM
 })();
+
+/* ---------------------------------------------------------- correos con IA
+   La IA escribe uno por empresa y nadie los manda hasta que una persona los
+   lee y los aprueba. Mientras estemos probando, esa lectura es obligatoria:
+   son correos reales a empresas reales. */
+
+let BORRADORES = [];
+let IA_MAX = 300;
+let IA_TIMER = null;
+
+async function escribirConIA() {
+  const ids = [...SELECTED];
+  if (!ids.length) { toast('Marcá contactos primero', 'warn'); return; }
+
+  const ok = await ask('Escribir con IA',
+    `<p>La IA va a escribir <b>${ids.length} correo(s)</b>, uno por empresa.</p>
+     <p class="help">Cuesta tokens de OpenAI y tarda unos segundos por
+     contacto. Después los vas a poder leer y aprobar uno por uno: no se manda
+     nada todavía.</p>`,
+    [{ label: 'Cancelar', value: false },
+     { label: `Escribir ${ids.length}`, value: true, cls: 'go' }]);
+  if (!ok) return;
+
+  const fd = new FormData();
+  fd.append('contact_ids', JSON.stringify(ids));
+  fd.append('propuesta', $('ia-propuesta').value);
+  const r = await fetch('/api/mail/redactar', { method: 'POST', body: fd });
+  const d = await r.json();
+  if (!r.ok) { toast(esc(d.detail || 'Error'), 'err'); return; }
+  if (!d.started) { toast(esc(d.message), 'info'); return; }
+  toast(`Escribiendo ${d.queued} correo(s)…`, 'ok');
+  seguirRedaccion();
+}
+
+function seguirRedaccion() {
+  clearTimeout(IA_TIMER);
+  IA_TIMER = setTimeout(async function paso() {
+    const p = await (await fetch('/api/mail/redactar/progress')).json();
+    pintarProgresoIA(p);
+    if (p.running) { IA_TIMER = setTimeout(paso, 1500); return; }
+    await cargarBorradores();
+  }, 300);
+}
+
+function pintarProgresoIA(p) {
+  const caja = $('ia-progreso');
+  if (!caja) return;
+  if (p.error) {
+    caja.innerHTML = `<div class="alert err">${esc(p.error)}</div>`;
+    return;
+  }
+  if (!p.running) {
+    caja.innerHTML = p.finished && p.total
+      ? `<div class="alert ok"><b>${p.found} listo(s)</b>${
+          p.not_found ? `, ${p.not_found} no salieron` : ''}. Leelos y aprobá
+         los que quieras mandar.</div>`
+      : '';
+    return;
+  }
+  const pct = p.total ? Math.round((p.processed / p.total) * 100) : 0;
+  caja.innerHTML =
+    `<div class="alert info"><b>Escribiendo ${p.processed} de ${p.total}</b>
+     (${pct}%)${p.current_contact ? ' — ' + esc(p.current_contact) : ''}</div>`;
+}
+
+async function cargarBorradores() {
+  const d = await (await fetch('/api/mail/borradores')).json();
+  BORRADORES = d.items || [];
+  IA_MAX = d.max_caracteres || 300;
+  pintarBorradores();
+  updateMailBtn();
+}
+
+function pintarBorradores() {
+  const caja = $('ia-lista');
+  const res = $('ia-resumen');
+  if (!caja) return;
+  if (!BORRADORES.length) {
+    caja.innerHTML = '';
+    if (res) res.innerHTML = '';
+    return;
+  }
+
+  const pend = BORRADORES.filter((b) => b.estado === 'pendiente' && !b.error).length;
+  const apro = BORRADORES.filter((b) => b.estado === 'aprobado').length;
+  const malos = BORRADORES.filter((b) => b.error).length;
+  if (res) {
+    res.innerHTML =
+      `<div class="row" style="align-items:center;gap:10px;flex-wrap:wrap">
+         <b>${apro} aprobado(s)</b>
+         <span class="help">${pend} sin revisar${malos ? ` · ${malos} no salieron` : ''}</span>
+         ${pend ? `<button class="ghost" onclick="aprobarTodos('aprobado')">
+           Aprobar los ${pend} sin revisar</button>
+           <button class="ghost" onclick="aprobarTodos('descartado')">
+           Descartar los ${pend}</button>` : ''}
+       </div>`;
+  }
+
+  caja.innerHTML = BORRADORES.map((b) => {
+    const quien = esc(b.company_name || b.full_name || b.email);
+    if (b.error) {
+      return `<div class="borrador malo">
+        <div class="borrador-h"><b>${quien}</b>
+          <span class="help">${esc(b.email)}</span></div>
+        <div class="alert err" style="margin:8px 0">${esc(b.error)}</div>
+        <div class="row">
+          <button class="ghost" onclick="rehacerBorrador(${b.contact_id})">
+            Volver a intentar</button></div></div>`;
+    }
+    const clase = b.estado === 'aprobado' ? 'aprobado'
+                : b.estado === 'descartado' ? 'descartado' : '';
+    return `<div class="borrador ${clase}">
+      <div class="borrador-h">
+        <b>${quien}</b>
+        <span class="help">${esc(b.email)} · ${b.caracteres} caracteres${
+          b.editado ? ' · corregido a mano' : ''} · ${esc(b.a_quien || '')}</span>
+      </div>
+      <div class="borrador-asunto">${esc(b.asunto || '')}</div>
+      <pre class="borrador-cuerpo" id="cuerpo-${b.contact_id}">${esc(b.cuerpo || '')}</pre>
+      <div class="row borrador-acciones">
+        ${b.estado === 'aprobado'
+          ? `<button class="ghost" onclick="marcarBorrador(${b.contact_id},'pendiente')">
+               Sacar la aprobación</button>`
+          : `<button class="go" onclick="marcarBorrador(${b.contact_id},'aprobado')">
+               Aprobar</button>`}
+        <button class="ghost" onclick="editarBorrador(${b.contact_id})">Corregir</button>
+        <button class="ghost" onclick="rehacerBorrador(${b.contact_id})">
+          Que lo escriba de nuevo</button>
+        ${b.estado === 'descartado'
+          ? '<span class="help">descartado</span>'
+          : `<button class="ghost" onclick="marcarBorrador(${b.contact_id},'descartado')">
+               Descartar</button>`}
+      </div></div>`;
+  }).join('');
+}
+
+async function marcarBorrador(id, estado) {
+  const fd = new FormData();
+  fd.append('estado', estado);
+  await fetch(`/api/mail/borradores/${id}`, { method: 'POST', body: fd });
+  await cargarBorradores();
+}
+
+async function aprobarTodos(estado) {
+  const pend = BORRADORES.filter((b) => b.estado === 'pendiente' && !b.error).length;
+  if (estado === 'aprobado') {
+    const ok = await ask('Aprobar sin leerlos uno por uno',
+      `<p>Se van a aprobar <b>${pend} correo(s)</b> de una vez.</p>
+       <p class="help">Son correos reales a empresas reales. Conviene leer al
+       menos unos cuantos antes.</p>`,
+      [{ label: 'Mejor los leo', value: false },
+       { label: `Aprobar ${pend}`, value: true, cls: 'go' }]);
+    if (!ok) return;
+  }
+  const fd = new FormData();
+  fd.append('estado', estado);
+  const d = await (await fetch('/api/mail/borradores/todos',
+                               { method: 'POST', body: fd })).json();
+  toast(`${d.cuantos} correo(s) ${estado === 'aprobado' ? 'aprobados' : 'descartados'}`,
+        'ok');
+  await cargarBorradores();
+}
+
+async function editarBorrador(id) {
+  const b = BORRADORES.find((x) => x.contact_id === id);
+  if (!b) return;
+  const cuerpo = prompt(
+    `Corregí el correo para ${b.company_name || b.email}.\n` +
+    `Máximo ${IA_MAX} caracteres.`, b.cuerpo || '');
+  if (cuerpo === null) return;
+  const asunto = prompt('Asunto:', b.asunto || '');
+  if (asunto === null) return;
+  const fd = new FormData();
+  fd.append('asunto', asunto);
+  fd.append('cuerpo', cuerpo);
+  const r = await fetch(`/api/mail/borradores/${id}/editar`,
+                        { method: 'POST', body: fd });
+  const d = await r.json();
+  if (!r.ok) { toast(esc(d.detail || 'Error'), 'err'); return; }
+  toast(`Guardado, ${d.caracteres} caracteres`, 'ok');
+  await cargarBorradores();
+}
+
+async function rehacerBorrador(id) {
+  toast('Escribiéndolo de nuevo…', 'info', 2000);
+  const fd = new FormData();
+  fd.append('propuesta', $('ia-propuesta').value);
+  const r = await fetch(`/api/mail/borradores/${id}/rehacer`,
+                        { method: 'POST', body: fd });
+  const d = await r.json();
+  if (!r.ok) { toast(esc(d.detail || 'Error'), 'err'); return; }
+  if (d.error) toast(esc(d.error), 'warn');
+  await cargarBorradores();
+}
+
+async function borrarBorradores() {
+  const ok = await ask('Empezar de cero',
+    '<p>Se borran todos los correos escritos, aprobados incluidos.</p>',
+    [{ label: 'Cancelar', value: false },
+     { label: 'Borrar todo', value: true, cls: 'danger' }]);
+  if (!ok) return;
+  await fetch('/api/mail/borradores', { method: 'DELETE' });
+  await cargarBorradores();
+}
+
+
+async function programarEnvioIA() {
+  const aprobados = BORRADORES.filter((b) => b.estado === 'aprobado');
+  if (!aprobados.length) { toast('No hay ningún correo aprobado', 'warn'); return; }
+  const cfg = await (await fetch('/api/mail/config')).json();
+  const cada = Math.max(1, +$('mail-every').value || 3);
+
+  const ok = await ask('Programar el envío',
+    `<p>Salen los <b>${aprobados.length} correo(s) aprobados</b> desde
+     <b>${esc(cfg.from_email || 'sin configurar')}</b>, cada uno con el texto
+     que aprobaste.</p>
+     <p class="help">Son correos reales a empresas reales. Salen de a uno cada
+     ~${cada} minutos y podés pausarlo en cualquier momento. Los que
+     descartaste o dejaste sin revisar no salen.</p>`,
+    [{ label: 'Cancelar', value: false },
+     { label: `Enviar ${aprobados.length}`, value: true, cls: 'go' }]);
+  if (!ok) return;
+
+  const fd = new FormData();
+  fd.append('contact_ids', JSON.stringify(aprobados.map((b) => b.contact_id)));
+  fd.append('ia', '1');
+  fd.append('subject', '');
+  fd.append('body', '');
+  fd.append('name', 'Escritos por IA');
+  fd.append('limit', $('mail-limit').value || '');
+  fd.append('every_seconds', String(cada * 60));
+  fd.append('jitter_seconds', String(Math.max(0, +$('mail-jitter').value || 0) * 60));
+  const cap = MAILBOXES.filter((m) => m.active && m.configured)
+                       .reduce((a, m) => a + (m.daily_cap || 0), 0);
+  fd.append('daily_cap', String(cap || 50));
+
+  const r = await fetch('/api/mail/schedule', { method: 'POST', body: fd });
+  const d = await r.json();
+  if (!r.ok) { toast(esc(d.detail || 'Error'), 'err'); return; }
+  if (!d.started) { toast(esc(d.message), 'info'); return; }
+  toast(`${d.queued} correo(s) en cola`, 'ok');
+  const caja = $('mail-sched-result');
+  if (caja) {
+    caja.innerHTML = `<div class="alert ok"><b>${d.queued} correo(s) programados.</b>
+      Salen de a poco; podés cerrar la app y sigue. El avance se ve arriba.</div>`;
+  }
+  await cargarBorradores();
+  clearSelection();
+  pollMail(true);
+}

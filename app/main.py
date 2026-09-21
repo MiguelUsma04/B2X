@@ -42,7 +42,7 @@ from .db import get_db, init_db          # noqa: E402
 from .importer import (delete_batch, import_contacts,      # noqa: E402
                        import_places, preview_csv)
 from . import (ai, auth, dnscheck, enrichment, ghl,   # noqa: E402
-               kommo, mailer, places)
+               kommo, mailer, places, redactor)
 from .providers import build_chain       # noqa: E402
 
 app = FastAPI(title="B2X", docs_url="/api/docs")
@@ -806,7 +806,8 @@ def api_mail_schedule(request: Request,
                       body: str = Form(""), name: str = Form(""),
                       limit: str = Form(""), every_seconds: str = Form("180"),
                       jitter_seconds: str = Form("60"), daily_cap: str = Form("50"),
-                      repeat: str = Form(""), body_html: str = Form("")):
+                      repeat: str = Form(""), body_html: str = Form(""),
+                      ia: str = Form("")):
     """Arma la campaña y deja la cola lista. El obrero la va soltando."""
     activa = mailer.estado()
     if activa.get("campaign") and activa["campaign"]["status"] == "running" \
@@ -817,10 +818,19 @@ def api_mail_schedule(request: Request,
         ids = [int(i) for i in json.loads(contact_ids)]
     except Exception:
         raise HTTPException(400, "contact_ids debe ser un array JSON de enteros.")
-    if not subject.strip():
-        raise HTTPException(400, "Falta el asunto del correo.")
-    if not body.strip() and not body_html.strip():
-        raise HTTPException(400, "Falta el cuerpo del correo.")
+    # Con la IA cada contacto lleva su propio asunto y su propio cuerpo, ya
+    # aprobados a mano. Lo que va en la campaña es solo el respaldo.
+    con_ia = str(ia).lower() in ("1", "true", "on", "yes")
+    escritos = redactor.aprobados() if con_ia else None
+    if con_ia and not escritos:
+        return {"started": False,
+                "message": "No hay ningún correo aprobado todavía. Revisalos y "
+                           "aprobá los que quieras mandar."}
+    if not con_ia:
+        if not subject.strip():
+            raise HTTPException(400, "Falta el asunto del correo.")
+        if not body.strip() and not body_html.strip():
+            raise HTTPException(400, "Falta el cuerpo del correo.")
     if not mailer.get_config()["configured"]:
         raise HTTPException(400, "Configurá primero el servidor de salida.")
 
@@ -831,6 +841,14 @@ def api_mail_schedule(request: Request,
             return x
 
     destinos = mailer.contactos_enviables(ids, str(repeat).lower() in ("1", "true", "on"))
+    if con_ia:
+        # Solo sale lo aprobado. Un contacto marcado cuyo correo nadie miró no
+        # entra, por más que esté en la selección.
+        destinos = [d for d in destinos if d["id"] in escritos]
+        if not destinos:
+            return {"started": False,
+                    "message": "Los correos aprobados son de contactos a los "
+                               "que ya se les escribió o que pidieron la baja."}
     tope = entero(limit, 0)
     if tope:
         destinos = destinos[:tope]
@@ -840,16 +858,120 @@ def api_mail_schedule(request: Request,
                            "les escribió."}
 
     r = mailer.crear_campania(
-        name.strip(), subject, body, destinos,
+        name.strip() or ("Escritos por IA" if con_ia else ""),
+        subject or "Correo escrito por IA",
+        body or "(cada contacto lleva su propio texto)", destinos,
         cada_segundos=entero(every_seconds, 180, 10),
         jitter=entero(jitter_seconds, 60),
         tope_diario=entero(daily_cap, 50),
-        cuerpo_html=body_html,
-        base_rastreo=_base_publica(request))
+        cuerpo_html="" if con_ia else body_html,
+        base_rastreo=_base_publica(request),
+        escritos=escritos)
     mailer.arrancar_worker()
+    if con_ia:
+        # Ya salieron: el borrador cumplió su función y solo estorbaría en la
+        # próxima tanda.
+        redactor.limpiar_borradores([d["id"] for d in destinos])
     anotar(request, "Lanzó una campaña de correo",
-           f"{subject[:80]}", r.get("queued"))
+           ("escritos por IA" if con_ia else subject[:80]), r.get("queued"))
     return {"started": True, **r}
+
+
+# ------------------------------------------------- correos escritos por IA
+# Mientras estamos en pruebas, la IA escribe y una persona aprueba. El
+# borrador se guarda: cerrar la pestaña no puede hacer que se pierda lo que
+# ya se pagó en tokens.
+
+@app.post("/api/mail/redactar")
+async def api_mail_redactar(request: Request, contact_ids: str = Form(...),
+                            propuesta: str = Form("")):
+    """Le pide a la IA un correo distinto para cada marcado."""
+    if redactor.PROGRESO.corriendo:
+        raise HTTPException(409, "Ya se están escribiendo correos.")
+    try:
+        ids = [int(i) for i in json.loads(contact_ids)]
+    except Exception:
+        raise HTTPException(400, "contact_ids debe ser un array JSON de enteros.")
+    if not ai.configured():
+        raise HTTPException(400, "Falta OPENAI_API_KEY en el .env.")
+
+    pendientes = redactor.contactos_a_redactar(ids)
+    if not pendientes:
+        return {"started": False,
+                "message": "Ninguno de los marcados tiene email, o todos "
+                           "pidieron no recibir más correos."}
+    asyncio.create_task(redactor.redactar_muchos(ids, propuesta))
+    anotar(request, "Le pidió a la IA que escribiera correos",
+           "cuesta por contacto", len(pendientes))
+    return {"started": True, "queued": len(pendientes)}
+
+
+@app.get("/api/mail/redactar/progress")
+def api_mail_redactar_progress():
+    return redactor.PROGRESO.as_dict()
+
+
+@app.get("/api/mail/borradores")
+def api_mail_borradores():
+    """Los correos escritos, con el tope para poder mostrarlo al editar."""
+    filas = redactor.borradores()
+    return {"items": filas, "max_caracteres": redactor.largo_maximo(),
+            "pendientes": sum(1 for f in filas if f["estado"] == "pendiente"),
+            "aprobados": sum(1 for f in filas if f["estado"] == "aprobado"),
+            "con_error": sum(1 for f in filas if f["error"])}
+
+
+@app.post("/api/mail/borradores/todos")
+def api_mail_borradores_todos(request: Request, estado: str = Form(...)):
+    """Aprueba o descarta de una todos los que están esperando."""
+    try:
+        cuantos = redactor.marcar_todos(estado)
+    except ValueError:
+        raise HTTPException(400, "Estado inválido.")
+    if estado == "aprobado":
+        anotar(request, "Aprobó correos escritos por IA", "de una vez", cuantos)
+    return {"ok": True, "cuantos": cuantos}
+
+
+@app.post("/api/mail/borradores/{contact_id}")
+def api_mail_borrador_marcar(contact_id: int, estado: str = Form(...)):
+    try:
+        redactor.marcar(contact_id, estado)
+    except ValueError:
+        raise HTTPException(400, "Estado inválido.")
+    return {"ok": True}
+
+
+@app.post("/api/mail/borradores/{contact_id}/editar")
+def api_mail_borrador_editar(contact_id: int, asunto: str = Form(...),
+                             cuerpo: str = Form(...)):
+    try:
+        return {"ok": True, **redactor.editar(contact_id, asunto, cuerpo)}
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+
+
+@app.post("/api/mail/borradores/{contact_id}/rehacer")
+async def api_mail_borrador_rehacer(contact_id: int, propuesta: str = Form("")):
+    """Vuelve a pedirle ese correo a la IA. Es lo que se hace con los fallados."""
+    if not ai.configured():
+        raise HTTPException(400, "Falta OPENAI_API_KEY en el .env.")
+    with get_db() as conn:
+        fila = conn.execute("SELECT * FROM contacts WHERE id=?",
+                            (contact_id,)).fetchone()
+    if not fila:
+        raise HTTPException(404, "Ese contacto no existe.")
+    contacto = dict(fila)
+    async with httpx.AsyncClient(timeout=180.0) as client:
+        contacto = await redactor._ficha_al_dia(client, contacto)
+        r = await redactor.escribir(client, contacto, propuesta)
+    redactor._guardar(contacto, r)
+    return {"ok": not r.get("error"), **r}
+
+
+@app.delete("/api/mail/borradores")
+def api_mail_borradores_borrar():
+    return {"ok": True, "cuantos": redactor.limpiar_borradores()}
 
 
 @app.get("/api/mail/status")

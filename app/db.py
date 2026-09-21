@@ -183,6 +183,27 @@ CREATE TABLE IF NOT EXISTS actividad (
 );
 CREATE INDEX IF NOT EXISTS ix_actividad_at ON actividad(at DESC);
 
+-- El correo que la IA escribió para cada contacto, esperando el visto bueno.
+-- Mientras estamos en pruebas nada sale sin que alguien lo lea antes, así que
+-- el borrador tiene que sobrevivir a que se cierre la pestaña.
+CREATE TABLE IF NOT EXISTS borradores (
+    contact_id INTEGER PRIMARY KEY,
+    asunto     TEXT,
+    cuerpo     TEXT,
+    nombre     TEXT,
+    saludo     TEXT,
+    idioma     TEXT,
+    caracteres INTEGER,
+    a_quien    TEXT,
+    error      TEXT,
+    editado    INTEGER NOT NULL DEFAULT 0,
+    estado     TEXT NOT NULL DEFAULT 'pendiente'
+               CHECK (estado IN ('pendiente', 'aprobado', 'descartado')),
+    at         TEXT NOT NULL DEFAULT (datetime('now')),
+    FOREIGN KEY (contact_id) REFERENCES contacts(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS ix_borradores_estado ON borradores(estado);
+
 -- A quién no hay que volver a escribirle nunca. Va por dirección y no por
 -- contacto: la misma dirección puede entrar dos veces desde fuentes
 -- distintas, y una baja tiene que valer para todas.
@@ -411,6 +432,23 @@ def _telefonos_al_dia(conn) -> None:
             at      TEXT NOT NULL DEFAULT (datetime('now'))
         );
         CREATE INDEX IF NOT EXISTS ix_actividad_at ON actividad(at DESC);
+        CREATE TABLE IF NOT EXISTS borradores (
+            contact_id INTEGER PRIMARY KEY,
+            asunto     TEXT,
+            cuerpo     TEXT,
+            nombre     TEXT,
+            saludo     TEXT,
+            idioma     TEXT,
+            caracteres INTEGER,
+            a_quien    TEXT,
+            error      TEXT,
+            editado    INTEGER NOT NULL DEFAULT 0,
+            estado     TEXT NOT NULL DEFAULT 'pendiente'
+                       CHECK (estado IN ('pendiente', 'aprobado', 'descartado')),
+            at         TEXT NOT NULL DEFAULT (datetime('now')),
+            FOREIGN KEY (contact_id) REFERENCES contacts(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS ix_borradores_estado ON borradores(estado);
         CREATE TABLE IF NOT EXISTS suppression (
             email      TEXT PRIMARY KEY,
             reason     TEXT,

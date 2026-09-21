@@ -947,3 +947,24 @@ pre{font-family:var(--mono);font-size:12px;background:var(--surface-2);
 .mb-a .danger:hover{background:var(--danger-soft);border-color:var(--danger-line)}
 .switch{display:flex;align-items:center;gap:9px;cursor:pointer;font-size:15px}
 .switch input{width:18px;height:18px;accent-color:var(--brand);cursor:pointer}
+
+/* ---------------------------------------------------- correos escritos por IA
+   Cada borrador es una tarjeta que se lee entera de un vistazo: el punto de
+   esta pantalla es que alguien los lea antes de que salgan. */
+.borradores { margin-top: 14px; display: grid; gap: 12px; }
+.borrador {
+  border: 1px solid var(--line); border-radius: 12px; padding: 14px;
+  background: var(--card);
+}
+.borrador.aprobado { border-color: var(--ok); background: var(--ok-bg, transparent); }
+.borrador.descartado { opacity: .55; }
+.borrador.malo { border-color: var(--warn); }
+.borrador-h { display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: baseline; }
+.borrador-asunto { margin-top: 10px; font-weight: 600; }
+.borrador-cuerpo {
+  margin: 8px 0 0; padding: 10px 12px; border-radius: 8px;
+  background: var(--bg-soft, rgba(127, 127, 127, .08));
+  white-space: pre-wrap; word-break: break-word;
+  font: inherit; line-height: 1.5;
+}
+.borrador-acciones { margin-top: 12px; gap: 8px; flex-wrap: wrap; }
