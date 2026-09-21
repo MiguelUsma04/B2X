@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<meta name="color-scheme" content="light dark">
-<meta name="theme-color" content="#1b4dd8">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#0c0626">
 <title>B2K — Buscador de contactos B2B</title>
 <link rel="stylesheet" href="/static/style.css">
 <!-- Mapa de resultados: Leaflet con teselas de Carto. No necesita API key, así
@@ -13,24 +13,23 @@
       integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
 <script defer src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
         integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='13' font-size='13'>◆</text></svg>">
-<script>
-  /* Antes de pintar, para que no haya un flash claro en modo oscuro. */
-  try {
-    var t = localStorage.getItem('b2x-theme');
-    if (t) document.documentElement.setAttribute('data-theme', t);
-  } catch (e) {}
-</script>
+<link rel="icon" href="/static/img/favicon.ico" sizes="any">
+<link rel="apple-touch-icon" href="/static/img/favicon.ico">
 </head>
 <body>
 
 <header class="top">
+  <a class="logo" href="/" aria-label="B2K, de gmarketing.co">
+    <!-- El lockup entero no entra en un telefono: ahi va solo la marca. -->
+    <img class="lockup" src="/static/img/logo.png"
+         alt="gmarketing.co y Kommo" width="1280" height="164">
+    <img class="marca" src="/static/img/marca.png" alt="gmarketing.co"
+         width="107" height="96">
+  </a>
   <div class="brand">B2K<span>//</span></div>
   <div class="sub">Prospección B2B</div>
   <div class="spacer"></div>
   <div class="provstat" id="provstat"></div>
-  <button class="iconbtn" id="btn-theme" onclick="toggleTheme()"
-          title="Cambiar entre claro y oscuro" aria-label="Cambiar tema">◐</button>
   <span class="chip" id="quien" hidden></span>
   <form method="post" action="/api/logout" style="margin:0">
     <button class="iconbtn" type="submit" title="Cerrar sesión"

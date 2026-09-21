@@ -44,14 +44,6 @@ async function loadMe() {
 }
 
 /* ======================= tema ======================= */
-function toggleTheme() {
-  const cur = document.documentElement.getAttribute('data-theme');
-  const dark = cur ? cur === 'dark'
-    : matchMedia('(prefers-color-scheme: dark)').matches;
-  const next = dark ? 'light' : 'dark';
-  document.documentElement.setAttribute('data-theme', next);
-  try { localStorage.setItem('b2x-theme', next); } catch (e) {}
-}
 
 /* ======================= toasts ======================= */
 const TOAST_ICO = { ok: '✓', err: '✕', warn: '!', info: 'i' };

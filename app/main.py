@@ -14,7 +14,7 @@ from urllib.parse import quote
 
 import httpx
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
-from fastapi.responses import (HTMLResponse, JSONResponse,
+from fastapi.responses import (FileResponse, HTMLResponse, JSONResponse,
                                RedirectResponse, Response)
 from fastapi.staticfiles import StaticFiles
 
@@ -49,6 +49,12 @@ app = FastAPI(title="B2X", docs_url="/api/docs")
 init_db()
 
 app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
+
+
+@app.get("/favicon.ico", include_in_schema=False)
+def favicon():
+    """El navegador lo pide solo, sin mirar las etiquetas del HTML."""
+    return FileResponse(BASE_DIR / "static" / "img" / "favicon.ico")
 
 # Todo pasa por el chequeo de sesión (ver app/auth.py).
 app.middleware("http")(auth.auth_middleware)
@@ -212,12 +218,18 @@ def _con_version(html: str) -> str:
 # archivo se publica afuera como documento, y allá el envoltorio lo pone el
 # host. Acá se lo ponemos nosotros. Un solo archivo para los dos lados: si se
 # mantuvieran dos copias, en dos semanas dirían cosas distintas.
+# El manual se sirve adentro de la app, que va siempre en oscuro, así que acá
+# se le fija el tema. El mismo archivo se publica aparte como documento, y
+# ahí conviene que siga el gusto de quien lo lee: por eso el tema se fija en
+# el envoltorio y no en el manual.
 _ENVOLTORIO = """<!doctype html>
-<html lang="es"><head>
+<html lang="es" data-theme="dark"><head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark">
 <title>{titulo}</title>
-<style>:root{{color-scheme:light dark}} body{{margin:0}} img{{max-width:100%}}</style>
+<link rel="icon" href="/static/img/favicon.ico" sizes="any">
+<style>:root{{color-scheme:dark}} body{{margin:0}} img{{max-width:100%}}</style>
 </head><body>
 {cuerpo}
 </body></html>"""
