@@ -185,6 +185,11 @@ section{scroll-margin-top:24px}
 .cuerpo{margin-top:22px;display:grid;gap:20px}
 
 /* Lista de acciones. Es una secuencia real: el orden importa. */
+ul.lista{
+  margin:0 0 14px;padding:0 0 0 20px;display:grid;gap:6px;
+  color:var(--texto-2,inherit);
+}
+ul.lista li{padding:0}
 ol.acciones{
   list-style:none;counter-reset:a;margin:0;padding:0;display:grid;gap:0;
 }
@@ -489,11 +494,13 @@ dd{margin:0;color:var(--ink-2);font-size:15px}
         <p class="subtitulo">Escribir el correo</p>
         <ol class="acciones">
           <li>Poné el <span class="campo">ASUNTO</span> y el mensaje.</li>
-          <li>Elegí <span class="pest">Texto</span> o
-            <span class="pest">Diseño HTML</span>.
+          <li>Elegí <span class="pest">Texto</span>,
+            <span class="pest">Diseño HTML</span> o
+            <span class="pest">Escribe la IA</span>.
             <span class="nota">Texto es una carta simple y se ve igual en todos
               lados. Diseño HTML permite colores, imágenes y un botón — y es el
-              único que se puede medir después.</span></li>
+              único que se puede medir después. Escribe la IA arma un correo
+              distinto para cada empresa.</span></li>
           <li>Insertá variables tocándolas:
             <span class="campo">{{nombre}}</span>
             <span class="campo">{{empresa}}</span>
@@ -508,6 +515,67 @@ dd{margin:0;color:var(--ink-2);font-size:15px}
             <span class="nota">Este paso no es opcional si usás diseño: Gmail
               recorta cosas que el navegador sí muestra.</span></li>
         </ol>
+
+        <p class="subtitulo">Que lo escriba la IA</p>
+        <p class="parrafo">En vez de una plantilla igual para todos, la IA lee
+          lo que se encontró del negocio y le escribe a cada empresa su propio
+          correo: problema, qué pasa si sigue así, qué hacemos, y una pregunta
+          al final. <b>Nada sale sin que vos lo apruebes.</b></p>
+        <ol class="acciones">
+          <li>Entrá a <span class="pest">Escribe la IA</span>.</li>
+          <li>En <span class="campo">QUÉ OFRECEMOS NOSOTROS</span> contá en una
+            o dos frases qué vendemos.
+            <span class="nota">Si lo dejás vacío usa lo que está configurado
+              por defecto.</span></li>
+          <li>Tocá <span class="btn">Escribir los correos</span> y esperá.
+            <span class="nota">Tarda unos segundos por contacto y cuesta
+              tokens de OpenAI. Si a una empresa nunca se le leyó el sitio, lo
+              lee ahora: de ahí sale el nombre de la persona.</span></li>
+          <li>Leé cada correo. Tenés cuatro botones en cada uno:
+            <span class="btn">Aprobar</span>,
+            <span class="btn">Corregir</span>,
+            <span class="btn">Que lo escriba de nuevo</span> y
+            <span class="btn">Descartar</span>.</li>
+          <li>Tocá <span class="btn">Programar el envío</span>.
+            <span class="nota">Salen <b>solo los aprobados</b>. Los que
+              descartaste, y los que dejaste sin revisar, no salen.</span></li>
+        </ol>
+
+        <div class="aviso ojo">
+          <span class="et">Ojo</span>
+          <span>Si corregís un correo a mano y después tocás
+            <b>Que lo escriba de nuevo</b>, se pierde tu corrección. Y volver a
+            escribir un correo le saca la aprobación: hay que aprobarlo otra
+            vez.</span>
+        </div>
+
+        <p class="subtitulo">A quién saluda</p>
+        <p class="parrafo">La IA busca en el sitio de la empresa a quién
+          corresponde la dirección a la que se va a escribir. La encuentra
+          cuando:</p>
+        <ul class="lista">
+          <li>el sitio publica esa misma dirección al lado de un nombre;</li>
+          <li>la dirección está armada con el nombre
+            (<em>jacosta@</em>, <em>juan.acosta@</em>);</li>
+          <li>es un buzón de área —<em>gerencia@</em>, <em>ventas@</em>— y el
+            sitio nombra a quien ocupa ese cargo.</li>
+        </ul>
+        <p class="parrafo">Si no se puede atar un nombre a esa dirección,
+          saluda a la empresa entera: <em>«Hola señores de …»</em>. Es a
+          propósito: saludar por nombre a la persona equivocada se nota en el
+          primer renglón, y un <em>info@</em> no es de nadie en
+          particular.</p>
+        <p class="parrafo">El idioma también lo decide sola, por el país y la
+          ciudad de la empresa: a una agencia de Miami le escribe en inglés.</p>
+
+        <div class="aviso tip">
+          <span class="et">Por qué hay que aprobarlos</span>
+          <span>Estamos en pruebas. La IA acierta casi siempre, pero cuando
+            falla lo hace de formas que se ven: un correo cortado, una frase
+            que no cierra. Leerlos cuesta un minuto y evita mandarle eso a un
+            cliente. Los que no le salieron aparecen en rojo, con el motivo, y
+            se pueden volver a pedir.</span>
+        </div>
 
         <p class="subtitulo">Mandarlo</p>
         <ol class="acciones">
