@@ -19,7 +19,17 @@ import httpx
 
 URL = "https://api.openai.com/v1/responses"
 MODELO_POR_DEFECTO = "gpt-5-nano"
-MAX_CHARS = 40_000          # el texto que se le manda; más que esto no aporta
+def max_chars() -> int:
+    """Cuánto del sitio se le manda al modelo.
+
+    Va atado al presupuesto del recorrido: juntar el sitio entero y después
+    mandar la cuarta parte sería recorrerlo para nada.
+    """
+    from .website import presupuesto_texto
+    return presupuesto_texto()
+
+
+MAX_CHARS = 120_000         # el valor de referencia; el real sale de max_chars()
 MAX_SALIDA = 4_000          # techo de la respuesta: la ficha no necesita más
 # Esto no es una tarea de razonamiento, es de extracción. Sin bajarle el
 # esfuerzo, gpt-5-nano se gastó los 3.000 tokens pensando y se quedó sin
@@ -33,6 +43,18 @@ def configured() -> bool:
 
 def modelo() -> str:
     return os.getenv("OPENAI_MODEL", MODELO_POR_DEFECTO)
+
+
+def modelo_ficha() -> str:
+    """Con qué modelo se lee el sitio.
+
+    Desde que se recorre el sitio entero, el texto pasa de 30.000 a 120.000
+    caracteres, y ahí el nano deja de servir: medido contra el mismo texto,
+    devuelve todo en null —sin novedades, sin gancho, una sola ciudad— con
+    cualquier nivel de esfuerzo. El mini saca seis ciudades, las novedades y
+    un gancho concreto. Cuesta más y lee mucho más.
+    """
+    return (os.getenv("OPENAI_MODEL_FICHA") or "gpt-5-mini").strip()
 
 
 def esfuerzo() -> str:
@@ -98,6 +120,18 @@ ESQUEMA = {
         "idiomas": _lista("Idiomas en los que está el sitio."),
         "gancho": _texto("Un dato puntual del sitio que sirva para abrir una "
                          "conversación con ellos. Concreto, no genérico."),
+        "novedades": _lista("Cosas que pasaron hace poco y el sitio cuenta: "
+                            "sede nueva, premio, alianza, servicio que lanzaron, "
+                            "aniversario. Con el dato, no el titular suelto. "
+                            "Vacío si el sitio no cuenta nada reciente."),
+        "especialidad": {
+            "type": "string",
+            "enum": ["lujo", "corporativo", "vacacional", "mayorista",
+                     "cruceros", "otro", "no_esta_claro"],
+            "description": "En qué se especializa, si el sitio lo deja claro. "
+                           "Pensado para agencias de viajes; 'otro' para otro "
+                           "rubro, 'no_esta_claro' si no se puede afirmar.",
+        },
         "confianza": {
             "type": "string",
             "enum": ["alta", "media", "baja"],
@@ -108,7 +142,8 @@ ESQUEMA = {
     "required": [
         "resumen", "que_vende", "vende_a", "propuesta_de_valor", "personas",
         "anios_en_el_mercado", "tamanio", "ciudades", "marcas_o_certificaciones",
-        "redes", "vende_online", "idiomas", "gancho", "confianza",
+        "redes", "vende_online", "idiomas", "gancho", "novedades",
+        "especialidad", "confianza",
     ],
 }
 
@@ -138,12 +173,12 @@ def _pedido(negocio: dict, texto: str) -> dict:
         ] if v
     )
     return {
-        "model": modelo(),
+        "model": modelo_ficha(),
         "input": [
             {"role": "system", "content": INSTRUCCIONES},
             {"role": "user", "content": (f"=== Datos que ya tenemos ===\n{ficha}\n\n"
                                          f"=== Texto del sitio ===\n"
-                                         f"{texto[:MAX_CHARS]}")},
+                                         f"{texto[:max_chars()]}")},
         ],
         "max_output_tokens": MAX_SALIDA,
         "reasoning": {"effort": esfuerzo()},

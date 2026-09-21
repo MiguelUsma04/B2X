@@ -302,7 +302,7 @@ async def run_ai_profile(contact_ids: list[int], rehacer: bool = False) -> None:
                         conn.execute(
                             """INSERT INTO ai_usage (contact_id, model, tokens_in,
                                tokens_out, ok) VALUES (?,?,?,?,?)""",
-                            (c["id"], ai.modelo(), tok.get("entrada", 0),
+                            (c["id"], ai.modelo_ficha(), tok.get("entrada", 0),
                              tok.get("salida", 0), 1 if r["perfil"] else 0))
                         conn.execute(
                             """INSERT INTO enrichment_log (contact_id, provider,
@@ -311,7 +311,7 @@ async def run_ai_profile(contact_ids: list[int], rehacer: bool = False) -> None:
                             (c["id"], 1 if r["perfil"] else 0,
                              json.dumps({"domain": c["company_domain"],
                                          "pages": leido.get("pages"),
-                                         "model": ai.modelo()},
+                                         "model": ai.modelo_ficha()},
                                         ensure_ascii=False)[:20000],
                              json.dumps(r.get("perfil") or r.get("body"),
                                         ensure_ascii=False)[:20000],

@@ -186,10 +186,15 @@ Reglas que no se rompen:
 
 2. IDIOMA. Escribí en el idioma que te indiquen, entero: asunto y cuerpo.
 
-3. SOLO LO QUE SE SABE. Usá el gancho, el rubro, la ciudad y el resumen que te
-   paso, de forma natural. Si no hay nada de eso, personalizá por el contexto
-   del rubro. NUNCA des a entender que investigaste algo que no sabés, y
-   nunca inventes cifras, clientes, casos, premios ni años en el mercado.
+3. SOLO LO QUE SE SABE, PERO ÚSALO. Si en la ficha viene un DATO PROPIO DE
+   ESTA EMPRESA, el correo tiene que mencionarlo de forma natural: en la
+   primera frase o en el cierre, con las palabras justas. Es lo único que
+   diferencia este correo de una plantilla, y el que lo lee lo nota.
+   Mencionarlo no es adularlos ni describirles su propio negocio: es el punto
+   de apoyo para plantear el problema.
+   Si no viene ningún dato propio, personalizá por el contexto del rubro y la
+   ciudad. NUNCA des a entender que investigaste algo que no sabés, y nunca
+   inventes cifras, clientes, casos, premios ni años en el mercado.
 
 4. LARGO. El cuerpo entero —saludo y cierre incluidos— va entre {piso} y
    {tope} caracteres, y NO SE PASA DE {tope} NI POR UNO. Eso son más o menos
@@ -643,10 +648,29 @@ def _ficha(contacto: dict, nombre: str, idioma: str) -> str:
         ("Qué vende", ", ".join(perfil.get("que_vende") or [])),
         ("A quién le vende", perfil.get("a_quien_le_vende")),
         ("Gancho del sitio", perfil.get("gancho")),
+        ("Novedades que cuenta el sitio",
+         "; ".join(perfil.get("novedades") or [])),
+        ("En qué se especializa",
+         (perfil.get("especialidad") or "")
+         if perfil.get("especialidad") not in (None, "no_esta_claro", "otro")
+         else None),
         ("Antigüedad", perfil.get("anios_en_el_mercado")),
     ]
     ficha = "\n".join(f"{k}: {v}" for k, v in lineas if v)
-    return (f"{ficha}\n\n"
+
+    # El dato propio va aparte y con nombre y apellido. Dentro de la lista se
+    # pierde entre los demás campos: medido contra un sitio real, con el
+    # gancho en la ficha el correo salía genérico igual.
+    propio = (perfil.get("gancho") or "").strip()
+    novedades = [n for n in (perfil.get("novedades") or []) if (n or "").strip()]
+    if novedades:
+        propio = f"{propio} {novedades[0]}".strip() if propio else novedades[0]
+    aparte = ""
+    if propio:
+        aparte = ("\n\nDATO PROPIO DE ESTA EMPRESA, que el correo TIENE "
+                  f"que mencionar: {propio}")
+
+    return (f"{ficha}{aparte}\n\n"
             f"Idioma del correo: {NOMBRE_IDIOMA.get(idioma, 'español')}")
 
 
@@ -1030,7 +1054,7 @@ async def _ficha_al_dia(client: httpx.AsyncClient, contacto: dict) -> dict:
         conn.execute(
             """INSERT INTO ai_usage (contact_id, model, tokens_in, tokens_out,
                ok) VALUES (?,?,?,?,?)""",
-            (contacto["id"], ai.modelo(), tok.get("entrada", 0),
+            (contacto["id"], ai.modelo_ficha(), tok.get("entrada", 0),
              tok.get("salida", 0), 1 if perfil else 0))
         if not perfil:
             return contacto

@@ -1,14 +1,24 @@
-"""Scraping del sitio del negocio para sacarle emails y teléfonos.
+"""Recorre el sitio del negocio entero y se trae lo que dice.
 
-Google Maps da el dominio pero nunca el email. Acá se entra al sitio, se buscan
-las páginas donde suele estar el contacto y se extrae lo publicado.
+Google Maps da el dominio pero nunca el email. Acá se entra al sitio y se lee:
+el contacto y el equipo —de donde salen el correo, el teléfono y el nombre de
+quien maneja cada casilla— y también las novedades, los casos, los servicios y
+los destinos, que son los que hacen que un correo se note escrito para ellos y
+no para cualquiera.
 
-Es scraping cortés: se respeta robots.txt, se dice quién es el bot, se leen
-pocas páginas por sitio y se espera entre una y otra. No cuesta créditos, así
-que puede correr sobre toda la lista sin pensarlo.
+Se recorre el sitio completo, pero con presupuesto: un techo de páginas, uno de
+texto y uno de tiempo. Un sitio grande no puede dejar colgada a toda la tanda.
+Las páginas se visitan por orden de utilidad, así que si el presupuesto se
+acaba, lo que se leyó es lo que más servía.
+
+Es scraping cortés: se respeta robots.txt, se dice quién es el bot, se bajan de
+a pocas a la vez y se espera entre tandas. No cuesta créditos, así que puede
+correr sobre toda la lista sin pensarlo.
 """
 import asyncio
+import os
 import re
+import time
 import urllib.parse
 from html.parser import HTMLParser
 from urllib.robotparser import RobotFileParser
@@ -17,15 +27,68 @@ import httpx
 
 UA = "B2X/1.0 (prospeccion B2B; contacto por el sitio)"
 TIMEOUT = 12.0
-MAX_PAGES = 4            # la home + 3 candidatas
-TEXT_PER_PAGE = 12_000   # texto que se guarda por página para que lo lea la IA
 PAGE_BYTES = 600_000     # más que esto no es una página, es una descarga
+A_LA_VEZ = 4             # cuántas se bajan en paralelo
+ESPERA = 0.5             # segundos entre tandas: el sitio no es nuestro
 
-# Páginas donde vive el contacto, en español y en inglés.
+
+def max_paginas() -> int:
+    """Techo de páginas por sitio. Con 40 entra un sitio corporativo entero."""
+    try:
+        return max(1, min(300, int(os.getenv("SITIO_MAX_PAGINAS") or "40")))
+    except ValueError:
+        return 40
+
+
+def presupuesto_texto() -> int:
+    """Cuánto texto se guarda en total. Es lo que después lee la IA."""
+    try:
+        return max(10_000, min(400_000,
+                               int(os.getenv("SITIO_MAX_TEXTO") or "120000")))
+    except ValueError:
+        return 120_000
+
+
+def presupuesto_tiempo() -> float:
+    """Cuántos segundos como mucho en un sitio, pase lo que pase."""
+    try:
+        return max(10.0, min(600.0, float(os.getenv("SITIO_MAX_SEGUNDOS") or "75")))
+    except ValueError:
+        return 75.0
+
+
+TEXT_PER_PAGE = 8_000    # por página: una sola no se come el presupuesto
+MAX_PAGES = 40           # el valor por defecto, para quien llame sin decir nada
+
+# Páginas donde vive el contacto y el nombre de quien atiende cada casilla.
 PISTAS_CONTACTO = re.compile(
     r"contact|contacto|contactenos|contáctenos|contactanos|escribinos|"
     r"about|nosotros|quienes|quiénes|empresa|equipo|team|staff|directorio|"
-    r"atencion|atención|soporte|ayuda|reservas", re.I)
+    r"atencion|atención|soporte|ayuda|reservas|sucursal|oficina", re.I)
+
+# Páginas que cuentan algo propio de esta empresa: lo que hace que un correo
+# no parezca una plantilla. Es lo que se buscaba al abrir el sitio entero.
+PISTAS_JUGOSAS = re.compile(
+    r"blog|noticia|novedad|news|prensa|press|actualidad|articulo|artículo|"
+    r"caso|case|exito|éxito|testimoni|cliente|portfolio|portafolio|proyecto|"
+    r"servicio|service|producto|solucion|solución|destino|destination|paquete|"
+    r"tour|circuito|crucero|experiencia|precio|tarifa|plan|promo|oferta|"
+    r"catalogo|catálogo|agencia|corporativ|empresarial|incentivo|mayorista",
+    re.I)
+
+# Lo que nunca aporta y llena el presupuesto: legales, carrito, buscador,
+# paginación y los archivos por fecha o etiqueta de los blogs.
+PISTAS_INUTILES = re.compile(
+    r"/(privacidad|privacy|terminos|términos|terms|cookies|legal|aviso-legal|"
+    r"politica|política|carrito|cart|checkout|login|ingresar|registro|signup|"
+    r"mi-cuenta|my-account|wp-admin|wp-login|feed|rss|sitemap|buscar|search|"
+    r"tag|etiqueta|category|categoria|categoría|author|autor|page|pagina|"
+    r"página)(/|$|\?|\.)|/20\d\d/\d\d?/?$", re.I)
+
+# Un enlace a un archivo no es una página.
+NO_ES_PAGINA = re.compile(
+    r"\.(pdf|docx?|xlsx?|pptx?|zip|rar|7z|mp[34]|avi|mov|wmv|png|jpe?g|gif|"
+    r"svg|webp|ico|css|js|xml|json|woff2?|ttf|eot|apk|dmg|exe)$", re.I)
 
 EMAIL_RE = re.compile(r"[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}")
 
@@ -58,6 +121,25 @@ TEL_LIMPIO = re.compile(r"[^\d+]")
 TEL_TEXTO = re.compile(
     r"(?<![\d/])(?:\+\d{1,3}[\s.\-]?\(?\d{1,4}\)?|\(\d{2,4}\))"
     r"[\s.\-]?\d{2,4}[\s.\-]?\d{2,4}(?:[\s.\-]?\d{2,4})?(?![\d/])")
+
+
+def prioridad(url: str, texto_link: str = "") -> int:
+    """Qué tan arriba en la fila va esta página. 0 significa no visitarla.
+
+    El orden importa de verdad: si el presupuesto se acaba a mitad de camino,
+    lo que quedó leído tiene que ser lo que más servía, no las primeras que
+    aparecieron en el menú.
+    """
+    if NO_ES_PAGINA.search(url) or PISTAS_INUTILES.search(url):
+        return 0
+    junto = url + " " + (texto_link or "")
+    if PISTAS_CONTACTO.search(junto):
+        return 3          # ahí están el correo y el nombre de quien atiende
+    if PISTAS_JUGOSAS.search(junto):
+        return 2          # ahí está lo que hace propio al correo
+    if url.count("/") <= 4:
+        return 1          # una página de primer nivel: puede ser cualquier cosa
+    return 1
 
 
 class Pagina(HTMLParser):
@@ -181,11 +263,55 @@ async def _bajar(client: httpx.AsyncClient, url: str) -> str | None:
     return r.text[:PAGE_BYTES]
 
 
-async def scrape(client: httpx.AsyncClient, dominio: str, max_pages: int = MAX_PAGES) -> dict:
-    """Recorre el sitio y devuelve lo encontrado, ordenado por utilidad.
+async def _sumar_sitemap(client: httpx.AsyncClient, base: str, dominio: str,
+                         encolar) -> None:
+    """Mete en la fila lo que el propio sitio declara que existe.
+
+    Un sitio armado con un constructor de páginas suele tener el menú en
+    JavaScript, y desde el HTML no se ve ni un enlace. El sitemap sí las
+    lista: es la diferencia entre leer una página y leer el sitio.
+    """
+    for nombre in ("/sitemap.xml", "/sitemap_index.xml", "/page-sitemap.xml"):
+        try:
+            r = await client.get(urllib.parse.urljoin(base, nombre),
+                                 headers={"User-Agent": UA},
+                                 follow_redirects=True)
+        except Exception:
+            continue
+        if r.status_code != 200 or "<loc" not in r.text[:4000].lower():
+            continue
+        urls = re.findall(r"<loc>\s*([^<\s]+)\s*</loc>", r.text[:400_000], re.I)
+        anidados = [u for u in urls if u.lower().endswith(".xml")][:8]
+        for u in urls:
+            if u.lower().endswith(".xml"):
+                continue
+            pp = urllib.parse.urlparse(u)
+            if pp.netloc.replace("www.", "") == dominio:
+                encolar(pp._replace(fragment="", query="").geturl(), "")
+        # Un índice de sitemaps: se abre un nivel más y se corta ahí.
+        for sub in anidados:
+            try:
+                r2 = await client.get(sub, headers={"User-Agent": UA},
+                                      follow_redirects=True)
+            except Exception:
+                continue
+            if r2.status_code != 200:
+                continue
+            for u in re.findall(r"<loc>\s*([^<\s]+)\s*</loc>",
+                                r2.text[:400_000], re.I):
+                pp = urllib.parse.urlparse(u)
+                if (pp.netloc.replace("www.", "") == dominio
+                        and not u.lower().endswith(".xml")):
+                    encolar(pp._replace(fragment="", query="").geturl(), "")
+        return
+
+
+async def scrape(client: httpx.AsyncClient, dominio: str,
+                 max_pages: int | None = None) -> dict:
+    """Recorre el sitio entero y devuelve lo encontrado, por orden de utilidad.
 
     {"emails":[{email,score,kind}], "phones":[{value,kind}], "people":[str],
-     "pages":[url], "error": str|None}
+     "pages":[url], "text": str, "truncado": bool, "error": str|None}
     """
     dominio = (dominio or "").strip().lower().rstrip("/")
     if not dominio:
@@ -195,12 +321,20 @@ async def scrape(client: httpx.AsyncClient, dominio: str, max_pages: int = MAX_P
         dominio = urllib.parse.urlparse(dominio).netloc or dominio
     dominio = dominio.replace("www.", "")
 
+    if max_pages is None:
+        max_pages = max_paginas()
+    tope_texto = presupuesto_texto()
+    hasta = time.monotonic() + presupuesto_tiempo()
+
     cache_robots: dict = {}
     textos: list[str] = []                     # lo leído, para que lo analice la IA
+    largo_texto = 0
     emails: dict[str, tuple[int, bool]] = {}   # email -> (puntaje, en un mailto)
     telefonos: dict[str, str] = {}     # valor -> tipo
     visitadas: list[str] = []
-    pendientes: list[str] = []
+    conocidas: set[str] = set()        # todo lo que ya se vio, visitado o no
+    # La fila, por prioridad: {3: [...], 2: [...], 1: [...]}
+    pendientes: dict[int, list[str]] = {3: [], 2: [], 1: []}
 
     home = None
     for candidata in (f"https://{dominio}/", f"https://www.{dominio}/", f"http://{dominio}/"):
@@ -215,7 +349,41 @@ async def scrape(client: httpx.AsyncClient, dominio: str, max_pages: int = MAX_P
     base = f"{urllib.parse.urlparse(home).scheme}://{urllib.parse.urlparse(home).netloc}"
     rp = await _robots_permite(client, base, cache_robots)
 
+    # Cuántas páginas se leyeron ya de cada sección. Sin esto, un sitio con
+    # doscientos paquetes se lleva el presupuesto entero en /paquetes y no se
+    # entera de que la empresa tiene una división corporativa.
+    por_seccion: dict[str, int] = {}
+    TOPE_SECCION = 6
+
+    def _canonica(url: str) -> str:
+        """La misma página escrita siempre igual, y siempre sobre el host
+        que se sabe que responde."""
+        pp = urllib.parse.urlparse(url)
+        camino = pp.path or "/"
+        if camino.endswith("/") and camino.count("/") > 1:
+            camino = camino.rstrip("/")
+        return urllib.parse.urljoin(base, camino)
+
+    def _seccion(url: str) -> str:
+        partes = [x for x in urllib.parse.urlparse(url).path.split("/") if x]
+        return partes[0].lower() if partes else ""
+
+    def encolar(url: str, texto_link: str) -> None:
+        url = _canonica(url)
+        pri = prioridad(url, texto_link)
+        if not pri or url in conocidas:
+            return
+        seccion = _seccion(url)
+        # El tope de sección no aplica a las páginas de contacto: esas son
+        # pocas y son justamente las que hay que leer.
+        if pri < 3 and seccion and por_seccion.get(seccion, 0) >= TOPE_SECCION:
+            return
+        por_seccion[seccion] = por_seccion.get(seccion, 0) + 1
+        conocidas.add(url)
+        pendientes[pri].append(url)
+
     def procesar(url: str, html: str) -> None:
+        nonlocal largo_texto
         visitadas.append(url)
         pg = Pagina()
         try:
@@ -248,14 +416,14 @@ async def scrape(client: httpx.AsyncClient, dominio: str, max_pages: int = MAX_P
                 p = urllib.parse.urlparse(absoluta)
                 if p.netloc.replace("www.", "") != dominio or p.scheme not in ("http", "https"):
                     continue
-                limpia = p._replace(fragment="", query="").geturl()
-                if (limpia not in visitadas and limpia not in pendientes
-                        and PISTAS_CONTACTO.search(limpia + " " + (_txt or ""))):
-                    pendientes.append(limpia)
+                encolar(p._replace(fragment="", query="").geturl(), _txt)
 
         texto = pg.texto
-        if texto.strip():
-            textos.append("--- " + url + chr(10) + texto[:TEXT_PER_PAGE])
+        if texto.strip() and largo_texto < tope_texto:
+            trozo = "--- " + url + chr(10) + texto[:TEXT_PER_PAGE]
+            trozo = trozo[:max(0, tope_texto - largo_texto)]
+            textos.append(trozo)
+            largo_texto += len(trozo)
         for e in EMAIL_RE.findall(texto):
             if _email_valido(e, dominio) and e.lower() not in emails:
                 emails[e.lower()] = (_puntaje(e, dominio), False)
@@ -264,16 +432,39 @@ async def scrape(client: httpx.AsyncClient, dominio: str, max_pages: int = MAX_P
             if t and t not in telefonos:
                 telefonos[t] = "company"
 
+    conocidas.add(home)
+    conocidas.add(urllib.parse.urljoin(base, "/"))
     procesar(home, home_html)
+    await _sumar_sitemap(client, base, dominio, encolar)
 
-    while pendientes and len(visitadas) < max_pages:
-        url = pendientes.pop(0)
-        if rp and not rp.can_fetch(UA, url):
-            continue
-        await asyncio.sleep(0.4)
-        html = await _bajar(client, url)
-        if html:
-            procesar(url, html)
+    def siguientes(cuantas: int) -> list[str]:
+        """Saca de la fila las más útiles que estén permitidas."""
+        salida = []
+        for pri in (3, 2, 1):
+            while pendientes[pri] and len(salida) < cuantas:
+                url = pendientes[pri].pop(0)
+                if rp and not rp.can_fetch(UA, url):
+                    continue
+                salida.append(url)
+            if len(salida) >= cuantas:
+                break
+        return salida
+
+    truncado = False
+    while len(visitadas) < max_pages:
+        if time.monotonic() > hasta or largo_texto >= tope_texto:
+            truncado = True
+            break
+        tanda = siguientes(min(A_LA_VEZ, max_pages - len(visitadas)))
+        if not tanda:
+            break
+        bajadas = await asyncio.gather(*[_bajar(client, u) for u in tanda])
+        for url, html in zip(tanda, bajadas):
+            if html:
+                procesar(url, html)
+        await asyncio.sleep(ESPERA)
+    else:
+        truncado = bool(pendientes[3] or pendientes[2] or pendientes[1])
 
     ordenados = sorted(emails.items(), key=lambda kv: (-kv[1][0], not kv[1][1], kv[0]))
     personas = []
@@ -283,7 +474,8 @@ async def scrape(client: httpx.AsyncClient, dominio: str, max_pages: int = MAX_P
             personas.append(n)
 
     return {
-        "text": (chr(10) * 2).join(textos)[:40_000],
+        "text": (chr(10) * 2).join(textos),
+        "truncado": truncado,
         "emails": [{"email": e, "score": s, "explicit": expl,
                     "kind": "persona" if s == 4 else ("area" if s == 3 else "externo")}
                    for e, (s, expl) in ordenados],
