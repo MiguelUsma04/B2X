@@ -52,7 +52,7 @@ def build_payload(contact: dict, tag: str | None = None) -> dict:
         "lastName": contact.get("last_name") or "",
         "name": contact.get("full_name") or "",
         "email": contact.get("email"),
-        "source": "B2X",
+        "source": "B2K",
         "tags": tags,
         "customFields": custom_fields,
     }

@@ -1,4 +1,4 @@
-"""B2X — app interna de prospección B2B. FastAPI + SQLite."""
+"""B2K — app interna de prospección B2B. FastAPI + SQLite."""
 import asyncio
 import base64
 import datetime
@@ -47,7 +47,7 @@ from . import (ai, auth, dnscheck, duplicados, enrichment,  # noqa: E402
                ghl, kommo, mailer, places, redactor, respaldo)
 from .providers import build_chain       # noqa: E402
 
-app = FastAPI(title="B2X", docs_url="/api/docs")
+app = FastAPI(title="B2K", docs_url="/api/docs")
 init_db()
 
 app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")

@@ -25,7 +25,7 @@ from urllib.robotparser import RobotFileParser
 
 import httpx
 
-UA = "B2X/1.0 (prospeccion B2B; contacto por el sitio)"
+UA = "B2K/1.0 (prospeccion B2B; contacto por el sitio)"
 TIMEOUT = 12.0
 PAGE_BYTES = 600_000     # más que esto no es una página, es una descarga
 A_LA_VEZ = 4             # cuántas se bajan en paralelo

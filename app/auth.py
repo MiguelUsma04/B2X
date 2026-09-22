@@ -20,6 +20,9 @@ from fastapi import Request
 from fastapi.responses import JSONResponse, RedirectResponse
 from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
 
+# Estos nombres siguen diciendo b2x aunque el proyecto ahora se llame
+# B2K, y es a propósito: cambiarlos cierra la sesión de todos los que
+# estén trabajando. Es un nombre interno que nadie ve.
 COOKIE_NAME = "b2x_session"
 ESTADO_COOKIE = "b2x_oauth"
 MAX_AGE = 60 * 60 * 12  # 12 h
