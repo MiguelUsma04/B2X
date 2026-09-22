@@ -718,7 +718,8 @@ dd{margin:0;color:var(--ink-2);font-size:15px}
           <span class="para">Se configura una vez. Cuatro partes:
             <span class="pest">Buzones</span>,
             <span class="pest">Historial</span>,
-            <span class="pest">Salud del envío</span> y
+            <span class="pest">Salud del envío</span>,
+            <span class="pest">Sistema</span> y
             <span class="pest">Cómo usar B2K</span>.</span></h2>
       </div>
 
@@ -782,6 +783,77 @@ dd{margin:0;color:var(--ink-2);font-size:15px}
             un solo rebote sobre tres envíos daría 33% y sería una alarma
             falsa. Y nada de esto dice si llegás a la bandeja o al spam — eso
             solo lo sabe Google, en Postmaster Tools.</span>
+        </div>
+
+        <p class="subtitulo">Correos que no salieron</p>
+        <p class="parrafo">En la misma pestaña, más abajo. Van agrupados por
+          causa y no uno por uno: veinte fallos por la misma contraseña mal
+          puesta son un solo problema, y arreglarla los resuelve todos. Al
+          lado de cada causa dice qué hacer.</p>
+        <p class="parrafo">Hay tres situaciones distintas:</p>
+        <ul class="lista">
+          <li>Lo que <b>se reintenta solo</b>: un corte de red, el servidor
+            ocupado. B2K lo vuelve a intentar hasta tres veces sin que nadie
+            haga nada.</li>
+          <li>Lo que <b>se puede reintentar</b> después de que vos arregles
+            algo — la contraseña del buzón, el remitente mal escrito. Ahí está
+            el botón <span class="btn">Reintentar</span>.</li>
+          <li>Lo que <b>ya no tiene arreglo</b>: una dirección que no existe, o
+            algo que se reintentó y volvió a fallar. Queda en una lista aparte,
+            apagada, y no se ofrece más.</li>
+        </ul>
+
+        <p class="subtitulo">Sistema</p>
+        <p class="parrafo">La cuarta pestaña de Ajustes. Cuatro cosas.</p>
+        <ol class="acciones">
+          <li><b>Horario de envío</b> — entre qué horas pueden salir los
+            correos.
+            <span class="nota">Fuera de esa franja la cola espera; no se pierde
+              nada. Abajo dice qué hora es en el servidor, que es la que
+              cuenta.</span></li>
+          <li><b>Etapas en Kommo</b> — qué hecho del correo mueve el lead, y a
+            dónde.
+            <span class="nota">Lo que dejes sin elegir no mueve nada. Quien
+              pide la baja conviene mandarlo a <b>cerrado perdido</b>: ahí no
+              queda nada que trabajar.</span></li>
+          <li><b>Empresas repetidas</b> — la misma empresa cargada dos veces.
+            <span class="nota">Las que comparten sitio, teléfono o nombre y
+              ciudad aparecen como seguras; las de nombre parecido, para que
+              las mires antes de borrar. Los que ya están en Kommo o ya
+              recibieron un correo no se borran.</span></li>
+          <li><b>La base de datos</b> — dónde vive, desde cuándo y qué tiene.
+            <span class="nota">Tocá <span class="btn">Descargar una copia</span>
+              cada tanto y guardala fuera del servidor.</span></li>
+        </ol>
+
+        <div class="aviso ojo">
+          <span class="et">Si algo "se borró"</span>
+          <span>Antes de volver a cargar los buzones, mirá la ficha de la base
+            en <b>Sistema</b>. Si dice que se creó hace un rato y está vacía,
+            no se borró una tabla: <b>se perdió el archivo entero</b> porque el
+            servidor no tiene montado el volumen donde debería vivir. Cargar
+            todo de nuevo lo va a volver a perder en el próximo despliegue.
+            Avisá antes de cargar nada.</span>
+        </div>
+
+        <div class="aviso tip">
+          <span class="et">El respaldo que sirve</span>
+          <span>La copia diaria que guarda el servidor protege de un borrado por
+            error. De lo que <b>no</b> protege es de perder el disco, porque
+            está en el mismo. Para eso está <b>Descargar una copia</b>: esa se
+            va a tu computador y es el único respaldo de verdad.</span>
+        </div>
+
+        <p class="subtitulo">Empezar de cero con el CRM</p>
+        <p class="parrafo">En <b>Sistema</b>, abajo de todo. B2K se olvida de
+          qué contactos mandó a Kommo y los vuelve a tratar como si nunca se
+          hubieran enviado.</p>
+        <div class="aviso ojo">
+          <span class="et">Ojo</span>
+          <span>Esto <b>no borra nada en Kommo</b>: su interfaz de programación
+            no permite borrar leads. Los que ya están allá hay que eliminarlos
+            desde Kommo a mano. Lo que esto consigue es que B2K deje de
+            contarlos como enviados.</span>
         </div>
 
         <p style="color:var(--ink-2);margin:16px 0 0">
