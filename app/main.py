@@ -1007,6 +1007,45 @@ def api_mail_borradores_borrar():
     return {"ok": True, "cuantos": redactor.limpiar_borradores()}
 
 
+# ------------------------------------------------- etapas de Kommo
+# Qué hecho del correo lleva el lead a qué etapa. Sin esto B2K sabe todo lo
+# que pasa y Kommo no se entera de nada.
+
+@app.get("/api/crm/etapas")
+async def api_crm_etapas():
+    datos = await kommo.listar_embudos()
+    with get_db() as conn:
+        pend = conn.execute(
+            "SELECT COUNT(*) n FROM email_events WHERE COALESCE(crm,0)=0"
+        ).fetchone()["n"]
+    return {**datos,
+            "eventos": [{"clave": k, "que": q} for k, q in kommo.EVENTOS],
+            "mapa": kommo._mapa(),
+            "pendientes_de_avisar": pend}
+
+
+@app.post("/api/crm/etapas")
+async def api_crm_etapas_guardar(request: Request, mapa: str = Form(...)):
+    try:
+        crudo = json.loads(mapa)
+    except ValueError:
+        raise HTTPException(400, "El mapa tiene que ser un objeto JSON.")
+    if not isinstance(crudo, dict):
+        raise HTTPException(400, "El mapa tiene que ser un objeto JSON.")
+    guardado = kommo.guardar_mapa(crudo)
+    anotar(request, "Cambió a qué etapa lleva cada evento del correo",
+           ", ".join(f"{k}->{v}" for k, v in guardado.items())[:200])
+    return {"ok": True, "mapa": guardado}
+
+
+@app.post("/api/crm/etapas/sincronizar")
+async def api_crm_sincronizar(request: Request):
+    """Empuja ahora lo que quedó pendiente, sin esperar al obrero."""
+    r = await mailer.sincronizar_crm(limite=200)
+    anotar(request, "Sincronizó las etapas con Kommo", "", r.get("hechos"))
+    return r
+
+
 # ------------------------------------------------- horario de envío
 # Se guarda en la base y no en el entorno: cambiar a qué hora salen los
 # correos no puede exigir entrar al servidor y redesplegar.

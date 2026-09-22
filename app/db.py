@@ -243,6 +243,9 @@ CREATE TABLE IF NOT EXISTS email_events (
     contact_id  INTEGER REFERENCES contacts(id) ON DELETE SET NULL,
     kind        TEXT NOT NULL
                 CHECK (kind IN ('open', 'click', 'reply', 'bounce', 'unsub')),
+    -- Si este evento ya se le contó a Kommo. Va acá y no en una tabla aparte
+    -- porque el evento y su propagación son la misma cosa vista dos veces.
+    crm         INTEGER DEFAULT 0,
     url         TEXT,
     -- El Message-ID del correo que llegó. Sirve para no contar dos veces la
     -- misma respuesta si se vuelve a leer el buzón.
@@ -431,6 +434,11 @@ def _telefonos_al_dia(conn) -> None:
         if nuevo != f["phone"] or tipo != f["phone_type"]:
             conn.execute("UPDATE contacts SET phone=?, phone_type=? WHERE id=?",
                          (nuevo, tipo, f["id"]))
+    cols = {r["name"] for r in conn.execute("PRAGMA table_info(email_events)")}
+    if "crm" not in cols:
+        # 0 = falta contárselo a Kommo · 1 = hecho · 2 = no correspondía
+        conn.execute("ALTER TABLE email_events ADD COLUMN crm INTEGER DEFAULT 0")
+
     conn.executescript("""
         CREATE TABLE IF NOT EXISTS actividad (
             id      INTEGER PRIMARY KEY AUTOINCREMENT,

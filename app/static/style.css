@@ -935,3 +935,14 @@ pre{font-family:var(--mono);font-size:12px;background:var(--surface-2);
 .tabla-base code{font-family:var(--mono);font-size:12.5px;word-break:break-all}
 .lista-simple{list-style:none;margin:6px 0 0;padding:0;display:grid;gap:4px;
   font-size:13.5px;color:var(--ink-2)}
+
+/* ------------------------------------------------ etapas de Kommo
+   Una fila por evento: a la izquierda qué pasó, a la derecha a dónde va.
+   En el telefono se apilan, porque los nombres de etapa son largos. */
+.etapas{display:grid;gap:10px}
+.etapa-fila{display:grid;gap:6px;align-items:center}
+.etapa-fila>span{font-size:14.5px;color:var(--ink-2)}
+.etapa-fila select{width:100%}
+@media (min-width:700px){
+  .etapa-fila{grid-template-columns:minmax(0,1fr) minmax(0,1.2fr);gap:14px}
+}

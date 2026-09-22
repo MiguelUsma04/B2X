@@ -585,3 +585,156 @@ async def listar_embudos() -> dict:
             "selected_pipeline": (os.getenv("KOMMO_PIPELINE_ID") or "").strip(),
             "selected_status": (os.getenv("KOMMO_STATUS_ID") or "").strip(),
             "selected_user": (os.getenv("KOMMO_RESPONSIBLE_ID") or "").strip()}
+
+# ======================================================================
+# Mover el lead de etapa según lo que pasa con el correo
+# ======================================================================
+# B2K ya sabe quién abrió, quién tocó un enlace, quién contestó, a quién le
+# rebotó y quién pidió no recibir más. Lo que faltaba era contárselo a Kommo.
+#
+# Dos reglas que no se negocian, porque el que pierde si están mal es el
+# comercial:
+#
+# 1. B2K nunca mueve un lead hacia atrás. Si alguien del equipo ya lo avanzó
+#    —lo llamó, lo cotizó, lo cerró— que una apertura de correo lo devuelva a
+#    "contactado" sería borrar trabajo de una persona con un evento
+#    automático. Para eso está el orden del embudo: solo se avanza.
+#
+# 2. Un lead ganado o perdido no se toca. Esos son estados finales que puso
+#    alguien a propósito.
+#
+# La única excepción a la primera regla es la baja: quien pide no recibir más
+# se va a "cerrado perdido" venga de donde venga, porque ahí no hay nada que
+# seguir trabajando.
+
+# Qué eventos se pueden mapear, en orden de qué tan lejos llegó la relación.
+EVENTOS = [
+    ("enviado", "Se le envió el correo"),
+    ("abierto", "Abrió el correo"),
+    ("click", "Tocó un enlace del correo"),
+    ("respondido", "Contestó el correo"),
+    ("rebote", "El correo rebotó: esa dirección no existe"),
+    ("baja", "Pidió no recibir más correos"),
+]
+
+
+def _mapa() -> dict:
+    """Qué etapa le corresponde a cada evento. Vacío = no mover nada."""
+    from .db import ajuste
+    import json as _json
+    try:
+        return _json.loads(ajuste("kommo_etapas", "") or "{}") or {}
+    except ValueError:
+        return {}
+
+
+def guardar_mapa(mapa: dict) -> dict:
+    """Guarda el mapa, quedándose solo con los eventos conocidos."""
+    from .db import poner_ajuste
+    import json as _json
+    limpio = {k: str(v).strip() for k, v in (mapa or {}).items()
+              if k in dict(EVENTOS) and str(v).strip()}
+    poner_ajuste("kommo_etapas", _json.dumps(limpio))
+    return limpio
+
+
+async def _orden_de_etapas(client: httpx.AsyncClient) -> dict:
+    """Posición de cada etapa dentro de su embudo, para saber qué es avanzar.
+
+    Kommo entrega las etapas con un campo `sort`. Sin eso no se puede decidir
+    si un cambio es adelante o atrás, y mover a ciegas es peor que no mover.
+    """
+    r = await client.get(f"{base_url()}/leads/pipelines")
+    if r.status_code != 200:
+        return {}
+    orden = {}
+    for pipe in r.json().get("_embedded", {}).get("pipelines", []):
+        for e in pipe.get("_embedded", {}).get("statuses", []):
+            orden[int(e["id"])] = int(e.get("sort") or 0)
+    return orden
+
+
+async def mover_por_evento(lead_id: str, evento: str,
+                           detalle: str = "") -> dict:
+    """Lleva el lead a la etapa que corresponde a ese evento.
+
+    Devuelve {"movido": bool, "motivo": str} — el motivo dice por qué no se
+    movió, que es lo que hay que poder mirar después.
+    """
+    if not configured():
+        return {"movido": False, "motivo": "Kommo no está configurado."}
+    destino = _mapa().get(evento)
+    if not destino:
+        return {"movido": False, "motivo": f"Sin etapa asignada a «{evento}»."}
+    if not lead_id:
+        return {"movido": False, "motivo": "Ese contacto no tiene lead."}
+
+    try:
+        destino_id = int(destino)
+    except (TypeError, ValueError):
+        return {"movido": False, "motivo": "La etapa configurada no es válida."}
+
+    try:
+        async with httpx.AsyncClient(timeout=TIEMPO, headers=_headers()) as c:
+            r = await _con_reintento(c, "GET", f"{base_url()}/leads/{lead_id}")
+            if r.status_code == 404:
+                return {"movido": False, "motivo": "Ese lead ya no está en Kommo."}
+            if r.status_code != 200:
+                return {"movido": False, "motivo": _explicar(r)}
+            lead = r.json()
+            actual = int(lead.get("status_id") or 0)
+
+            if actual == destino_id:
+                return {"movido": False, "motivo": "Ya estaba en esa etapa."}
+
+            # La baja pasa por encima de todo: no hay nada que seguir
+            # trabajando con quien pidió no recibir más.
+            if evento != "baja":
+                if actual in (GANADO, PERDIDO_ID):
+                    return {"movido": False,
+                            "motivo": "El lead ya está cerrado; no se toca."}
+                orden = await _orden_de_etapas(c)
+                if orden and orden.get(destino_id, 0) < orden.get(actual, 0):
+                    return {"movido": False,
+                            "motivo": "Iría hacia atrás: alguien del equipo ya "
+                                      "lo avanzó más que esto."}
+
+            r2 = await _con_reintento(
+                c, "PATCH", f"{base_url()}/leads/{lead_id}",
+                json={"status_id": destino_id})
+            if r2.status_code not in (200, 201):
+                return {"movido": False, "motivo": _explicar(r2)}
+    except Exception as exc:
+        return {"movido": False, "motivo": f"No se pudo hablar con Kommo: "
+                                           f"{type(exc).__name__}"}
+
+    etiqueta = dict(EVENTOS).get(evento, evento)
+    await anotar(lead_id, f"🔀 B2K movió el lead de etapa\n"
+                          f"Motivo: {etiqueta}"
+                          + (f"\n{detalle}" if detalle else ""))
+    return {"movido": True, "motivo": f"Movido por: {etiqueta}"}
+
+
+async def mover_por_email(email: str, evento: str, detalle: str = "") -> dict:
+    """Igual que el anterior, pero buscando el lead por la dirección.
+
+    Los eventos del correo —una baja, un rebote— llegan con una dirección y
+    no con un contacto: el mismo correo puede estar en dos contactos
+    cargados de fuentes distintas.
+    """
+    from .db import get_db
+    if not (email or "").strip():
+        return {"movido": False, "motivo": "Sin dirección."}
+    with get_db() as conn:
+        filas = [dict(r) for r in conn.execute(
+            """SELECT crm_lead_id FROM contacts
+                WHERE LOWER(email)=LOWER(?) AND crm_lead_id IS NOT NULL
+                  AND crm_lead_id <> ''""", (email.strip(),))]
+    if not filas:
+        return {"movido": False, "motivo": "Esa dirección no tiene lead en Kommo."}
+    resultados = [await mover_por_evento(f["crm_lead_id"], evento, detalle)
+                  for f in filas]
+    movidos = sum(1 for r in resultados if r["movido"])
+    return {"movido": bool(movidos),
+            "motivo": (f"{movidos} lead(s) movidos" if movidos
+                       else resultados[0]["motivo"])}

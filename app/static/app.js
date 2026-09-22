@@ -1268,7 +1268,7 @@ function switchAjustes(cual) {
   if (elegida === 'ayuda' && marco && !marco.src) marco.src = '/manual';
   if (elegida === 'salud') cargarSalud();
   if (elegida === 'historial') cargarActividad();
-  if (elegida === 'sistema') { cargarVentana(); cargarBase(); }
+  if (elegida === 'sistema') { cargarVentana(); cargarBase(); cargarEtapas(); }
 }
 
 /* ======================= correos ======================= */
@@ -2754,4 +2754,69 @@ function descargarBase() {
   // Se abre como descarga normal: es un archivo, no una respuesta JSON.
   window.location = '/api/base/descargar';
   toast('Descargando la copia…', 'info', 3000);
+}
+
+/* ==================== etapas de Kommo ====================
+   B2K sabe quién abrió, quién contestó y quién pidió la baja. Esto es lo
+   que hace que Kommo también lo sepa. */
+
+let ETAPAS = null;
+
+async function cargarEtapas() {
+  const d = await (await fetch('/api/crm/etapas')).json();
+  ETAPAS = d;
+  const caja = $('etapas-lista');
+  if (!caja) return;
+  if (d.error) {
+    caja.innerHTML = `<div class="alert warn">${esc(d.error)}</div>`;
+    return;
+  }
+  // Todas las etapas de todos los embudos, con el embudo adelante para que
+  // se entienda de cuál es cada una.
+  const opciones = (d.pipelines || []).flatMap((p) =>
+    (p.statuses || []).map((e) =>
+      `<option value="${e.id}">${esc(p.name)} — ${esc(e.name)}</option>`)).join('');
+
+  caja.innerHTML = `<div class="etapas">${d.eventos.map((ev) => `
+    <label class="etapa-fila">
+      <span>${esc(ev.que)}</span>
+      <select data-evento="${esc(ev.clave)}">
+        <option value="">— no mover —</option>${opciones}
+      </select>
+    </label>`).join('')}</div>`;
+
+  for (const sel of caja.querySelectorAll('select')) {
+    const v = (d.mapa || {})[sel.dataset.evento];
+    if (v) sel.value = v;
+  }
+  const p = $('etapas-pend');
+  if (p) {
+    p.textContent = d.pendientes_de_avisar
+      ? `${d.pendientes_de_avisar} evento(s) todavía sin contarle a Kommo.`
+      : 'Kommo está al día.';
+  }
+}
+
+async function guardarEtapas() {
+  const mapa = {};
+  for (const sel of document.querySelectorAll('#etapas-lista select')) {
+    if (sel.value) mapa[sel.dataset.evento] = sel.value;
+  }
+  const fd = new FormData();
+  fd.append('mapa', JSON.stringify(mapa));
+  const r = await fetch('/api/crm/etapas', { method: 'POST', body: fd });
+  const d = await r.json();
+  if (!r.ok) { toast(esc(d.detail || 'Error'), 'err'); return; }
+  const n = Object.keys(d.mapa).length;
+  toast(n ? `${n} evento(s) con etapa asignada` : 'Ningún evento mueve el lead', 'ok');
+  await cargarEtapas();
+}
+
+async function sincronizarEtapas() {
+  toast('Poniendo al día…', 'info', 2000);
+  const r = await (await fetch('/api/crm/etapas/sincronizar',
+                               { method: 'POST' })).json();
+  toast(r.motivo ? esc(r.motivo)
+        : `${r.hechos} lead(s) movidos de ${r.mirados} evento(s)`, 'ok');
+  await cargarEtapas();
 }

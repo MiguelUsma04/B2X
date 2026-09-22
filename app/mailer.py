@@ -1615,3 +1615,61 @@ def arrancar_worker() -> None:
     # curso, porque una respuesta puede llegar días después del último envío.
     if _lector is None or _lector.done():
         _lector = lazo.create_task(loop_buzones())
+
+
+# ====================== contarle a Kommo lo que pasó ======================
+# El lead se mueve de etapa desde acá y no desde el pixel de apertura: el
+# pixel tiene que devolver una imagen en milisegundos, y hablar con Kommo
+# puede tardar segundos o fallar. Los eventos quedan anotados con crm=0 y
+# este obrero los va empujando; si Kommo no responde, se reintenta solo en
+# la vuelta siguiente.
+
+# Cómo se llama cada evento acá y cómo se llama en el mapa de etapas.
+_EVENTO_DE_KIND = {"open": "abierto", "click": "click", "reply": "respondido",
+                   "bounce": "rebote", "unsub": "baja"}
+
+
+async def sincronizar_crm(limite: int = 40) -> dict:
+    """Mueve en Kommo los leads de los eventos que faltan contar."""
+    from . import kommo
+    if not kommo.configured():
+        return {"hechos": 0, "motivo": "Kommo no está configurado."}
+
+    with get_db() as conn:
+        pendientes = [dict(r) for r in conn.execute(
+            """SELECT e.id, e.kind, e.contact_id, e.bot, c.crm_lead_id, c.email
+                 FROM email_events e
+                 LEFT JOIN contacts c ON c.id = e.contact_id
+                WHERE COALESCE(e.crm, 0) = 0
+                ORDER BY e.id LIMIT ?""", (limite,))]
+    if not pendientes:
+        return {"hechos": 0, "mirados": 0}
+
+    movidos = 0
+    for ev in pendientes:
+        estado = 2                       # por defecto: no correspondía
+        # Una apertura de un antivirus no es una señal de interés y no puede
+        # mover un lead: es el falso positivo más común del correo.
+        if ev["bot"] and ev["kind"] in ("open", "click"):
+            pass
+        elif ev["crm_lead_id"]:
+            evento = _EVENTO_DE_KIND.get(ev["kind"])
+            if evento:
+                r = await kommo.mover_por_evento(ev["crm_lead_id"], evento)
+                if r["movido"]:
+                    estado, movidos = 1, movidos + 1
+        with get_db() as conn:
+            conn.execute("UPDATE email_events SET crm=? WHERE id=?",
+                         (estado, ev["id"]))
+        await asyncio.sleep(0.2)          # el límite de Kommo es ~7 por segundo
+    return {"hechos": movidos, "mirados": len(pendientes)}
+
+
+async def loop_crm() -> None:
+    """Cada minuto empuja lo que haya quedado pendiente."""
+    while True:
+        try:
+            await sincronizar_crm()
+        except Exception as exc:
+            print(f"[crm] {type(exc).__name__}", flush=True)
+        await asyncio.sleep(60)
