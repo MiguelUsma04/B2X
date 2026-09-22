@@ -8,6 +8,10 @@
 #
 # Usa su propia variable B2X_DOMAIN (dominio completo) en vez de DOMAIN_NAME:
 # en este servidor DOMAIN_NAME es el hostname de Hostinger, no el dominio real.
+#
+# Las claves NO van escritas acá: van en el archivo .env que está al lado del
+# docker-compose.yml, y este bloque solo las nombra. Lo que no esté ahi queda
+# vacio y la funcion correspondiente aparece apagada en la app.
 
 services:
   b2x:
@@ -36,22 +40,78 @@ services:
       - traefik.http.middlewares.b2x.headers.STSPreload=true
       - traefik.http.routers.b2x.middlewares=b2x@docker
     environment:
+      # --- entrar a la app -------------------------------------------------
       - APP_PASSWORD=${B2X_PASSWORD}
       - SECRET_KEY=${B2X_SECRET_KEY}
       - COOKIE_SECURE=true
-      - PROSPEO_API_KEY=${PROSPEO_API_KEY}
-      - ICYPEAS_API_KEY=${ICYPEAS_API_KEY}
-      - HUNTER_API_KEY=${HUNTER_API_KEY}
-      - GHL_API_TOKEN=${GHL_API_TOKEN}
-      - GHL_LOCATION_ID=${GHL_LOCATION_ID}
-      - GHL_DEFAULT_TAG=${GHL_DEFAULT_TAG:-piloto-prospeccion}
-      # Embudo donde se abre la oportunidad de cada contacto enviado.
-      # Se elige desde la app, pero conviene fijarlo acá: el contenedor no
-      # monta el .env, así que sin esto la elección se pierde al redesplegar.
-      - GHL_PIPELINE_ID=${GHL_PIPELINE_ID:-}
-      - GHL_STAGE_ID=${GHL_STAGE_ID:-}
+      # Ingreso con la cuenta de Google del equipo. La URL de retorno tiene
+      # que coincidir, carácter por carácter, con la que figura en la consola
+      # de Google.
+      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID:-}
+      - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET:-}
+      - GOOGLE_ALLOWED_DOMAIN=${GOOGLE_ALLOWED_DOMAIN:-gmarketing.co}
+      - GOOGLE_ALLOWED_EMAILS=${GOOGLE_ALLOWED_EMAILS:-}
+      - OAUTH_REDIRECT_URL=https://${B2X_DOMAIN}/auth/google/callback
+
+      # --- la dirección pública --------------------------------------------
+      # Va adentro de cada correo que sale: es lo que permite medir aperturas
+      # y clics, y lo que hace funcionar el enlace de baja. Sin esto los
+      # correos salen igual, pero ciegos.
+      - PUBLIC_URL=https://${B2X_DOMAIN}
+
+      # --- buscar empresas y sus correos -----------------------------------
+      - GOOGLE_MAPS_API_KEY=${GOOGLE_MAPS_API_KEY:-}
+      - PROSPEO_API_KEY=${PROSPEO_API_KEY:-}
+      # Icypeas está fuera del waterfall (ver providers/__init__.py): se deja
+      # la variable para poder reactivarlo sin tocar el despliegue.
+      - ICYPEAS_API_KEY=${ICYPEAS_API_KEY:-}
+      - HUNTER_API_KEY=${HUNTER_API_KEY:-}
+      - ONLY_VERIFIED_EMAIL=${ONLY_VERIFIED_EMAIL:-}
       - ENRICH_DELAY_SECONDS=1.0
       - ENRICH_MAX_RETRIES=3
+
+      # --- leer el sitio de cada empresa -----------------------------------
+      # Se recorre el sitio entero, con tope de páginas, de texto y de tiempo.
+      - SITIO_MAX_PAGINAS=${SITIO_MAX_PAGINAS:-40}
+      - SITIO_MAX_TEXTO=${SITIO_MAX_TEXTO:-60000}
+      - SITIO_MAX_SEGUNDOS=${SITIO_MAX_SEGUNDOS:-75}
+
+      # --- la IA -----------------------------------------------------------
+      # Tres modelos a propósito: el nano alcanza para tareas chicas, pero
+      # para leer un sitio y para escribir un correo devuelve fichas vacías y
+      # copia el brief adentro del mensaje.
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - OPENAI_MODEL=${OPENAI_MODEL:-gpt-5-nano}
+      - OPENAI_MODEL_FICHA=${OPENAI_MODEL_FICHA:-gpt-5-mini}
+      - OPENAI_MODEL_REDACCION=${OPENAI_MODEL_REDACCION:-gpt-5-mini}
+      - OPENAI_EFFORT=${OPENAI_EFFORT:-minimal}
+      - CORREO_MIN_CARACTERES=${CORREO_MIN_CARACTERES:-350}
+      - CORREO_MAX_CARACTERES=${CORREO_MAX_CARACTERES:-500}
+      - PROPUESTA_B2K=${PROPUESTA_B2K:-}
+      - IDIOMA_POR_DEFECTO=${IDIOMA_POR_DEFECTO:-es}
+      - IDIOMA_FORZADO=${IDIOMA_FORZADO:-}
+
+      # --- Kommo -----------------------------------------------------------
+      # Reemplazó a GoHighLevel. El embudo y la etapa se eligen desde la app,
+      # pero conviene fijarlos acá: el contenedor no monta el .env, así que
+      # sin esto la elección se pierde al redesplegar.
+      - KOMMO_SUBDOMAIN=${KOMMO_SUBDOMAIN:-}
+      - KOMMO_TOKEN=${KOMMO_TOKEN:-}
+      - KOMMO_PIPELINE_ID=${KOMMO_PIPELINE_ID:-}
+      - KOMMO_STATUS_ID=${KOMMO_STATUS_ID:-}
+      - KOMMO_RESPONSIBLE_ID=${KOMMO_RESPONSIBLE_ID:-}
+      - KOMMO_DEFAULT_TAG=${KOMMO_DEFAULT_TAG:-B2K}
+      - KOMMO_COUNTRY_REGION=${KOMMO_COUNTRY_REGION:-CO}
+
+      # --- el envío --------------------------------------------------------
+      # La zona horaria no es un detalle: sin ella el contenedor corre en UTC
+      # y el tope diario de cada buzón se reinicia a las 7 de la tarde.
+      - TZ=${TZ:-America/Bogota}
+      - PAIS_POR_DEFECTO=${PAIS_POR_DEFECTO:-CO}
+      - ENVIO_FIN_DE_SEMANA=${ENVIO_FIN_DE_SEMANA:-}
+      - EMPRESA_NOMBRE=${EMPRESA_NOMBRE:-gmarketing.co}
+      - EMPRESA_DIRECCION=${EMPRESA_DIRECCION:-}
+
     volumes:
       # La base de datos persiste acá. Sin esto, se pierde en cada redeploy.
       - b2x_data:/app/data
