@@ -539,6 +539,35 @@
       </div>
 
       <div class="card">
+        <h2>Empresas repetidas <span class="hint" id="dup-hint"></span></h2>
+        <div class="body">
+          <p class="lede">La misma empresa cargada dos veces: escribirle dos
+            veces es la forma más rápida de que te marquen como spam.</p>
+          <div id="dup-lista"></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Empezar de cero con Kommo</h2>
+        <div class="body">
+          <p class="lede">B2K se olvida de qué contactos mandó al CRM, para
+            volver a empezar limpio.</p>
+          <div id="crm-estado"></div>
+          <div class="aviso ojo" style="margin-top:12px">
+            <span class="et">Ojo</span>
+            <span>Esto <b>no borra nada en Kommo</b>: su API no permite borrar
+              leads. Los que ya están allá hay que eliminarlos desde Kommo a
+              mano. Lo que esto consigue es que B2K deje de contarlos como
+              enviados.</span>
+          </div>
+          <div class="row" style="margin-top:14px">
+            <button class="danger" onclick="resetCRM()">Olvidar lo enviado
+              al CRM</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
         <h2>Etapas en Kommo</h2>
         <div class="body">
           <p class="lede">Qué hecho del correo mueve el lead, y a dónde. Lo que

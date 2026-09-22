@@ -1,7 +1,7 @@
 """Inserción de contactos con deduplicación contra la base existente."""
 import sqlite3
 
-from . import telefonos
+from . import duplicados, telefonos
 from .csv_import import read_csv_bytes, detect_mapping, detect_export_kind, row_to_contact
 
 
@@ -21,8 +21,10 @@ def import_contacts(conn: sqlite3.Connection, filename: str, raw: bytes,
                     icp_tag: str | None = None) -> dict:
     """Importa un CSV. Devuelve el resumen del batch.
 
-    Dedupe: primero por email; si el contacto no trae email, por full_name +
-    company_domain. Los duplicados se cuentan pero no se insertan.
+    Dedupe: por email, por nombre+dominio, y por la huella de la empresa —el
+    sitio, el teléfono o el nombre normalizado con la ciudad—, que es la que
+    atrapa a la misma empresa escrita de dos formas. Ver duplicados.py.
+    Los duplicados se cuentan pero no se insertan.
     """
     headers, rows = read_csv_bytes(raw)
     if not headers:
@@ -41,6 +43,7 @@ def import_contacts(conn: sqlite3.Connection, filename: str, raw: bytes,
         raise ValueError("No se encontró una columna de nombre (First Name o Full Name).")
 
     seen_emails, seen_nd = _existing_keys(conn)
+    huellas = duplicados.huellas_cargadas(conn)
     cur = conn.execute(
         "INSERT INTO import_batches (filename, total_rows, icp_tag) VALUES (?,?,?)",
         (filename, len(rows), icp_tag or None),
@@ -63,6 +66,12 @@ def import_contacts(conn: sqlite3.Connection, filename: str, raw: bytes,
             dup_count += 1
             continue
         if not email_key and nd_key and nd_key in seen_nd:
+            dup_count += 1
+            continue
+        # La misma empresa escrita de otra forma: mismo sitio, mismo teléfono,
+        # o mismo nombre en la misma ciudad. Con email propio no se descarta:
+        # dos personas de la misma empresa son dos contactos válidos.
+        if not email_key and duplicados.es_repetido(c, huellas):
             dup_count += 1
             continue
 
@@ -88,6 +97,8 @@ def import_contacts(conn: sqlite3.Connection, filename: str, raw: bytes,
             seen_emails.add(email_key)
         if nd_key:
             seen_nd.add(nd_key)
+        duplicados.marcar(c, huellas, conn.execute(
+            "SELECT last_insert_rowid() i").fetchone()["i"])
 
     conn.execute(
         "UPDATE import_batches SET new_contacts=?, duplicate_contacts=? WHERE id=?",
@@ -112,6 +123,10 @@ def import_places(conn: sqlite3.Connection, query: str, lugares: list[dict],
     ya = {r["p"] for r in conn.execute(
         "SELECT lower(place_id) p FROM contacts WHERE place_id IS NOT NULL AND place_id <> ''")}
     _, ya_nd = _existing_keys(conn)
+    # El place_id no alcanza: el mismo negocio puede tener dos fichas en
+    # Google —la casa matriz y una sucursal, o una ficha vieja sin reclamar—
+    # y entrarían como dos empresas distintas.
+    huellas = duplicados.huellas_cargadas(conn)
 
     nombre = f"Maps · {query}"[:150]
     cur = conn.execute(
@@ -134,6 +149,12 @@ def import_places(conn: sqlite3.Connection, query: str, lugares: list[dict],
             repetidos += 1
             continue
         if not pid and nd and nd in ya_nd:
+            repetidos += 1
+            continue
+        candidato = {"company_name": l.get("name"),
+                     "company_domain": l.get("domain"),
+                     "phone": l.get("phone"), "address": l.get("address")}
+        if duplicados.es_repetido(candidato, huellas):
             repetidos += 1
             continue
 
@@ -164,6 +185,8 @@ def import_places(conn: sqlite3.Connection, query: str, lugares: list[dict],
             continue
 
         nuevos += 1
+        duplicados.marcar(candidato, huellas, conn.execute(
+            "SELECT last_insert_rowid() i").fetchone()["i"])
         if pid:
             ya.add(pid)
         if nd:

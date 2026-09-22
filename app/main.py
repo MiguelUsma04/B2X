@@ -43,8 +43,8 @@ from . import db as db_mod              # noqa: E402
 from .db import get_db, init_db          # noqa: E402
 from .importer import (delete_batch, import_contacts,      # noqa: E402
                        import_places, preview_csv)
-from . import (ai, auth, dnscheck, enrichment, ghl,   # noqa: E402
-               kommo, mailer, places, redactor, respaldo)
+from . import (ai, auth, dnscheck, duplicados, enrichment,  # noqa: E402
+               ghl, kommo, mailer, places, redactor, respaldo)
 from .providers import build_chain       # noqa: E402
 
 app = FastAPI(title="B2X", docs_url="/api/docs")
@@ -1027,6 +1027,96 @@ def api_mail_reintentar(request: Request, ids: str = Form("")):
         anotar(request, "Reintentó correos que habían fallado", "",
                r["encolados"])
     return r
+
+
+# ------------------------------------------------- duplicados y CRM de cero
+
+@app.get("/api/duplicados")
+def api_duplicados():
+    """Empresas que parecen estar cargadas dos veces. Ver duplicados.py."""
+    grupos = duplicados.sospechas()
+    return {"grupos": grupos,
+            "seguros": sum(1 for g in grupos if g["seguro"]),
+            "a_mirar": sum(1 for g in grupos if not g["seguro"])}
+
+
+@app.post("/api/duplicados/descartar")
+def api_duplicados_descartar(request: Request, ids: str = Form(...)):
+    """Borra los contactos que sobran de un grupo repetido.
+
+    Solo borra lo que todavía no salió hacia afuera: un contacto que ya está
+    en Kommo o al que ya se le escribió no se borra en silencio, porque su
+    historia vive también del otro lado.
+    """
+    try:
+        lista = [int(i) for i in json.loads(ids)]
+    except Exception:
+        raise HTTPException(400, "ids debe ser un array JSON de enteros.")
+    if not lista:
+        return {"borrados": 0}
+
+    marcas = ",".join("?" * len(lista))
+    with get_db() as conn:
+        protegidos = [dict(r) for r in conn.execute(
+            f"""SELECT c.id, c.company_name, c.full_name, c.crm_lead_id,
+                       (SELECT COUNT(*) FROM email_queue q
+                         WHERE q.contact_id = c.id AND q.status='sent') enviados
+                  FROM contacts c WHERE c.id IN ({marcas})""", lista)]
+    no_tocar = [p for p in protegidos if p["crm_lead_id"] or p["enviados"]]
+    borrables = [p["id"] for p in protegidos if not (p["crm_lead_id"] or p["enviados"])]
+
+    if borrables:
+        marcas2 = ",".join("?" * len(borrables))
+        with get_db() as conn:
+            conn.execute(f"DELETE FROM contacts WHERE id IN ({marcas2})", borrables)
+        anotar(request, "Borró contactos repetidos", "", len(borrables))
+    return {"borrados": len(borrables),
+            "protegidos": [{"id": p["id"],
+                            "nombre": p["company_name"] or p["full_name"],
+                            "motivo": ("ya está en Kommo" if p["crm_lead_id"]
+                                       else "ya se le escribió")}
+                           for p in no_tocar]}
+
+
+@app.get("/api/crm/estado")
+def api_crm_estado():
+    """Cuántos contactos figuran como enviados al CRM."""
+    with get_db() as conn:
+        f = conn.execute(
+            """SELECT COUNT(*) total,
+                      SUM(crm_lead_id IS NOT NULL AND crm_lead_id <> '') con_lead,
+                      SUM(crm_status = 'error') con_error
+                 FROM contacts""").fetchone()
+    return {"total": f["total"], "en_crm": f["con_lead"] or 0,
+            "con_error": f["con_error"] or 0,
+            "configurado": kommo.configured()}
+
+
+@app.post("/api/crm/empezar-de-cero")
+def api_crm_reset(request: Request, confirmar: str = Form("")):
+    """Olvida lo que B2K mandó a Kommo, para arrancar limpio.
+
+    Borra el vínculo de este lado: a qué contacto corresponde qué lead. NO
+    borra nada en Kommo —su API no deja borrar leads, devuelve 405— así que
+    los que ya están allá hay que eliminarlos desde Kommo a mano. Lo que esto
+    consigue es que B2K deje de considerarlos enviados y no les vuelva a
+    escribir ni los cuente como suyos.
+    """
+    if str(confirmar).lower() not in ("1", "true", "si", "sí", "on"):
+        raise HTTPException(400, "Falta confirmar.")
+    with get_db() as conn:
+        n = conn.execute(
+            """SELECT COUNT(*) c FROM contacts
+                WHERE crm_contact_id IS NOT NULL OR crm_lead_id IS NOT NULL
+                   OR crm_status IS NOT NULL""").fetchone()["c"]
+        conn.execute(
+            """UPDATE contacts SET crm_contact_id=NULL, crm_lead_id=NULL,
+                   crm_status=NULL, crm_error=NULL""")
+    anotar(request, "Empezó de cero con el CRM",
+           "se olvidaron los vínculos con Kommo", n)
+    return {"ok": True, "olvidados": n,
+            "aviso": "En Kommo siguen existiendo: su API no permite borrarlos. "
+                     "Eliminalos desde Kommo si no los querés ahí."}
 
 
 # ------------------------------------------------- etapas de Kommo

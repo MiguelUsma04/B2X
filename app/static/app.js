@@ -1268,7 +1268,10 @@ function switchAjustes(cual) {
   if (elegida === 'ayuda' && marco && !marco.src) marco.src = '/manual';
   if (elegida === 'salud') { cargarSalud(); cargarErrores(); }
   if (elegida === 'historial') cargarActividad();
-  if (elegida === 'sistema') { cargarVentana(); cargarBase(); cargarEtapas(); }
+  if (elegida === 'sistema') {
+    cargarVentana(); cargarBase(); cargarEtapas();
+    cargarDuplicados(); cargarEstadoCRM();
+  }
 }
 
 /* ======================= correos ======================= */
@@ -2893,4 +2896,94 @@ async function reintentarErrores(ids) {
         d.encolados ? 'ok' : 'info');
   await cargarErrores();
   pollMail(true);
+}
+
+/* ==================== empresas repetidas y CRM de cero ==================== */
+
+async function cargarDuplicados() {
+  const d = await (await fetch('/api/duplicados')).json();
+  const h = $('dup-hint');
+  if (h) {
+    h.textContent = d.grupos.length
+      ? `${d.seguros} seguros · ${d.a_mirar} a revisar`
+      : 'ninguna';
+  }
+  const caja = $('dup-lista');
+  if (!caja) return;
+  if (!d.grupos.length) {
+    caja.innerHTML = '<div class="alert ok">No hay empresas repetidas.</div>';
+    return;
+  }
+  caja.innerHTML = d.grupos.map((g, i) => {
+    // El primero se queda; se ofrecen los demás para borrar.
+    const sobran = g.contactos.slice(1);
+    return `<div class="grupo-error">
+      <div class="ge-h">
+        <b>${esc(g.motivo)}</b>
+        <span class="chip">${g.contactos.length}</span>
+        ${g.seguro ? '' : '<span class="help">revisalo antes de borrar</span>'}
+      </div>
+      <ul class="lista-simple">${g.contactos.map((c, j) => `
+        <li>${j === 0 ? '<b>se queda</b> · ' : ''}${esc(c.nombre || '?')}
+          <span class="help">${esc(c.email || c.dominio || c.telefono || '')}
+          ${c.en_crm ? ' · ya está en Kommo' : ''}</span></li>`).join('')}</ul>
+      ${sobran.length ? `<div class="row" style="margin-top:10px">
+        <button class="ghost" onclick='borrarRepetidos(${
+          JSON.stringify(sobran.map((c) => c.id))})'>
+          Borrar ${sobran.length === 1 ? 'el repetido' : `los ${sobran.length} repetidos`}
+        </button></div>` : ''}
+    </div>`;
+  }).join('');
+}
+
+async function borrarRepetidos(ids) {
+  const ok = await ask('Borrar repetidos',
+    `<p>Se borran <b>${ids.length}</b> contacto(s) que parecen ser la misma
+     empresa que otro.</p>
+     <p class="help">Los que ya están en Kommo o a los que ya se les escribió
+     no se borran: su historia vive también del otro lado.</p>`,
+    [{ label: 'Cancelar', value: false },
+     { label: 'Borrar', value: true, cls: 'danger' }]);
+  if (!ok) return;
+  const fd = new FormData();
+  fd.append('ids', JSON.stringify(ids));
+  const r = await fetch('/api/duplicados/descartar', { method: 'POST', body: fd });
+  const d = await r.json();
+  if (!r.ok) { toast(esc(d.detail || 'Error'), 'err'); return; }
+  toast(`${d.borrados} borrado(s)`, 'ok');
+  if (d.protegidos && d.protegidos.length) {
+    toast(`${d.protegidos.length} no se borraron: ${
+      esc(d.protegidos[0].motivo)}`, 'warn', 6000);
+  }
+  await cargarDuplicados();
+  if (typeof loadContacts === 'function') loadContacts();
+}
+
+async function cargarEstadoCRM() {
+  const d = await (await fetch('/api/crm/estado')).json();
+  const c = $('crm-estado');
+  if (!c) return;
+  c.innerHTML = `<div class="fchips">
+    <span class="chip"><b>${d.en_crm}</b> contactos figuran enviados al CRM</span>
+    ${d.con_error ? `<span class="chip"><b>${d.con_error}</b> con error</span>` : ''}
+    <span class="chip">${d.total} en total</span></div>`;
+}
+
+async function resetCRM() {
+  const ok = await ask('Empezar de cero con Kommo',
+    `<p>B2K va a <b>olvidar</b> qué contactos mandó al CRM.</p>
+     <p class="help">No se borra nada en Kommo: su API no lo permite. Los que
+     ya están allá hay que eliminarlos desde Kommo. Después de esto, B2K los
+     trata como si nunca se hubieran enviado.</p>`,
+    [{ label: 'Cancelar', value: false },
+     { label: 'Olvidar lo enviado', value: true, cls: 'danger' }]);
+  if (!ok) return;
+  const fd = new FormData();
+  fd.append('confirmar', '1');
+  const r = await fetch('/api/crm/empezar-de-cero', { method: 'POST', body: fd });
+  const d = await r.json();
+  if (!r.ok) { toast(esc(d.detail || 'Error'), 'err'); return; }
+  toast(`${d.olvidados} vínculo(s) olvidados`, 'ok');
+  await cargarEstadoCRM();
+  if (typeof loadContacts === 'function') loadContacts();
 }

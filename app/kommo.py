@@ -16,6 +16,7 @@ Reemplaza a GoHighLevel como destino. Las diferencias que importan:
 """
 import asyncio
 import os
+import time
 
 import httpx
 
@@ -26,8 +27,49 @@ TIEMPO = 30.0
 # Kommo corta a las siete llamadas por segundo. Con una espera corta entre
 # contactos no se llega nunca al límite, y 0,2 s por contacto es invisible al
 # lado de lo que tarda la llamada.
-ESPERA = 0.2
+# Kommo permite unas 7 consultas por segundo por cuenta. Se va a 5 a
+# propósito: el techo es de la cuenta entera, no de esta app, y si alguien
+# está trabajando en Kommo al mismo tiempo el límite se comparte.
+#
+# El ritmo es de la cuenta y no de cada llamada, así que el control tiene que
+# ser uno solo para toda la app: si el envío de contactos y el obrero que
+# mueve las etapas corren a la vez, cada uno respetando su propia pausa, entre
+# los dos se pasan del límite igual. Por eso hay un solo portero acá.
+ESPERA = float(os.getenv("KOMMO_ESPERA") or 0.2)
 REINTENTOS = 3
+
+_ultimo = 0.0
+_castigo = 0.0          # cuánto se está yendo más lento por haber recibido 429
+_turno = asyncio.Lock()
+
+
+async def _esperar_turno() -> None:
+    """Deja pasar una consulta y anota cuándo, para espaciar la siguiente."""
+    global _ultimo
+    async with _turno:
+        ahora = time.monotonic()
+        falta = (ESPERA + _castigo) - (ahora - _ultimo)
+        if falta > 0:
+            await asyncio.sleep(falta)
+        _ultimo = time.monotonic()
+
+
+def _frenar() -> None:
+    """Kommo dijo que vamos muy rápido: se baja el ritmo un rato.
+
+    Sin esto, un 429 hacía esperar solo a esa consulta y la siguiente salía
+    al mismo ritmo que la provocó: se entra en una pelea con el servidor que
+    termina en más 429 y más lentitud que si se hubiera bajado de una.
+    """
+    global _castigo
+    _castigo = min(2.0, (_castigo or ESPERA) * 2)
+
+
+def _aflojar() -> None:
+    """Después de un rato bien, se vuelve al ritmo normal de a poco."""
+    global _castigo
+    if _castigo:
+        _castigo = _castigo / 2 if _castigo > 0.05 else 0.0
 
 
 def configured() -> bool:
@@ -283,9 +325,13 @@ async def _con_reintento(client: httpx.AsyncClient, metodo: str, url: str,
     espera = 1.0
     r = None
     for intento in range(REINTENTOS):
+        await _esperar_turno()
         r = await client.request(metodo, url, **kw)
         if r.status_code not in (429, 502, 503, 504):
+            _aflojar()
             return r
+        if r.status_code == 429:
+            _frenar()
         if intento < REINTENTOS - 1:
             # Si el servidor dice cuánto esperar, se le hace caso.
             dice = r.headers.get("Retry-After")
@@ -411,7 +457,6 @@ async def send_contacts(contact_ids: list[int], tag: str | None = None) -> dict:
                 r = await _con_reintento(client, "POST",
                                          f"{base_url()}/leads/complex",
                                          json=[lead])
-                await asyncio.sleep(ESPERA)
 
                 if r.status_code in (200, 201):
                     d = r.json()
