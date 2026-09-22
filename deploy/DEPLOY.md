@@ -51,7 +51,7 @@ certificado HTTPS (paso 7) no funciona hasta que resuelva.
 
 Verificar:
 ```bash
-dig +short b2x.gmarketing.co
+dig +short b2k.gmarketing.co
 ```
 
 ---
@@ -125,7 +125,7 @@ sudo rm -f /etc/nginx/sites-enabled/default
 sudo nginx -t && sudo systemctl reload nginx
 ```
 
-Probá `http://b2x.gmarketing.co` — debería aparecer el login (todavía sin HTTPS).
+Probá `http://b2k.gmarketing.co` — debería aparecer el login (todavía sin HTTPS).
 
 ---
 
@@ -133,12 +133,12 @@ Probá `http://b2x.gmarketing.co` — debería aparecer el login (todavía sin H
 
 ```bash
 sudo apt-get install -y certbot python3-certbot-nginx
-sudo certbot --nginx -d b2x.gmarketing.co
+sudo certbot --nginx -d b2k.gmarketing.co
 ```
 
 Elegí la opción de redirigir todo a HTTPS. Certbot renueva solo.
 
-**Recién ahora entrá a `https://b2x.gmarketing.co`.** La cookie de sesión
+**Recién ahora entrá a `https://b2k.gmarketing.co`.** La cookie de sesión
 viaja con el flag `Secure`, así que el login solo funciona por HTTPS.
 
 > Si necesitás entrar por HTTP sin certificado (no recomendado), poné

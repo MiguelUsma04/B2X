@@ -5,6 +5,9 @@ env
 *.env
 data/*.db
 data/*.db-journal
+# Los respaldos son copias enteras de la base: los contactos, los buzones
+# y sus contraseñas. Al repositorio no van nunca.
+data/respaldos/
 __pycache__/
 *.pyc
 .venv/

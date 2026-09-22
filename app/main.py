@@ -2,6 +2,7 @@
 import asyncio
 import base64
 import datetime
+import tempfile
 import html as html_mod
 import json
 import os
@@ -38,11 +39,12 @@ def _load_env() -> None:
 
 _load_env()
 
+from . import db as db_mod              # noqa: E402
 from .db import get_db, init_db          # noqa: E402
 from .importer import (delete_batch, import_contacts,      # noqa: E402
                        import_places, preview_csv)
 from . import (ai, auth, dnscheck, enrichment, ghl,   # noqa: E402
-               kommo, mailer, places, redactor)
+               kommo, mailer, places, redactor, respaldo)
 from .providers import build_chain       # noqa: E402
 
 app = FastAPI(title="B2X", docs_url="/api/docs")
@@ -660,6 +662,25 @@ async def _arrancar_goteo():
     """El goteo tiene que seguir solo: si la app se reinicia a mitad de una
     campaña, la cola sigue en la base y este obrero la retoma."""
     mailer.arrancar_worker()
+    asyncio.create_task(_respaldo_diario())
+
+
+async def _respaldo_diario():
+    """Una copia por día, sin que nadie se acuerde de pedirla.
+
+    Vive en el mismo disco que la base, así que no salva de perder el disco:
+    para eso está el botón de descargar, que se la lleva afuera. Sirve para
+    lo otro, que pasa más seguido: alguien borró algo y hace falta la versión
+    de ayer.
+    """
+    while True:
+        try:
+            copia = respaldo.respaldar_si_toca()
+            if copia:
+                print(f"[respaldo] {copia.name}", flush=True)
+        except Exception as exc:
+            print(f"[respaldo] no se pudo: {type(exc).__name__}", flush=True)
+        await asyncio.sleep(3600)
 
 
 @app.get("/api/mail/config")
@@ -984,6 +1005,73 @@ async def api_mail_borrador_rehacer(contact_id: int, propuesta: str = Form("")):
 @app.delete("/api/mail/borradores")
 def api_mail_borradores_borrar():
     return {"ok": True, "cuantos": redactor.limpiar_borradores()}
+
+
+# ------------------------------------------------- horario de envío
+# Se guarda en la base y no en el entorno: cambiar a qué hora salen los
+# correos no puede exigir entrar al servidor y redesplegar.
+
+@app.get("/api/mail/ventana")
+def api_ventana():
+    desde, hasta, fines = mailer.ventana()
+    return {"desde": desde, "hasta": hasta, "fines_de_semana": fines,
+            "ahora_puede": mailer.en_horario(),
+            "zona": os.getenv("TZ") or "la del servidor",
+            "hora_del_servidor": datetime.datetime.now().strftime("%H:%M")}
+
+
+@app.post("/api/mail/ventana")
+def api_ventana_guardar(request: Request, desde: str = Form(...),
+                        hasta: str = Form(...), fines: str = Form("")):
+    try:
+        d, h = int(desde), int(hasta)
+    except ValueError:
+        raise HTTPException(400, "Las horas van en números, de 0 a 24.")
+    if not (0 <= d <= 23 and 1 <= h <= 24):
+        raise HTTPException(400, "Las horas van de 0 a 24.")
+    if h <= d:
+        raise HTTPException(400, "La hora de fin tiene que ser posterior a la "
+                                 "de inicio.")
+    db_mod.poner_ajuste("envio_desde", d)
+    db_mod.poner_ajuste("envio_hasta", h)
+    db_mod.poner_ajuste("envio_fin_de_semana",
+                        "1" if str(fines).lower() in ("1", "true", "on") else "0")
+    anotar(request, "Cambió el horario de envío",
+           f"{d}:00 a {h}:00{', con fines de semana' if fines else ''}")
+    return {"ok": True, **api_ventana()}
+
+
+# ------------------------------------------------- la base y sus respaldos
+
+@app.get("/api/base")
+def api_base():
+    """Dónde vive la base, desde cuándo y qué tiene. Ver respaldo.py."""
+    return respaldo.ficha()
+
+
+@app.post("/api/base/respaldo")
+def api_base_respaldar(request: Request):
+    try:
+        copia = respaldo.copiar()
+    except Exception as exc:
+        raise HTTPException(500, f"No se pudo copiar: {type(exc).__name__}")
+    anotar(request, "Hizo un respaldo de la base", copia.name)
+    return {"ok": True, "nombre": copia.name, "respaldos": respaldo.listar()}
+
+
+@app.get("/api/base/descargar")
+def api_base_descargar(request: Request):
+    """Se lleva una copia fuera del servidor, que es el único respaldo real.
+
+    Una copia que vive en el mismo disco que la base no protege de lo que más
+    pasa: que el volumen no esté montado y el disco entero se rehaga.
+    """
+    destino = Path(tempfile.gettempdir()) / (
+        f"b2k-{datetime.datetime.now():%Y%m%d-%H%M}.db")
+    respaldo.copiar(destino)
+    anotar(request, "Descargó una copia de la base", destino.name)
+    return FileResponse(destino, filename=destino.name,
+                        media_type="application/octet-stream")
 
 
 @app.get("/api/mail/status")

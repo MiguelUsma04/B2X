@@ -923,3 +923,15 @@ pre{font-family:var(--mono);font-size:12px;background:var(--surface-2);
   font: inherit; line-height: 1.5;
 }
 .borrador-acciones { margin-top: 12px; gap: 8px; flex-wrap: wrap; }
+
+/* ------------------------------------------------ la ficha de la base
+   Una tabla de dos columnas: el dato a la izquierda y el valor a la
+   derecha. Se lee de un vistazo, que es para lo que existe. */
+.tabla-base{width:100%;border-collapse:collapse;font-size:14.5px}
+.tabla-base td{padding:7px 0;border-bottom:1px solid var(--line);
+  vertical-align:top}
+.tabla-base tr:last-child td{border-bottom:0}
+.tabla-base td:first-child{color:var(--ink-3);width:150px;white-space:nowrap}
+.tabla-base code{font-family:var(--mono);font-size:12.5px;word-break:break-all}
+.lista-simple{list-style:none;margin:6px 0 0;padding:0;display:grid;gap:4px;
+  font-size:13.5px;color:var(--ink-2)}

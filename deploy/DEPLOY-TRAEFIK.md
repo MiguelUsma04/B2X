@@ -23,7 +23,7 @@ En Cloudflare → DNS → registro `b2x`: hacé clic en la nube naranja para dej
 Verificá que resuelva a tu IP real:
 
 ```bash
-dig +short b2x.gmarketing.co
+dig +short b2k.gmarketing.co
 ```
 
 Tiene que devolver `31.220.108.70`. Si devuelve otra cosa (IPs de Cloudflare
@@ -93,7 +93,16 @@ nano /root/.env
 Agregá al final:
 
 ```
-B2X_DOMAIN=b2x.gmarketing.co
+B2X_DOMAIN=b2k.gmarketing.co
+```
+
+`B2X_DOMAIN` manda sobre todo lo demás: de ahí sale el router de Traefik, el
+certificado y también `PUBLIC_URL`, que es la dirección que va escrita adentro
+de cada correo que sale. Si el dominio del DNS y el de esta variable no son el
+mismo, el sitio abre pero los correos quedan ciegos: no se miden aperturas ni
+clics y el enlace de baja lleva a ninguna parte.
+
+```bash
 B2X_PASSWORD=elegí-una-contraseña-larga-y-única
 B2X_SECRET_KEY=PEGAR_ACÁ_LA_CLAVE_GENERADA
 PROSPEO_API_KEY=...
@@ -153,7 +162,7 @@ curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:8077/
 
 Esperá ~1 minuto a que Traefik emita el certificado, y abrí:
 
-**https://b2x.gmarketing.co**
+**https://b2k.gmarketing.co**
 
 Debería aparecer la pantalla de login. Entrá con lo que pusiste en
 `B2X_PASSWORD`.
@@ -194,7 +203,7 @@ docker run --rm -v root_b2x_data:/data -v /root:/backup alpine \
 
 Casi siempre es Cloudflare en naranja. Verificá:
 ```bash
-dig +short b2x.gmarketing.co        # tiene que dar 31.220.108.70
+dig +short b2k.gmarketing.co        # tiene que dar 31.220.108.70
 docker compose logs traefik | grep -i b2x | tail -20
 ```
 

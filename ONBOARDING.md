@@ -15,7 +15,7 @@ En una prueba real con 25 contactos, Apollo dio 15 y los otros 10 no tenían
 email a ningún precio. B2X consulta otros tres servicios para recuperar parte
 de esos, y también busca celulares.
 
-**Ya está en producción**: <https://b2x.gmarketing.co>
+**Ya está en producción**: <https://b2k.gmarketing.co>
 
 ---
 

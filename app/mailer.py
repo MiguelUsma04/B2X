@@ -24,6 +24,7 @@ from datetime import datetime, timedelta, timezone
 from email.message import EmailMessage
 from email.utils import formataddr, make_msgid
 
+from . import db
 from .db import get_db
 
 # Lo que se puede intercalar en el asunto y el cuerpo.
@@ -1539,14 +1540,29 @@ def _motivo(b: dict) -> str:
 # lee como robot: no rompe nada técnico, pero baja la respuesta. Fuera de la
 # ventana el goteo espera, no descarta.
 def ventana() -> tuple[int, int, bool]:
+    """Entre qué horas pueden salir correos, y si salen los fines de semana.
+
+    Manda lo que se configuró en la app; el entorno queda como valor inicial
+    para una instalación nueva. Antes esto era solo del entorno y cambiar el
+    horario obligaba a entrar al servidor.
+    """
     def hora(var, x):
         v = (os.getenv(var) or "").strip()
         try:
             return min(23, max(0, int(v)))
         except ValueError:
             return x
-    fines = (os.getenv("ENVIO_FIN_DE_SEMANA") or "").lower() in ("1", "true", "si", "sí")
-    return hora("ENVIO_DESDE", 8), hora("ENVIO_HASTA", 19), fines
+
+    desde = db.ajuste_entero("envio_desde", hora("ENVIO_DESDE", 8), 0, 23)
+    hasta = db.ajuste_entero("envio_hasta", hora("ENVIO_HASTA", 19), 1, 24)
+    fines = db.ajuste_bool(
+        "envio_fin_de_semana",
+        (os.getenv("ENVIO_FIN_DE_SEMANA") or "").lower() in ("1", "true", "si", "sí"))
+    if hasta <= desde:
+        # Una ventana al revés no deja salir nada y no hay nada en pantalla que
+        # lo explique: se vuelve al horario de siempre.
+        desde, hasta = 8, 19
+    return desde, hasta, fines
 
 
 def en_horario(ahora: datetime | None = None) -> bool:

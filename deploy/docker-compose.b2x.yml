@@ -108,6 +108,10 @@ services:
       # y el tope diario de cada buzón se reinicia a las 7 de la tarde.
       - TZ=${TZ:-America/Bogota}
       - PAIS_POR_DEFECTO=${PAIS_POR_DEFECTO:-CO}
+      # El horario se configura desde la app (Ajustes -> Sistema) y queda en la
+      # base. Esto es solo el valor con el que arranca una instalacion nueva.
+      - ENVIO_DESDE=${ENVIO_DESDE:-8}
+      - ENVIO_HASTA=${ENVIO_HASTA:-19}
       - ENVIO_FIN_DE_SEMANA=${ENVIO_FIN_DE_SEMANA:-}
       - EMPRESA_NOMBRE=${EMPRESA_NOMBRE:-gmarketing.co}
       - EMPRESA_DIRECCION=${EMPRESA_DIRECCION:-}

@@ -204,6 +204,15 @@ CREATE TABLE IF NOT EXISTS borradores (
 );
 CREATE INDEX IF NOT EXISTS ix_borradores_estado ON borradores(estado);
 
+-- Lo que se configura desde la app y tiene que sobrevivir al redespliegue.
+-- Antes esto vivía solo en variables de entorno: para cambiar el horario de
+-- envío había que entrar al servidor y volver a desplegar.
+CREATE TABLE IF NOT EXISTS ajustes (
+    clave TEXT PRIMARY KEY,
+    valor TEXT,
+    at    TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 -- A quién no hay que volver a escribirle nunca. Va por dirección y no por
 -- contacto: la misma dirección puede entrar dos veces desde fuentes
 -- distintas, y una baja tiene que valer para todas.
@@ -449,6 +458,11 @@ def _telefonos_al_dia(conn) -> None:
             FOREIGN KEY (contact_id) REFERENCES contacts(id) ON DELETE CASCADE
         );
         CREATE INDEX IF NOT EXISTS ix_borradores_estado ON borradores(estado);
+        CREATE TABLE IF NOT EXISTS ajustes (
+            clave TEXT PRIMARY KEY,
+            valor TEXT,
+            at    TEXT NOT NULL DEFAULT (datetime('now'))
+        );
         CREATE TABLE IF NOT EXISTS suppression (
             email      TEXT PRIMARY KEY,
             reason     TEXT,
@@ -702,3 +716,42 @@ def init_db() -> None:
         conn.executescript(SCHEMA)
         _migrate(conn)
         conn.executescript(SCHEMA_POST_MIGRATE)
+
+
+# ------------------------------------------------------------------ ajustes
+# Lo que se toca desde la app. Va en la base y no en el entorno: cambiarlo no
+# puede exigir entrar al servidor, y tiene que seguir ahí al redesplegar.
+
+def ajuste(clave: str, x=None):
+    """El valor guardado, o `x` si nadie lo configuró todavía."""
+    try:
+        with get_db() as conn:
+            fila = conn.execute("SELECT valor FROM ajustes WHERE clave=?",
+                                (clave,)).fetchone()
+    except Exception:
+        return x
+    return fila["valor"] if fila and fila["valor"] is not None else x
+
+
+def ajuste_entero(clave: str, x: int, minimo: int = 0, maximo: int = 10**9) -> int:
+    try:
+        return max(minimo, min(maximo, int(str(ajuste(clave, x)).strip())))
+    except (TypeError, ValueError):
+        return x
+
+
+def ajuste_bool(clave: str, x: bool = False) -> bool:
+    v = ajuste(clave)
+    if v is None:
+        return x
+    return str(v).strip().lower() in ("1", "true", "si", "sí", "on", "yes")
+
+
+def poner_ajuste(clave: str, valor) -> None:
+    with get_db() as conn:
+        conn.execute(
+            """INSERT INTO ajustes (clave, valor, at)
+               VALUES (?,?,datetime('now'))
+               ON CONFLICT(clave) DO UPDATE SET
+                   valor=excluded.valor, at=datetime('now')""",
+            (clave, None if valor is None else str(valor)))

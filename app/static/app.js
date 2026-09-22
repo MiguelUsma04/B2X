@@ -1254,7 +1254,7 @@ async function pollWebsite() {
 
 /* ======================= configuración ======================= */
 function switchAjustes(cual) {
-  const partes = ['buzones', 'historial', 'salud', 'ayuda'];
+  const partes = ['buzones', 'historial', 'salud', 'sistema', 'ayuda'];
   const elegida = partes.includes(cual) ? cual : 'buzones';
   for (const p of partes) {
     const on = p === elegida;
@@ -1268,6 +1268,7 @@ function switchAjustes(cual) {
   if (elegida === 'ayuda' && marco && !marco.src) marco.src = '/manual';
   if (elegida === 'salud') cargarSalud();
   if (elegida === 'historial') cargarActividad();
+  if (elegida === 'sistema') { cargarVentana(); cargarBase(); }
 }
 
 /* ======================= correos ======================= */
@@ -2662,4 +2663,95 @@ async function programarEnvioIA() {
   await cargarBorradores();
   clearSelection();
   pollMail(true);
+}
+
+/* ==================== horario de envío y respaldo ====================
+   Dos cosas que antes vivían fuera de la app: a qué hora salen los correos
+   —estaba en el entorno del servidor— y el respaldo de la base, que no
+   existía. */
+
+async function cargarVentana() {
+  const d = await (await fetch('/api/mail/ventana')).json();
+  $('v-desde').value = d.desde;
+  $('v-hasta').value = d.hasta;
+  $('v-fines').checked = !!d.fines_de_semana;
+  const e = $('v-estado');
+  if (e) {
+    e.innerHTML = `Ahora en el servidor son las <b>${esc(d.hora_del_servidor)}</b>
+      (zona ${esc(d.zona)}) — ${d.ahora_puede
+        ? 'los correos <b>pueden salir</b>.'
+        : 'la cola está <b>esperando</b> al horario.'}`;
+  }
+}
+
+async function guardarVentana() {
+  const fd = new FormData();
+  fd.append('desde', $('v-desde').value);
+  fd.append('hasta', $('v-hasta').value);
+  fd.append('fines', $('v-fines').checked ? '1' : '');
+  const r = await fetch('/api/mail/ventana', { method: 'POST', body: fd });
+  const d = await r.json();
+  const caja = $('v-result');
+  if (!r.ok) {
+    caja.className = 'alert err';
+    caja.textContent = d.detail || 'No se pudo guardar.';
+    return;
+  }
+  caja.className = 'alert ok';
+  const cuando = d.fines_de_semana ? 'todos los días' : 'de lunes a viernes';
+  caja.innerHTML = `Guardado: los correos salen de <b>${d.desde}:00</b> a
+    <b>${d.hasta}:00</b>, ${cuando}.`;
+  toast('Horario guardado', 'ok');
+  await cargarVentana();
+}
+
+function pesoLegible(bytes) {
+  if (bytes > 1048576) return (bytes / 1048576).toFixed(1) + ' MB';
+  if (bytes > 1024) return Math.round(bytes / 1024) + ' KB';
+  return bytes + ' bytes';
+}
+
+async function cargarBase() {
+  const d = await (await fetch('/api/base')).json();
+  const f = $('base-ficha');
+  if (f) {
+    f.innerHTML =
+      (d.sospecha ? `<div class="alert err" style="margin-bottom:12px">
+         <b>Ojo.</b> ${esc(d.sospecha)}</div>` : '') +
+      `<table class="tabla-base">
+        <tr><td>Archivo</td><td><code>${esc(d.ruta)}</code></td></tr>
+        <tr><td>Tamaño</td><td>${pesoLegible(d.bytes)}</td></tr>
+        <tr><td>Creado</td><td>${esc(d.nacida || '—')}
+          ${d.horas_de_vida != null ? `<span class="help">(hace
+            ${d.horas_de_vida < 48 ? Math.round(d.horas_de_vida) + ' h'
+              : Math.round(d.horas_de_vida / 24) + ' días'})</span>` : ''}</td></tr>
+        <tr><td>Último respaldo</td><td>${esc(d.ultimo_respaldo || 'ninguno')}</td></tr>
+      </table>
+      <div class="fchips" style="margin-top:12px">
+        ${d.contenido.map((c) => `<span class="chip"><b>${c.cuantos}</b>
+          ${esc(c.que)}</span>`).join('')}
+      </div>`;
+  }
+  const lista = $('base-respaldos');
+  if (lista) {
+    lista.innerHTML = !d.respaldos.length
+      ? '<p class="help">Todavía no hay copias guardadas en el servidor. Se hace una sola por día, automáticamente.</p>'
+      : `<p class="help">Copias en el servidor (se guardan las últimas 14):</p>
+         <ul class="lista-simple">${d.respaldos.map((r) =>
+           `<li>${esc(r.cuando)} · ${pesoLegible(r.bytes)}</li>`).join('')}</ul>`;
+  }
+}
+
+async function respaldarAhora() {
+  const r = await fetch('/api/base/respaldo', { method: 'POST' });
+  const d = await r.json();
+  if (!r.ok) { toast(esc(d.detail || 'Error'), 'err'); return; }
+  toast('Copia guardada en el servidor', 'ok');
+  await cargarBase();
+}
+
+function descargarBase() {
+  // Se abre como descarga normal: es un archivo, no una respuesta JSON.
+  window.location = '/api/base/descargar';
+  toast('Descargando la copia…', 'info', 3000);
 }

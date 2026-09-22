@@ -502,10 +502,62 @@
       <button class="seg" id="seg-salud" role="tab" aria-selected="false"
               onclick="switchAjustes('salud')">
         <b>Salud del envío</b><span>rebotes, rechazos y ritmo</span></button>
+      <button class="seg" id="seg-sistema" role="tab" aria-selected="false"
+              onclick="switchAjustes('sistema')">
+        <b>Sistema</b><span>horario y respaldo</span></button>
       <button class="seg" id="seg-ayuda" role="tab" aria-selected="false"
               onclick="switchAjustes('ayuda')">
         <b>Cómo usar B2K</b><span>el manual completo</span></button>
     </div>
+
+    <div id="set-sistema" hidden>
+      <div class="card">
+        <h2>Horario de envío</h2>
+        <div class="body">
+          <p class="lede">Los correos salen solo dentro de este rango. Fuera de
+            él la cola espera: no se pierde nada.</p>
+          <div class="row">
+            <div class="field" style="flex:0 1 150px">
+              <label class="fld" for="v-desde">Desde (hora)</label>
+              <input id="v-desde" type="number" inputmode="numeric" min="0" max="23">
+            </div>
+            <div class="field" style="flex:0 1 150px">
+              <label class="fld" for="v-hasta">Hasta (hora)</label>
+              <input id="v-hasta" type="number" inputmode="numeric" min="1" max="24">
+            </div>
+          </div>
+          <label class="switch" style="margin-top:14px">
+            <input type="checkbox" id="v-fines">
+            <span>También sábados y domingos</span>
+          </label>
+          <p class="help" id="v-estado"></p>
+          <div class="row" style="margin-top:14px">
+            <button class="go" onclick="guardarVentana()">Guardar el horario</button>
+          </div>
+          <div class="aviso" id="v-result" style="margin-top:12px"></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>La base de datos</h2>
+        <div class="body">
+          <p class="lede">Todo lo que sabe B2K vive en un archivo: los
+            contactos, las campañas, quién abrió cada correo y los buzones.
+            Si ese archivo se pierde, no queda nada.</p>
+          <div id="base-ficha"></div>
+          <div class="row" style="margin-top:14px">
+            <button class="go" onclick="descargarBase()">Descargar una copia</button>
+            <button class="ghost" onclick="respaldarAhora()">Guardar una copia
+              en el servidor</button>
+          </div>
+          <p class="help">La copia descargada es el único respaldo de verdad:
+            una copia guardada en el mismo disco que la base no sirve si lo que
+            se pierde es el disco.</p>
+          <div id="base-respaldos" style="margin-top:14px"></div>
+        </div>
+      </div>
+    </div>
+
 
     <div id="set-salud" hidden>
       <div class="card">
