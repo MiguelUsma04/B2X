@@ -1082,16 +1082,43 @@ def _enviar_sincrono(cfg: dict, destino: str, asunto: str, cuerpo: str,
 
 # Lo que falla por el momento y no por el dato. Una casilla llena o un
 # servidor caído se arreglan solos; una dirección que no existe, no.
+# Lo que dice el servidor cuando el problema es del momento. Va en inglés
+# —así llegan los mensajes crudos— y también en español, porque _explicar()
+# traduce los errores conocidos antes de guardarlos: sin las dos listas, un
+# fallo de conexión, que es el más pasajero de todos, no se reintentaba nunca.
 _PASAJEROS = ("temporarily", "try again", "timeout", "timed out", "connection",
               "too many", "rate", "4.7.0", "4.4.2", "server busy",
-              "service not available", "quota")
+              "service not available", "quota",
+              "no se pudo conectar", "tiempo de espera", "intentá más tarde")
+
+# Cuando el problema es el dato, no el momento. Reintentar una dirección que
+# no existe falla igual, cien veces, y gasta reputación del buzón.
+_DEL_DATO = ("no existe", "rechazó la dirección", "user unknown",
+             "no such user", "recipient not found", "mailbox unavailable",
+             "address rejected", "5.1.1")
+
+
+def es_del_dato(error: str | None) -> bool:
+    """Si esto no va a salir nunca, por más veces que se intente."""
+    e = (error or "").lower()
+    return any(p in e for p in _DEL_DATO)
 
 
 def _vale_reintentar(error: str | None) -> bool:
-    e = (error or "").lower()
-    if "no existe" in e or "rechazó la dirección" in e:
+    """Si el obrero tiene que reintentarlo solo, sin que nadie lo pida."""
+    if es_del_dato(error):
         return False
-    return any(p in e for p in _PASAJEROS)
+    return any(p in (error or "").lower() for p in _PASAJEROS)
+
+
+def se_puede_a_mano(error: str | None) -> bool:
+    """Si tiene sentido ofrecer el botón de reintentar.
+
+    Es más ancho que el reintento automático a propósito: una contraseña mal
+    puesta no se arregla sola —por eso el obrero no la reintenta— pero sí se
+    arregla si alguien la corrige y después pide reintentar.
+    """
+    return not es_del_dato(error)
 
 
 def _explicar(exc: Exception) -> str:
@@ -1448,14 +1475,20 @@ async def _tanda() -> None:
                    WHERE id = ?""", (error, fila["id"]))
         return
 
+    # Si ya se había pedido a mano que se reintentara y volvió a fallar, no
+    # queda nada por probar: se marca como imposible para que deje de figurar
+    # entre los que "hay que reintentar" y pase al registro de los que no.
+    definitivo = int(bool(not ok and (fila["manual"] or 0) > 0))
+
     with get_db() as conn:
         # Queda anotado por qué buzón salió: así se reparte el tope diario y
         # después se puede ver cuál viene rebotando.
         conn.execute(
             """UPDATE email_queue SET status=?, error=?, smtp_id=?,
-                 sent_at=datetime('now')
+                 definitivo=?, sent_at=datetime('now')
                 WHERE id=?""",
-            ("sent" if ok else "error", error, cfg.get("id"), fila["id"]))
+            ("sent" if ok else "error", error, cfg.get("id"), definitivo,
+             fila["id"]))
         if ok and cfg.get("id"):
             conn.execute("UPDATE smtp_config SET last_used=datetime('now') WHERE id=?",
                          (cfg["id"],))
@@ -1607,8 +1640,18 @@ async def loop_envio() -> None:
 
 
 def arrancar_worker() -> None:
+    """Deja andando el goteo y el lector de buzones, si no lo estaban.
+
+    Se llama desde varios lados y en alguno puede no haber un bucle corriendo
+    —una tarea de mantenimiento, una prueba—. Ahí no hay nada que arrancar,
+    pero tampoco hay nada que romper: el obrero arranca igual con el próximo
+    pedido a la app.
+    """
     global _worker, _lector
-    lazo = asyncio.get_event_loop()
+    try:
+        lazo = asyncio.get_running_loop()
+    except RuntimeError:
+        return
     if _worker is None or _worker.done():
         _worker = lazo.create_task(loop_envio())
     # El que lee el buzón va aparte: no depende de que haya una campaña en
@@ -1673,3 +1716,120 @@ async def loop_crm() -> None:
         except Exception as exc:
             print(f"[crm] {type(exc).__name__}", flush=True)
         await asyncio.sleep(60)
+
+# ====================== los correos que no salieron ======================
+# Un correo que falla y nadie ve es un contacto perdido sin que nadie se
+# entere. Acá se agrupan por causa —que es lo accionable: veinte fallos por
+# la misma contraseña mal puesta son un solo problema— y se pueden volver a
+# poner en la cola.
+
+def _causa(error: str | None) -> str:
+    """El error, reducido a la cosa que hay que arreglar."""
+    e = (error or "").lower()
+    if "contraseña" in e or "usuario o contraseña" in e:
+        return "La contraseña del buzón"
+    if "no existe" in e or "rechazó la dirección" in e:
+        return "La dirección no existe"
+    if "remitente" in e:
+        return "El remitente no está permitido"
+    if "conectar" in e or "timeout" in e or "timed out" in e:
+        return "No se pudo conectar al servidor"
+    if "límite" in e or "limit" in e or "quota" in e or "too many" in e:
+        return "El servidor cortó por volumen"
+    return (error or "Sin motivo anotado").split(":")[0][:60]
+
+
+# Qué hacer con cada causa. Un error sin una acción al lado es solo una
+# mala noticia.
+QUE_HACER = {
+    "La contraseña del buzón":
+        "Andá a Buzones y volvé a generar la contraseña de aplicación en "
+        "Google. La contraseña normal de la cuenta no sirve. Después "
+        "reintentá: estos correos salen enteros.",
+    "La dirección no existe":
+        "Esa dirección está mal o se dio de baja del dominio. Reintentar no "
+        "sirve: hay que buscar otro correo de esa empresa, o sacarla.",
+    "El remitente no está permitido":
+        "El correo del campo «De» no coincide con la cuenta que se autenticó. "
+        "Corregilo en Buzones y reintentá.",
+    "No se pudo conectar al servidor":
+        "Suele ser pasajero. Reintentá; si vuelve a fallar, revisá el "
+        "servidor y el puerto en Buzones.",
+    "El servidor cortó por volumen":
+        "Se mandó de más para lo que ese buzón aguanta. Bajá el tope diario "
+        "en Buzones, esperá unas horas y reintentá.",
+}
+
+
+def errores(limite: int = 300) -> dict:
+    """Lo que no salió, agrupado por causa, y el registro de lo imposible."""
+    with get_db() as conn:
+        filas = [dict(r) for r in conn.execute(
+            """SELECT q.id, q.email, q.error, q.sent_at, q.intentos, q.manual,
+                      COALESCE(q.definitivo,0) definitivo, q.campaign_id,
+                      c.name campania, ct.company_name, ct.full_name
+                 FROM email_queue q
+                 LEFT JOIN email_campaigns c ON c.id = q.campaign_id
+                 LEFT JOIN contacts ct ON ct.id = q.contact_id
+                WHERE q.status = 'error'
+                ORDER BY q.definitivo, q.sent_at DESC LIMIT ?""", (limite,))]
+
+    grupos: dict[str, dict] = {}
+    for f in filas:
+        causa = _causa(f["error"])
+        g = grupos.setdefault(causa, {
+            "causa": causa, "que_hacer": QUE_HACER.get(causa),
+            "reintentables": [], "imposibles": []})
+        item = {"id": f["id"], "email": f["email"],
+                "quien": f["company_name"] or f["full_name"] or f["email"],
+                "campania": f["campania"], "error": f["error"],
+                "cuando": f["sent_at"], "intentos": f["intentos"] or 0,
+                "manual": f["manual"] or 0}
+        # Lo imposible es lo que ya se reintentó a mano y volvió a fallar, y
+        # lo que falla por el dato: reintentar una dirección que no existe
+        # falla igual, cien veces.
+        if f["definitivo"] or not se_puede_a_mano(f["error"]):
+            g["imposibles"].append(item)
+        else:
+            g["reintentables"].append(item)
+
+    orden = sorted(grupos.values(),
+                   key=lambda g: -(len(g["reintentables"]) + len(g["imposibles"])))
+    return {
+        "grupos": orden,
+        "total": len(filas),
+        "reintentables": sum(len(g["reintentables"]) for g in orden),
+        "imposibles": sum(len(g["imposibles"]) for g in orden),
+    }
+
+
+def reintentar(ids: list[int] | None = None) -> dict:
+    """Vuelve a poner en la cola los que fallaron y todavía tienen chance.
+
+    Los definitivos no entran aunque se los pida: ya se probó y no salen.
+    """
+    with get_db() as conn:
+        donde, args = "", []
+        if ids:
+            donde = f" AND id IN ({','.join('?' * len(ids))})"
+            args = list(ids)
+        candidatos = [dict(r) for r in conn.execute(
+            f"""SELECT id, error FROM email_queue
+                 WHERE status='error' AND COALESCE(definitivo,0)=0{donde}""",
+            args)]
+        # Acá el filtro es más ancho que el del obrero: si alguien aprieta el
+        # botón es porque arregló algo que el obrero no podía arreglar solo.
+        buenos = [c["id"] for c in candidatos if se_puede_a_mano(c["error"])]
+        if not buenos:
+            return {"encolados": 0,
+                    "motivo": "No hay nada que reintentar: lo que falló, falló "
+                              "por el dato y volvería a fallar igual."}
+        marcas = ",".join("?" * len(buenos))
+        conn.execute(
+            f"""UPDATE email_queue
+                   SET status='pending', error=NULL, sent_at=NULL,
+                       intentos=0, manual=COALESCE(manual,0)+1,
+                       send_after=datetime('now')
+                 WHERE id IN ({marcas})""", buenos)
+    arrancar_worker()
+    return {"encolados": len(buenos)}

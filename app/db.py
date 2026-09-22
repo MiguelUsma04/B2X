@@ -434,6 +434,15 @@ def _telefonos_al_dia(conn) -> None:
         if nuevo != f["phone"] or tipo != f["phone_type"]:
             conn.execute("UPDATE contacts SET phone=?, phone_type=? WHERE id=?",
                          (nuevo, tipo, f["id"]))
+    cols = {r["name"] for r in conn.execute("PRAGMA table_info(email_queue)")}
+    # Cuántas veces se pidió a mano que se reintentara, y si ya se dio por
+    # imposible. Sin esto no hay forma de distinguir "falló y hay que
+    # reintentar" de "falló, se reintentó, y no va a salir nunca".
+    if "manual" not in cols:
+        conn.execute("ALTER TABLE email_queue ADD COLUMN manual INTEGER DEFAULT 0")
+    if "definitivo" not in cols:
+        conn.execute("ALTER TABLE email_queue ADD COLUMN definitivo INTEGER DEFAULT 0")
+
     cols = {r["name"] for r in conn.execute("PRAGMA table_info(email_events)")}
     if "crm" not in cols:
         # 0 = falta contárselo a Kommo · 1 = hecho · 2 = no correspondía

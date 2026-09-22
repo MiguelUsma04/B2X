@@ -1266,7 +1266,7 @@ function switchAjustes(cual) {
   // no tiene por qué pesar en cada carga de la app.
   const marco = $('manual-frame');
   if (elegida === 'ayuda' && marco && !marco.src) marco.src = '/manual';
-  if (elegida === 'salud') cargarSalud();
+  if (elegida === 'salud') { cargarSalud(); cargarErrores(); }
   if (elegida === 'historial') cargarActividad();
   if (elegida === 'sistema') { cargarVentana(); cargarBase(); cargarEtapas(); }
 }
@@ -2819,4 +2819,78 @@ async function sincronizarEtapas() {
   toast(r.motivo ? esc(r.motivo)
         : `${r.hechos} lead(s) movidos de ${r.mirados} evento(s)`, 'ok');
   await cargarEtapas();
+}
+
+/* ==================== correos que no salieron ====================
+   Agrupados por causa y no uno por uno: veinte fallos por la misma
+   contraseña mal puesta son un solo problema, y arreglarla los resuelve
+   todos. Al lado de cada causa va qué hacer, porque un error sin una
+   acción es solo una mala noticia. */
+
+async function cargarErrores() {
+  const d = await (await fetch('/api/mail/errores')).json();
+  const hint = $('err-hint');
+  if (hint) {
+    hint.textContent = d.total
+      ? `${d.total} sin salir · ${d.reintentables} se pueden reintentar`
+      : 'ninguno';
+  }
+  const caja = $('err-lista');
+  if (!caja) return;
+  if (!d.total) {
+    caja.innerHTML = '<div class="alert ok">No hay correos con error.</div>';
+    return;
+  }
+
+  caja.innerHTML = `
+    ${d.reintentables ? `<div class="row" style="margin-bottom:14px">
+      <button class="go" onclick="reintentarErrores()">
+        Reintentar los ${d.reintentables}</button></div>` : ''}
+    ${d.grupos.map((g) => {
+      const total = g.reintentables.length + g.imposibles.length;
+      const quienes = (arr) => arr.slice(0, 8).map((x) =>
+        `<li>${esc(x.quien)} <span class="help">${esc(x.email)}</span></li>`)
+        .join('') + (arr.length > 8
+          ? `<li class="help">… y ${arr.length - 8} más</li>` : '');
+      return `<div class="grupo-error">
+        <div class="ge-h"><b>${esc(g.causa)}</b>
+          <span class="chip">${total}</span></div>
+        ${g.que_hacer ? `<p class="ge-q">${esc(g.que_hacer)}</p>` : ''}
+        ${g.reintentables.length ? `
+          <p class="help">Se pueden reintentar (${g.reintentables.length}):</p>
+          <ul class="lista-simple">${quienes(g.reintentables)}</ul>
+          <div class="row" style="margin-top:10px">
+            <button class="ghost" onclick='reintentarErrores(${
+              JSON.stringify(g.reintentables.map((x) => x.id))})'>
+              Reintentar estos ${g.reintentables.length}</button>
+          </div>` : ''}
+        ${g.imposibles.length ? `
+          <p class="help" style="margin-top:10px">Ya no se pueden reintentar
+            (${g.imposibles.length}): o fallan por el dato, o ya se
+            reintentaron y volvieron a fallar.</p>
+          <ul class="lista-simple apagada">${quienes(g.imposibles)}</ul>` : ''}
+      </div>`;
+    }).join('')}`;
+}
+
+async function reintentarErrores(ids) {
+  const cuantos = ids ? ids.length : null;
+  const ok = await ask('Reintentar el envío',
+    `<p>Se vuelven a poner en la cola ${cuantos ? `<b>${cuantos}</b>` : 'todos los'}
+     correo(s) que fallaron.</p>
+     <p class="help">Salen con el mismo goteo que el resto. Si vuelven a
+     fallar, quedan marcados como imposibles y no se ofrecen de nuevo.</p>`,
+    [{ label: 'Cancelar', value: false },
+     { label: 'Reintentar', value: true, cls: 'go' }]);
+  if (!ok) return;
+  const fd = new FormData();
+  if (ids) fd.append('ids', JSON.stringify(ids));
+  const r = await fetch('/api/mail/errores/reintentar', { method: 'POST', body: fd });
+  const d = await r.json();
+  if (!r.ok) { toast(esc(d.detail || 'Error'), 'err'); return; }
+  toast(d.encolados ? `${d.encolados} correo(s) en cola de nuevo`
+                    : esc(d.motivo || 'No había nada que reintentar'),
+        d.encolados ? 'ok' : 'info');
+  await cargarErrores();
+  pollMail(true);
 }

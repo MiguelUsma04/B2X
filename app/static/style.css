@@ -946,3 +946,16 @@ pre{font-family:var(--mono);font-size:12px;background:var(--surface-2);
 @media (min-width:700px){
   .etapa-fila{grid-template-columns:minmax(0,1fr) minmax(0,1.2fr);gap:14px}
 }
+
+/* ------------------------------------------------ correos que fallaron
+   Un bloque por causa. Lo que se puede arreglar arriba, lo perdido abajo
+   y apagado: no es lo mismo una lista de tareas que una de bajas. */
+.grupo-error{
+  border:1px solid var(--line);border-radius:var(--r-sm);
+  padding:14px;margin-top:12px;background:var(--surface-2);
+}
+.ge-h{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.ge-q{margin:8px 0 10px;font-size:14px;color:var(--ink-2);
+  padding:9px 12px;border-left:3px solid var(--warn);
+  background:var(--warn-soft);border-radius:0 var(--r-xs) var(--r-xs) 0}
+.lista-simple.apagada{opacity:.6}

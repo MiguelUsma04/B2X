@@ -1007,6 +1007,28 @@ def api_mail_borradores_borrar():
     return {"ok": True, "cuantos": redactor.limpiar_borradores()}
 
 
+@app.get("/api/mail/errores")
+def api_mail_errores():
+    """Lo que no salió, agrupado por causa, con qué hacer en cada caso."""
+    return mailer.errores()
+
+
+@app.post("/api/mail/errores/reintentar")
+def api_mail_reintentar(request: Request, ids: str = Form("")):
+    """Vuelve a poner en la cola lo que falló y todavía tiene chance."""
+    lista = None
+    if ids.strip():
+        try:
+            lista = [int(i) for i in json.loads(ids)]
+        except Exception:
+            raise HTTPException(400, "ids debe ser un array JSON de enteros.")
+    r = mailer.reintentar(lista)
+    if r.get("encolados"):
+        anotar(request, "Reintentó correos que habían fallado", "",
+               r["encolados"])
+    return r
+
+
 # ------------------------------------------------- etapas de Kommo
 # Qué hecho del correo lleva el lead a qué etapa. Sin esto B2K sabe todo lo
 # que pasa y Kommo no se entera de nada.
