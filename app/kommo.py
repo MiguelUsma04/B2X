@@ -24,9 +24,6 @@ from . import telefonos
 from .db import get_db
 
 TIEMPO = 30.0
-# Kommo corta a las siete llamadas por segundo. Con una espera corta entre
-# contactos no se llega nunca al límite, y 0,2 s por contacto es invisible al
-# lado de lo que tarda la llamada.
 # Kommo permite unas 7 consultas por segundo por cuenta. Se va a 5 a
 # propósito: el techo es de la cuenta entera, no de esta app, y si alguien
 # está trabajando en Kommo al mismo tiempo el límite se comparte.
@@ -110,7 +107,7 @@ async def campos(client: httpx.AsyncClient, refrescar: bool = False) -> dict:
     if r.status_code == 200:
         for f in r.json().get("_embedded", {}).get("custom_fields", []):
             code = (f.get("code") or "").upper()
-            if code in ("PHONE", "EMAIL"):
+            if code in ("PHONE", "EMAIL", "POSITION"):
                 encontrados[code.lower()] = f["id"]
             elif code == "USERNAME":
                 # El campo del chat. Su enum WHATSAPP es el que hace que el
@@ -129,13 +126,23 @@ async def campos(client: httpx.AsyncClient, refrescar: bool = False) -> dict:
 # los datos que B2K averigua y que el comercial necesita ver sin salir de
 # Kommo. Se crean solos la primera vez; si ya existen, se reusan.
 GRUPO_B2K = "B2K"
+# Los campos de la pestaña B2K, en el orden en que se leen: primero lo que
+# sirve para abrir una conversación, después los datos duros, y al final de
+# dónde salió. Los que faltan se crean solos la primera vez.
 CAMPOS_LEAD = [
     ("Resumen del negocio", "textarea"),
     ("Gancho", "textarea"),
+    ("Novedades", "textarea"),
     ("Ciudad", "text"),
+    ("Dirección", "textarea"),
     ("Rubro", "text"),
+    ("Especialidad", "text"),
+    ("Qué vende", "textarea"),
+    ("A quién le vende", "text"),
+    ("Antigüedad", "text"),
     ("Sitio web", "url"),
     ("Calificación en Google", "text"),
+    ("Ficha en Google Maps", "url"),
     ("De dónde salió", "text"),
 ]
 
@@ -195,6 +202,21 @@ async def campos_lead(client: httpx.AsyncClient, refrescar: bool = False) -> dic
     return _CAMPOS_LEAD
 
 
+def _ciudad_de(direccion: str) -> str:
+    """La ciudad de una dirección de Google, que viene por comas.
+
+    Google devuelve "Cra 7 #1-2, Chapinero, Bogotá, Colombia": el país va
+    último y la ciudad justo antes. Con menos partes no se puede afirmar
+    nada, y una ciudad inventada en la tarjeta es peor que una vacía.
+    """
+    partes = [p.strip() for p in (direccion or "").split(",") if p.strip()]
+    if len(partes) < 3:
+        return ""
+    ciudad = partes[-2]
+    # Un pedazo que es solo números es un código postal, no una ciudad.
+    return "" if ciudad.replace(" ", "").isdigit() else ciudad
+
+
 def datos_del_lead(c: dict) -> dict:
     """Lo que B2K sabe de esta empresa, con el nombre de cada campo."""
     perfil = {}
@@ -216,13 +238,33 @@ def datos_del_lead(c: dict) -> dict:
     if sitio and not sitio.startswith("http"):
         sitio = "https://" + sitio
 
+    # La ciudad sale de la ficha de IA si la hay, y si no de la dirección.
+    # Antes solo salía de la ficha: un contacto de Maps sin ficha llegaba con
+    # la ciudad vacía teniendo la dirección completa al lado.
+    ciudad = ciudades[0] if ciudades else _ciudad_de(c.get("address") or "")
+
+    novedades = perfil.get("novedades") or []
+    especialidad = perfil.get("especialidad") or ""
+    if especialidad in ("no_esta_claro", "otro"):
+        especialidad = ""
+
     return {
         "Resumen del negocio": (perfil.get("resumen") or c.get("ai_summary") or ""),
         "Gancho": perfil.get("gancho") or "",
-        "Ciudad": (ciudades[0] if ciudades else "") or "",
+        "Novedades": " · ".join(n for n in novedades if n),
+        "Ciudad": ciudad,
+        "Dirección": c.get("address") or "",
         "Rubro": c.get("category") or "",
+        "Especialidad": especialidad,
+        "Qué vende": ", ".join(perfil.get("que_vende") or []),
+        "A quién le vende": {"empresas": "A empresas",
+                             "consumidor_final": "Al consumidor final",
+                             "ambos": "A empresas y a consumidor final"}
+                            .get(perfil.get("vende_a") or "", ""),
+        "Antigüedad": perfil.get("anios_en_el_mercado") or "",
         "Sitio web": sitio,
         "Calificación en Google": calificacion,
+        "Ficha en Google Maps": c.get("maps_url") or "",
         "De dónde salió": "Google Maps" if c.get("place_id") else "Archivo de Apollo",
     }
 
@@ -249,16 +291,33 @@ def _valor(campo_id: int, valor: str, enum_code: str | None = None,
 
 
 def armar_contacto(c: dict, ids: dict) -> dict:
-    """El contacto tal como lo espera Kommo."""
-    nombre = (c.get("full_name") or c.get("company_name") or c.get("email")
-              or "Sin nombre").strip()
+    """El contacto tal como lo espera Kommo.
+
+    Cuando se sabe quién es la persona, el contacto es la persona y el
+    negocio queda como compañía (ver armar_empresa). Cuando no se sabe, el
+    contacto lleva el nombre del negocio: es lo único que hay, y un contacto
+    sin nombre no lo trabaja nadie.
+    """
+    persona = persona_del_contacto(c)
+    if persona.get("nombre"):
+        nombre = f"{persona['nombre']} {persona['apellido']}".strip()
+    else:
+        nombre = (c.get("full_name") or c.get("company_name") or c.get("email")
+                  or "Sin nombre").strip()
     cuerpo: dict = {"name": nombre[:250]}
+    if persona.get("nombre"):
+        cuerpo["first_name"] = persona["nombre"][:100]
+        if persona.get("apellido"):
+            cuerpo["last_name"] = persona["apellido"][:100]
 
     responsable = (os.getenv("KOMMO_RESPONSIBLE_ID") or "").strip()
     if responsable.isdigit():
         cuerpo["responsible_user_id"] = int(responsable)
 
     campos_valores = []
+    if persona.get("cargo") and ids.get("position"):
+        campos_valores.append({"field_id": ids["position"],
+                               "values": [{"value": persona["cargo"][:250]}]})
     if c.get("email") and ids.get("email"):
         campos_valores.append(_valor(ids["email"], c["email"], "WORK"))
 
@@ -322,6 +381,111 @@ def armar_lead(c: dict, tag: str | None, campos_ids: dict | None = None) -> dict
         if valores:
             lead["custom_fields_values"] = valores
     return lead
+
+
+# ================== la persona, la empresa, y quién es quién ==================
+# Un lead de Maps trae el nombre del negocio y nada más: el contacto terminaba
+# llamándose igual que la empresa y la sección Compañía quedaba vacía. Cuando
+# el sitio nombra a alguien, esa persona es el contacto y el negocio pasa a
+# ser la compañía, que es como está pensado Kommo y como lo usa un comercial:
+# le escribe a una persona que trabaja en una empresa.
+
+_CAMPOS_EMPRESA: dict | None = None
+
+
+async def campos_empresa(client: httpx.AsyncClient,
+                         refrescar: bool = False) -> dict:
+    """Los ids de teléfono, email, web y dirección de las compañías.
+
+    Son campos que Kommo trae de fábrica: se buscan por su código y no se
+    crean, porque ya existen en toda cuenta.
+    """
+    global _CAMPOS_EMPRESA
+    if _CAMPOS_EMPRESA is not None and not refrescar:
+        return _CAMPOS_EMPRESA
+    ids = {}
+    try:
+        r = await client.get(f"{base_url()}/companies/custom_fields",
+                             params={"limit": 250})
+        if r.status_code == 200:
+            por_codigo = {"PHONE": "phone", "EMAIL": "email",
+                          "WEB": "web", "ADDRESS": "address"}
+            for f in r.json().get("_embedded", {}).get("custom_fields", []):
+                clave = por_codigo.get((f.get("code") or "").upper())
+                if clave:
+                    ids[clave] = f["id"]
+    except Exception:
+        pass
+    _CAMPOS_EMPRESA = ids
+    return ids
+
+
+def persona_del_contacto(c: dict) -> dict:
+    """Quién es la persona detrás de este contacto, si se sabe.
+
+    Devuelve {"nombre", "apellido", "cargo", "email"} o vacío. Se apoya en el
+    redactor, que ya resuelve lo difícil: atar un nombre publicado en el sitio
+    a la dirección a la que se escribe, sin inventar.
+    """
+    nombre = (c.get("first_name") or "").strip()
+    apellido = (c.get("last_name") or "").strip()
+    if nombre:
+        return {"nombre": nombre, "apellido": apellido,
+                "cargo": (c.get("job_title") or "").strip(),
+                "email": (c.get("email") or "").strip()}
+
+    from . import redactor
+    p = redactor.persona_del_correo(c)
+    if not p.get("nombre"):
+        # Sin correo al que atarlo, solo vale si el sitio nombra a una sola
+        # persona: con dos no hay forma de saber cuál es la que atiende.
+        perfil = redactor._perfil(c)
+        gente = [x for x in (perfil.get("personas") or [])
+                 if (x.get("nombre") or "").strip()]
+        empresa = redactor._normal(c.get("company_name") or "")
+        gente = [x for x in gente if redactor._normal(x["nombre"]) != empresa]
+        if len(gente) != 1:
+            return {}
+        p = gente[0]
+
+    partes = p["nombre"].split()
+    return {"nombre": partes[0],
+            "apellido": " ".join(partes[1:]),
+            "cargo": (p.get("cargo") or "").strip(),
+            "email": (p.get("email") or c.get("email") or "").strip()}
+
+
+def armar_empresa(c: dict, ids: dict) -> dict:
+    """La compañía: el negocio, con sus datos de negocio."""
+    nombre = (c.get("company_name") or c.get("full_name") or "").strip()
+    if not nombre:
+        return {}
+    empresa: dict = {"name": nombre[:250]}
+
+    sitio = (c.get("company_domain") or "").strip()
+    if sitio and not sitio.startswith("http"):
+        sitio = "https://" + sitio
+
+    valores = []
+    # El teléfono y el correo van en la compañía cuando son del negocio y no
+    # de una persona: un info@ o un conmutador es de la empresa.
+    persona = persona_del_contacto(c)
+    tel = (c.get("phone") or "").strip()
+    if tel and ids.get("phone") and not persona:
+        valores.append({"field_id": ids["phone"],
+                        "values": [{"value": tel}]})
+    correo = (c.get("email") or "").strip()
+    if correo and ids.get("email") and not persona.get("email"):
+        valores.append({"field_id": ids["email"],
+                        "values": [{"value": correo}]})
+    if sitio and ids.get("web"):
+        valores.append({"field_id": ids["web"], "values": [{"value": sitio}]})
+    if c.get("address") and ids.get("address"):
+        valores.append({"field_id": ids["address"],
+                        "values": [{"value": str(c["address"])[:500]}]})
+    if valores:
+        empresa["custom_fields_values"] = valores
+    return empresa
 
 
 async def _con_reintento(client: httpx.AsyncClient, metodo: str, url: str,
@@ -417,6 +581,7 @@ async def send_contacts(contact_ids: list[int], tag: str | None = None) -> dict:
     async with httpx.AsyncClient(timeout=TIEMPO, headers=_headers()) as client:
         ids = await campos(client)
         ids_lead = await campos_lead(client)
+        ids_empresa = await campos_empresa(client)
         if not ids.get("phone") and not ids.get("email"):
             return {"error": "No se pudieron leer los campos de Kommo. "
                              "Revisá el token.", "sent": 0, "failed": 0,
@@ -462,6 +627,12 @@ async def send_contacts(contact_ids: list[int], tag: str | None = None) -> dict:
                 lead = armar_lead(c, tag, ids_lead)
                 dentro = lead.pop("_embedded", {})
                 dentro["contacts"] = [armar_contacto(c, ids)]
+                # La compañía va en la misma llamada: si fuera aparte y
+                # fallara, quedaría un lead con contacto y sin empresa, que es
+                # peor que no tenerla, porque nadie sabe que falta.
+                empresa = armar_empresa(c, ids_empresa)
+                if empresa:
+                    dentro["companies"] = [empresa]
                 lead["_embedded"] = dentro
                 r = await _con_reintento(client, "POST",
                                          f"{base_url()}/leads/complex",
