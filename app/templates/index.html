@@ -161,7 +161,7 @@
     </div>
 
     <div class="card">
-      <h2>Envío al CRM <span class="hint">GoHighLevel</span></h2>
+      <h2>Envío al CRM <span class="hint" id="crm-hint">Kommo</span></h2>
       <div class="body">
         <div class="row">
           <div class="field">
@@ -742,6 +742,7 @@
   <button class="ghost sm" onclick="clearSelection()" title="Desmarcar todos"
           aria-label="Desmarcar todos">✕</button>
   <button class="sm" onclick="goToStep('mail')">Correo</button>
+  <button class="danger sm" onclick="borrarContactos()">Borrar</button>
   <button class="go sm" id="selbar-go" onclick="sendToGHL()">Al CRM</button>
 </div>
 

@@ -1029,6 +1029,53 @@ def api_mail_reintentar(request: Request, ids: str = Form("")):
     return r
 
 
+@app.post("/api/contacts/borrar")
+def api_contacts_borrar(request: Request, contact_ids: str = Form(...),
+                        forzar: str = Form("")):
+    """Borra contactos marcados.
+
+    Por defecto no toca los que ya salieron hacia afuera —los que están en
+    Kommo o los que recibieron un correo—: su historia vive también del otro
+    lado, y borrarlos acá deja al equipo sin saber de dónde salió ese lead.
+    Con `forzar` se borran igual, pero quien lo pide tiene que verlo escrito.
+    """
+    try:
+        ids = [int(i) for i in json.loads(contact_ids)]
+    except Exception:
+        raise HTTPException(400, "contact_ids debe ser un array JSON de enteros.")
+    if not ids:
+        return {"borrados": 0, "protegidos": []}
+
+    marcas = ",".join("?" * len(ids))
+    with get_db() as conn:
+        filas = [dict(r) for r in conn.execute(
+            f"""SELECT c.id, c.company_name, c.full_name, c.email,
+                       c.crm_lead_id,
+                       (SELECT COUNT(*) FROM email_queue q
+                         WHERE q.contact_id = c.id AND q.status='sent') enviados
+                  FROM contacts c WHERE c.id IN ({marcas})""", ids)]
+
+    a_secas = str(forzar).lower() in ("1", "true", "on", "si", "sí")
+    tocados = [f for f in filas if f["crm_lead_id"] or f["enviados"]]
+    borrables = [f["id"] for f in filas
+                 if a_secas or not (f["crm_lead_id"] or f["enviados"])]
+
+    if borrables:
+        marcas2 = ",".join("?" * len(borrables))
+        with get_db() as conn:
+            conn.execute(f"DELETE FROM contacts WHERE id IN ({marcas2})", borrables)
+        anotar(request, "Borró contactos",
+               "incluyendo algunos que ya estaban en el CRM o ya recibieron "
+               "correo" if a_secas and tocados else "", len(borrables))
+    return {
+        "borrados": len(borrables),
+        "protegidos": [] if a_secas else [
+            {"id": f["id"], "nombre": f["company_name"] or f["full_name"],
+             "motivo": ("ya está en Kommo" if f["crm_lead_id"]
+                        else "ya recibió un correo")} for f in tocados],
+    }
+
+
 # ------------------------------------------------- duplicados y CRM de cero
 
 @app.get("/api/duplicados")

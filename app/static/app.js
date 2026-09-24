@@ -668,7 +668,7 @@ async function sendToGHL() {
 
   const tag = $('ghl-tag').value.trim();
   const ok = await ask('Enviar al CRM',
-    `<p>Se van a enviar <b>${ids.length} contacto(s)</b> a GoHighLevel.</p>
+    `<p>Se van a enviar <b>${ids.length} contacto(s)</b> a Kommo.</p>
      <p class="help">Los que ya estén en el CRM se saltean. Los que no tengan ni
      email ni teléfono no se pueden enviar.${tag ? ` Etiqueta: <b>${esc(tag)}</b>.` : ''}</p>`,
     [{ label: 'Cancelar', value: false },
@@ -686,8 +686,11 @@ async function sendToGHL() {
   const d = await r.json();
 
   if (d.error) {
+    // El motivo va en el aviso flotante además del recuadro: desde la barra
+    // de selección el recuadro queda fuera de la vista y solo se veía
+    // "No se pudo enviar al CRM", que no dice qué arreglar.
     $('ghl-result').innerHTML = `<div class="alert err">${esc(d.error)}</div>`;
-    toast('No se pudo enviar al CRM', 'err');
+    toast(esc(d.error), 'err', 9000);
   } else {
     const errs = (d.results || []).filter((x) => x.status === 'error').slice(0, 5);
     const oppErrs = (d.results || []).filter((x) => x.opportunity_error).slice(0, 5);
@@ -2986,4 +2989,59 @@ async function resetCRM() {
   toast(`${d.olvidados} vínculo(s) olvidados`, 'ok');
   await cargarEstadoCRM();
   if (typeof loadContacts === 'function') loadContacts();
+}
+
+/* ==================== borrar contactos ====================
+   Lo que no sirve estorba: una lista con doscientos contactos que nadie va a
+   trabajar hace que el filtro y los contadores mientan. Pero borrar no es
+   gratis cuando el contacto ya salió hacia afuera, así que eso se avisa y se
+   confirma aparte. */
+
+async function borrarContactos() {
+  const ids = [...SELECTED];
+  if (!ids.length) { toast('Marcá contactos primero', 'warn'); return; }
+
+  const ok = await ask('Borrar contactos',
+    `<p>Se borran <b>${ids.length} contacto(s)</b> de B2K.</p>
+     <p class="help">Los que ya están en Kommo o ya recibieron un correo no se
+     borran en este paso: te los vamos a listar aparte.</p>`,
+    [{ label: 'Cancelar', value: false },
+     { label: `Borrar ${ids.length}`, value: true, cls: 'danger' }]);
+  if (!ok) return;
+
+  const fd = new FormData();
+  fd.append('contact_ids', JSON.stringify(ids));
+  const r = await fetch('/api/contacts/borrar', { method: 'POST', body: fd });
+  const d = await r.json();
+  if (!r.ok) { toast(esc(d.detail || 'Error'), 'err'); return; }
+
+  if (d.borrados) toast(`${d.borrados} contacto(s) borrados`, 'ok');
+
+  // Los protegidos se ofrecen aparte, con el motivo a la vista: borrarlos
+  // igual es una decisión, no un descuido.
+  if (d.protegidos && d.protegidos.length) {
+    const lista = d.protegidos.slice(0, 10).map((p) =>
+      `<li>${esc(p.nombre || '?')} <span class="help">${esc(p.motivo)}</span></li>`
+    ).join('');
+    const igual = await ask('Estos no se borraron',
+      `<p><b>${d.protegidos.length}</b> contacto(s) ya salieron hacia afuera:</p>
+       <ul class="lista-simple">${lista}${
+         d.protegidos.length > 10
+           ? `<li class="help">… y ${d.protegidos.length - 10} más</li>` : ''}</ul>
+       <p class="help">Borrarlos de B2K no los saca de Kommo ni deshace los
+       correos que ya salieron: solo perdés de este lado el registro de qué
+       se les escribió y cuándo.</p>`,
+      [{ label: 'Dejarlos', value: false },
+       { label: 'Borrarlos igual', value: true, cls: 'danger' }]);
+    if (igual) {
+      const fd2 = new FormData();
+      fd2.append('contact_ids', JSON.stringify(d.protegidos.map((p) => p.id)));
+      fd2.append('forzar', '1');
+      const r2 = await (await fetch('/api/contacts/borrar',
+                                    { method: 'POST', body: fd2 })).json();
+      toast(`${r2.borrados} contacto(s) borrados`, 'ok');
+    }
+  }
+  clearSelection();
+  loadContacts();
 }

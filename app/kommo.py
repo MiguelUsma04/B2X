@@ -72,6 +72,15 @@ def _aflojar() -> None:
         _castigo = _castigo / 2 if _castigo > 0.05 else 0.0
 
 
+SIN_CONFIGURAR = (
+    "Kommo no está configurado en este servidor: faltan KOMMO_SUBDOMAIN y "
+    "KOMMO_TOKEN. Van en el archivo .env que está al lado del "
+    "docker-compose.yml, y el bloque del compose tiene que nombrarlas. "
+    "Después hay que volver a desplegar: cambiar el .env no alcanza mientras "
+    "el contenedor siga levantado con la configuración vieja."
+)
+
+
 def configured() -> bool:
     return bool(os.getenv("KOMMO_SUBDOMAIN") and os.getenv("KOMMO_TOKEN"))
 
@@ -392,7 +401,7 @@ async def send_contacts(contact_ids: list[int], tag: str | None = None) -> dict:
     motivo, y quien mira decide si reintenta.
     """
     if not configured():
-        return {"error": "Faltan KOMMO_SUBDOMAIN y KOMMO_TOKEN en el .env",
+        return {"error": SIN_CONFIGURAR,
                 "sent": 0, "failed": 0, "results": []}
     if not contact_ids:
         return {"sent": 0, "failed": 0, "skipped": 0, "results": []}
@@ -606,7 +615,7 @@ async def historial_del_contacto(crm_contact_id: str) -> dict:
 async def listar_embudos() -> dict:
     """Los embudos con sus etapas, para elegir a dónde caen los contactos."""
     if not configured():
-        return {"error": "Faltan KOMMO_SUBDOMAIN y KOMMO_TOKEN en el .env",
+        return {"error": SIN_CONFIGURAR,
                 "pipelines": []}
     async with httpx.AsyncClient(timeout=TIEMPO, headers=_headers()) as client:
         r = await client.get(f"{base_url()}/leads/pipelines")
