@@ -967,7 +967,10 @@ def _leer_buzon_sincrono(b: dict, limite: int = 300) -> dict:
                 ref = (msg.get("Message-ID") or "").strip()
                 de = msg.get("From") or ""
                 if rebote:
-                    rebotes += int(_anotar_respuesta(conn, fila, "bounce", ref, de))
+                    nuevo = _anotar_respuesta(conn, fila, "bounce", ref, de)
+                    rebotes += int(nuevo)
+                    if nuevo:
+                        _apagar_por_rebote(conn, fila["contact_id"])
                 elif _es_automatico(msg):
                     automaticos += 1
                 else:
@@ -1833,3 +1836,51 @@ def reintentar(ids: list[int] | None = None) -> dict:
                  WHERE id IN ({marcas})""", buenos)
     arrancar_worker()
     return {"encolados": len(buenos)}
+
+def _apagar_por_rebote(conn, contact_id: int | None) -> None:
+    """Deja fuera de circulación una dirección que no existe.
+
+    Volver a escribirle a una dirección que rebotó es lo que más rápido ensucia
+    la reputación del dominio: el servidor del otro lado ya dijo que no está, y
+    insistir se lee como envío a ciegas.
+
+    Lo que se apaga es el correo, no el contacto. Si tiene teléfono sigue
+    sirviendo para llamarlo, y por eso queda marcado en vez de borrado: el
+    comercial tiene que poder verlo y decidir.
+    """
+    if not contact_id:
+        return
+    fila = conn.execute(
+        "SELECT email, phone FROM contacts WHERE id=?", (contact_id,)).fetchone()
+    if not fila or not (fila["email"] or "").strip():
+        return
+
+    conn.execute("UPDATE contacts SET email_status='bounced' WHERE id=?",
+                 (contact_id,))
+    # A la lista de supresión, que es la que miran los envíos y las cargas.
+    # Así la misma dirección no vuelve a entrar por un CSV la semana que viene.
+    conn.execute(
+        """INSERT OR IGNORE INTO suppression (email, reason, contact_id)
+           VALUES (LOWER(?), 'rebotó: esa dirección no existe', ?)""",
+        (fila["email"].strip(), contact_id))
+
+
+def rebotados() -> list[dict]:
+    """Los contactos cuyo correo rebotó, y con qué se los puede seguir.
+
+    Separados por si les queda un teléfono: los que sí, son una lista de
+    llamadas; los que no, no hay por dónde alcanzarlos y conviene sacarlos.
+    """
+    with get_db() as conn:
+        filas = [dict(r) for r in conn.execute(
+            """SELECT c.id, c.company_name, c.full_name, c.email, c.phone,
+                      c.phone_type, c.crm_lead_id,
+                      (SELECT MAX(e.at) FROM email_events e
+                        WHERE e.contact_id = c.id AND e.kind='bounce') cuando
+                 FROM contacts c
+                WHERE c.email_status = 'bounced'
+                ORDER BY cuando DESC""")]
+    con_tel = [f for f in filas if (f["phone"] or "").strip()]
+    sin_nada = [f for f in filas if not (f["phone"] or "").strip()]
+    return {"total": len(filas), "se_pueden_llamar": con_tel,
+            "sin_forma_de_contacto": sin_nada}

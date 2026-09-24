@@ -575,6 +575,39 @@ def _explicar(r: httpx.Response) -> str:
     return f"HTTP {r.status_code}: {(d.get('title') or r.text)[:200]}"
 
 
+async def actualizar_ficha(client: httpx.AsyncClient, c: dict,
+                           ids_lead: dict, ids_empresa: dict) -> bool:
+    """Pone al día la pestaña B2K de un lead que ya existe.
+
+    Lo decidió el equipo: cuando B2K encuentra un dato nuevo, ese dato gana.
+    Es lo razonable acá porque los campos de la pestaña B2K los llena B2K y
+    nadie más: son lo que se leyó del sitio, no notas de un comercial.
+
+    Lo que sigue sin tocarse es el nombre del lead, su etapa y su responsable
+    —eso sí lo mueve gente— y los campos vacíos, porque escribir vacío en
+    Kommo borra.
+    """
+    lead_id = (c.get("crm_lead_id") or "").strip()
+    if not lead_id or not ids_lead:
+        return False
+
+    valores = []
+    for nombre, texto in datos_del_lead(c).items():
+        fid = ids_lead.get(nombre)
+        if fid and str(texto).strip():
+            valores.append({"field_id": fid,
+                            "values": [{"value": str(texto)[:2000]}]})
+    if not valores:
+        return False
+
+    try:
+        r = await _con_reintento(client, "PATCH", f"{base_url()}/leads/{lead_id}",
+                                 json={"custom_fields_values": valores})
+        return r.status_code in (200, 201)
+    except Exception:
+        return False
+
+
 async def send_contacts(contact_ids: list[int], tag: str | None = None) -> dict:
     """Sube los contactos marcados a Kommo, de a uno.
 
@@ -593,6 +626,7 @@ async def send_contacts(contact_ids: list[int], tag: str | None = None) -> dict:
             f"SELECT * FROM contacts WHERE id IN ({marcas})", contact_ids)]
 
     enviados = fallidos = saltados = ya = sin_confirmar = rehechos = 0
+    actualizados = 0
     resultados = []
 
     async with httpx.AsyncClient(timeout=TIEMPO, headers=_headers()) as client:
@@ -616,9 +650,19 @@ async def send_contacts(contact_ids: list[int], tag: str | None = None) -> dict:
                         ya += 1
                         if hay is None:
                             sin_confirmar += 1
+                        # No se vuelve a crear, pero sí se pone al día la
+                        # ficha: si B2K leyó el sitio después de haberlo
+                        # subido, el resumen y el gancho existen de este lado
+                        # y en Kommo sigue la tarjeta vacía.
+                        puesto = await actualizar_ficha(
+                            client, c, ids_lead, ids_empresa)
+                        if puesto:
+                            actualizados += 1
                         resultados.append({
                             "id": cid, "status": "already",
-                            "message": "Ya estaba en Kommo." if hay else
+                            "message": ("Ya estaba en Kommo; se puso al día la "
+                                        "ficha." if puesto else
+                                        "Ya estaba en Kommo.") if hay else
                                        "Figura en Kommo pero no se pudo "
                                        "confirmar; no se reenvía para no "
                                        "duplicarlo."})
@@ -695,7 +739,8 @@ async def send_contacts(contact_ids: list[int], tag: str | None = None) -> dict:
                 resultados.append({"id": cid, "status": "error", "message": msg})
 
     return {"sent": enviados, "failed": fallidos, "skipped": saltados,
-            "already_in_crm": ya, "not_verified": sin_confirmar,
+            "already_in_crm": ya,
+            "updated": actualizados, "not_verified": sin_confirmar,
             "recreated": rehechos,
             "pipeline_configured": bool((os.getenv("KOMMO_PIPELINE_ID") or "").strip()),
             "results": resultados}

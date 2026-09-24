@@ -959,3 +959,9 @@ pre{font-family:var(--mono);font-size:12px;background:var(--surface-2);
   padding:9px 12px;border-left:3px solid var(--warn);
   background:var(--warn-soft);border-radius:0 var(--r-xs) var(--r-xs) 0}
 .lista-simple.apagada{opacity:.6}
+
+/* El correo que rebotó. Rojo como "no se encontró" pero tachado: no es que
+   falte, es que existió y ya no sirve. */
+.pill.bounced{background:var(--danger-soft);color:var(--danger);
+  border-color:var(--danger-line);text-decoration:line-through;
+  text-decoration-thickness:1px}

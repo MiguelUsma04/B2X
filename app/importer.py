@@ -17,6 +17,12 @@ def _existing_keys(conn: sqlite3.Connection) -> tuple[set[str], set[tuple[str, s
     return emails, name_domain
 
 
+def _apagadas(conn) -> set:
+    """Las direcciones que no pueden volver a entrar: bajas y rebotes."""
+    return {r["email"] for r in conn.execute(
+        "SELECT LOWER(email) email FROM suppression")}
+
+
 def import_contacts(conn: sqlite3.Connection, filename: str, raw: bytes,
                     icp_tag: str | None = None) -> dict:
     """Importa un CSV. Devuelve el resumen del batch.
@@ -44,13 +50,18 @@ def import_contacts(conn: sqlite3.Connection, filename: str, raw: bytes,
 
     seen_emails, seen_nd = _existing_keys(conn)
     huellas = duplicados.huellas_cargadas(conn)
+    # Las direcciones apagadas —una baja, un rebote— no vuelven a entrar por
+    # un archivo. Si entraran, el próximo envío les escribiría igual: el
+    # filtro del envío mira la dirección, y una fila nueva la trae de vuelta
+    # con otro id.
+    apagadas = _apagadas(conn)
     cur = conn.execute(
         "INSERT INTO import_batches (filename, total_rows, icp_tag) VALUES (?,?,?)",
         (filename, len(rows), icp_tag or None),
     )
     batch_id = cur.lastrowid
 
-    new_count = dup_count = skipped = 0
+    new_count = dup_count = skipped = bloqueados = 0
     for row in rows:
         c = row_to_contact(row, mapping)
         if not c["full_name"]:
@@ -62,6 +73,9 @@ def import_contacts(conn: sqlite3.Connection, filename: str, raw: bytes,
         if c["full_name"] and c["company_domain"]:
             nd_key = (c["full_name"].lower(), c["company_domain"].lower())
 
+        if email_key and email_key in apagadas:
+            bloqueados += 1
+            continue
         if email_key and email_key in seen_emails:
             dup_count += 1
             continue
@@ -107,7 +121,8 @@ def import_contacts(conn: sqlite3.Connection, filename: str, raw: bytes,
     return {
         "batch_id": batch_id, "filename": filename, "total_rows": len(rows),
         "new_contacts": new_count, "duplicate_contacts": dup_count,
-        "skipped_no_name": skipped, "mapping": mapping,
+        "skipped_no_name": skipped, "blocked_suppressed": bloqueados,
+        "mapping": mapping,
     }
 
 

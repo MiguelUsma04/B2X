@@ -24,7 +24,8 @@ CREATE TABLE IF NOT EXISTS contacts (
     full_name         TEXT,
     email             TEXT,
     email_status      TEXT NOT NULL DEFAULT 'pending'
-                      CHECK (email_status IN ('verified','unverified','not_found','pending')),
+                      CHECK (email_status IN ('verified','unverified','not_found',
+                                              'pending','bounced')),
     email_source      TEXT
                       CHECK (email_source IN ('apollo','prospeo','icypeas','hunter','web')
                              OR email_source IS NULL),
@@ -434,6 +435,8 @@ def _telefonos_al_dia(conn) -> None:
         if nuevo != f["phone"] or tipo != f["phone_type"]:
             conn.execute("UPDATE contacts SET phone=?, phone_type=? WHERE id=?",
                          (nuevo, tipo, f["id"]))
+
+    _admitir_rebotado(conn)
     cols = {r["name"] for r in conn.execute("PRAGMA table_info(email_queue)")}
     # Cuántas veces se pidió a mano que se reintentara, y si ya se dio por
     # imposible. Sin esto no hay forma de distinguir "falló y hay que
@@ -772,3 +775,51 @@ def poner_ajuste(clave: str, valor) -> None:
                ON CONFLICT(clave) DO UPDATE SET
                    valor=excluded.valor, at=datetime('now')""",
             (clave, None if valor is None else str(valor)))
+
+def _admitir_rebotado(conn) -> None:
+    """Deja que email_status pueda decir 'bounced'.
+
+    El CHECK de la tabla no se puede ampliar con ALTER: hay que rehacerla. Es
+    la tercera vez que pasa en este proyecto y siempre por lo mismo —un estado
+    nuevo que no estaba previsto—, así que el procedimiento está escrito acá
+    entero: se copia la tabla con el CHECK nuevo, se traen las filas, se
+    rehacen los índices y recién ahí se borra la vieja.
+    """
+    fila = conn.execute(
+        "SELECT sql FROM sqlite_master WHERE type='table' AND name='contacts'"
+    ).fetchone()
+    if not fila or not fila["sql"] or "bounced" in fila["sql"]:
+        return
+
+    cols = [r["name"] for r in conn.execute("PRAGMA table_info(contacts)")]
+    lista = ", ".join(f'"{c}"' for c in cols)
+    nuevo = fila["sql"].replace(
+        "CHECK (email_status IN ('verified','unverified','not_found','pending'))",
+        "CHECK (email_status IN ('verified','unverified','not_found',"
+        "'pending','bounced'))").replace(
+        "CREATE TABLE contacts", "CREATE TABLE contacts_nueva", 1)
+    if "bounced" not in nuevo:
+        return          # el CHECK no era el esperado: mejor no tocar nada
+
+    conn.execute("PRAGMA foreign_keys=OFF")
+    try:
+        conn.execute(nuevo)
+        conn.execute(f"INSERT INTO contacts_nueva ({lista}) "
+                     f"SELECT {lista} FROM contacts")
+        conn.execute("DROP TABLE contacts")
+        conn.execute("ALTER TABLE contacts_nueva RENAME TO contacts")
+        # Los índices se van con la tabla vieja: se rehacen.
+        conn.executescript("""
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_contacts_email
+                ON contacts(lower(email)) WHERE email IS NOT NULL AND email <> '';
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_contacts_name_domain
+                ON contacts(lower(full_name), lower(company_domain))
+                WHERE email IS NULL OR email = '';
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_contacts_place
+                ON contacts(lower(place_id))
+                WHERE place_id IS NOT NULL AND place_id <> '';
+            CREATE INDEX IF NOT EXISTS idx_contacts_email_status
+                ON contacts(email_status);
+        """)
+    finally:
+        conn.execute("PRAGMA foreign_keys=ON")

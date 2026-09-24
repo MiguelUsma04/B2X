@@ -15,6 +15,9 @@ const esc = (s) => (s == null ? '' : String(s).replace(/[&<>"']/g,
 const STATUS_TXT = {
   verified: 'Verificado', unverified: 'Sin verificar',
   pending: 'Falta buscar', not_found: 'No se encontró',
+  // El correo volvió: esa dirección no existe. Queda apagada para siempre,
+  // por eso tiene etiqueta propia y no se mezcla con 'No se encontró'.
+  bounced: 'Rebotó',
 };
 const GHL_TXT = { pending: 'Sin enviar', sent: 'En el CRM', error: 'Falló' };
 const SOURCE_TXT = {
