@@ -142,8 +142,8 @@ CAMPOS_LEAD = [
     ("Antigüedad", "text"),
     ("Sitio web", "url"),
     ("Calificación en Google", "text"),
-    ("Ficha en Google Maps", "url"),
     ("De dónde salió", "text"),
+    ("Ficha en Google Maps", "url"),
 ]
 
 _CAMPOS_LEAD: dict | None = None
@@ -200,6 +200,23 @@ async def campos_lead(client: httpx.AsyncClient, refrescar: bool = False) -> dic
     _CAMPOS_LEAD = {n: existentes.get(n.lower()) for n, _ in CAMPOS_LEAD
                     if existentes.get(n.lower())}
     return _CAMPOS_LEAD
+
+
+def _ficha_maps(c: dict) -> str:
+    """El enlace a la ficha del negocio en Google Maps.
+
+    Google devuelve la dirección hecha, pero no siempre: cuando falta se arma
+    con el identificador del lugar, que sí viene en todos. Sin esto, la mitad
+    de las tarjetas decía "salió de Google Maps" sin forma de ir a mirarla, y
+    el comercial terminaba buscando el negocio a mano.
+    """
+    url = (c.get("maps_url") or "").strip()
+    if url:
+        return url
+    pid = (c.get("place_id") or "").strip()
+    if pid:
+        return f"https://www.google.com/maps/place/?q=place_id:{pid}"
+    return ""
 
 
 def _ciudad_de(direccion: str) -> str:
@@ -264,8 +281,8 @@ def datos_del_lead(c: dict) -> dict:
         "Antigüedad": perfil.get("anios_en_el_mercado") or "",
         "Sitio web": sitio,
         "Calificación en Google": calificacion,
-        "Ficha en Google Maps": c.get("maps_url") or "",
         "De dónde salió": "Google Maps" if c.get("place_id") else "Archivo de Apollo",
+        "Ficha en Google Maps": _ficha_maps(c),
     }
 
 
