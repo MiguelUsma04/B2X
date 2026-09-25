@@ -1855,8 +1855,7 @@ def _apagar_por_rebote(conn, contact_id: int | None) -> None:
     if not fila or not (fila["email"] or "").strip():
         return
 
-    conn.execute("UPDATE contacts SET email_status='bounced' WHERE id=?",
-                 (contact_id,))
+    conn.execute("UPDATE contacts SET rebotado=1 WHERE id=?", (contact_id,))
     # A la lista de supresión, que es la que miran los envíos y las cargas.
     # Así la misma dirección no vuelve a entrar por un CSV la semana que viene.
     conn.execute(
@@ -1878,7 +1877,7 @@ def rebotados() -> list[dict]:
                       (SELECT MAX(e.at) FROM email_events e
                         WHERE e.contact_id = c.id AND e.kind='bounce') cuando
                  FROM contacts c
-                WHERE c.email_status = 'bounced'
+                WHERE c.rebotado = 1
                 ORDER BY cuando DESC""")]
     con_tel = [f for f in filas if (f["phone"] or "").strip()]
     sin_nada = [f for f in filas if not (f["phone"] or "").strip()]

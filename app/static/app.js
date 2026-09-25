@@ -15,10 +15,15 @@ const esc = (s) => (s == null ? '' : String(s).replace(/[&<>"']/g,
 const STATUS_TXT = {
   verified: 'Verificado', unverified: 'Sin verificar',
   pending: 'Falta buscar', not_found: 'No se encontró',
-  // El correo volvió: esa dirección no existe. Queda apagada para siempre,
-  // por eso tiene etiqueta propia y no se mezcla con 'No se encontró'.
   bounced: 'Rebotó',
 };
+
+/* El rebote pisa al estado del correo: que esté verificado deja de importar
+   cuando la dirección devolvió el mensaje. Son dos datos distintos y por eso
+   viven en columnas distintas, pero en pantalla manda uno solo. */
+function estadoCorreo(c) {
+  return c.rebotado ? 'bounced' : c.email_status;
+}
 const GHL_TXT = { pending: 'Sin enviar', sent: 'En el CRM', error: 'Falló' };
 const SOURCE_TXT = {
   apollo: 'Venía en el archivo', prospeo: 'Prospeo',
@@ -582,7 +587,7 @@ async function loadContacts() {
       <td data-label="Teléfono">${c.phone
         ? esc(c.phone) + telNota(c)
         : '<span class="sub dash">—</span>'}</td>
-      <td class="c-tag" data-label="Estado">${pill(c.email_status, STATUS_TXT)}
+      <td class="c-tag" data-label="Estado">${pill(estadoCorreo(c), STATUS_TXT)}
         ${c.mobile_available && !c.phone
           ? '<div class="sub" title="Prospeo tiene su celular pero no lo reveló. Se desbloquea desde Buscar teléfonos.">hay celular</div>'
           : ''}</td>
@@ -1999,7 +2004,7 @@ async function doPreview() {
       ${c.job_title ? `<div class="sub">${esc(c.job_title)}</div>` : ''}</td>
     <td data-label="Empresa">${esc(c.company_name || '—')}</td>
     <td data-label="Email">${esc(c.email || '—')}</td>
-    <td data-label="Estado">${pill(c.email_status, STATUS_TXT)}</td></tr>`).join('');
+    <td data-label="Estado">${pill(estadoCorreo(c), STATUS_TXT)}</td></tr>`).join('');
 
   const conEmail = d.preview.filter((c) => c.email).length;
   const warn = d.unmapped_fields.filter((x) => ['first_name', 'company_domain'].includes(x));
@@ -2177,7 +2182,7 @@ async function showDetail(id) {
       <dt>Email</dt><dd>${c.email
         ? `<a href="mailto:${esc(c.email)}" style="color:var(--brand)">${esc(c.email)}</a>`
         : 'Sin email todavía'}</dd>
-      <dt>Estado</dt><dd>${pill(c.email_status, STATUS_TXT)}</dd>
+      <dt>Estado</dt><dd>${pill(estadoCorreo(c), STATUS_TXT)}</dd>
       <dt>Encontrado por</dt><dd>${pill(c.email_source, SOURCE_TXT)}</dd>
       <dt>Teléfono</dt><dd>${c.phone
         ? `<a href="tel:${esc(c.phone)}" style="color:var(--brand)">${esc(c.phone)}</a>`
