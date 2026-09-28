@@ -194,8 +194,14 @@ button.tile:hover{transform:translateY(-2px);box-shadow:var(--shadow-md);
 .srcleg b{font-variant-numeric:tabular-nums;color:var(--ink)}
 
 /* selector de origen: dos formas de traer contactos, una sola sección */
+/* Las pestañas ocupan el ancho entero y van todas en una sola fila, siempre.
+   Con flex y wrap, cinco pestañas se partían 4 + 1 y la última quedaba suelta
+   abajo, que se lee como un error de maquetación y no como un grupo. Una
+   rejilla de columnas iguales reparte el ancho exacto entre las que haya, sin
+   importar cuántas sean. */
 .segmented{
-  display:flex;gap:6px;background:var(--surface);border:1px solid var(--line);
+  display:grid;grid-auto-flow:column;grid-auto-columns:minmax(0,1fr);
+  gap:6px;background:var(--surface);border:1px solid var(--line);
   border-radius:var(--r);padding:6px;margin-bottom:14px;box-shadow:var(--shadow);
 }
 .seg{
@@ -212,12 +218,16 @@ button.tile:hover{transform:translateY(-2px);box-shadow:var(--shadow-md);
 /* El ancho lo pone la cantidad de opciones, no un número fijo: con dos, un
    tope angosto las mantiene legibles como interruptor; con cuatro, ese mismo
    tope les parte el rótulo en tres renglones. */
-.segmented{flex-wrap:wrap}
-.seg{flex:1 1 170px}
-#panel-settings .segmented{max-width:760px}
-@media (max-width:620px){
-  /* En el teléfono se acomodan de a dos por fila en vez de cuatro apretadas. */
-  .seg{flex:1 1 44%}
+/* En pantalla angosta no se parten en dos filas: la fila se desliza. Cada
+   pestaña conserva un ancho donde su texto se lee, y se arrastra de costado
+   como las tarjetas de arriba. */
+@media (max-width:760px){
+  .segmented{
+    overflow-x:auto;grid-auto-columns:minmax(148px,1fr);
+    scroll-snap-type:x proximity;scrollbar-width:none;
+  }
+  .segmented::-webkit-scrollbar{display:none}
+  .seg{scroll-snap-align:start}
 }
 
 /* ============================== correo en HTML ========================= */
