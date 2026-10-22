@@ -1437,7 +1437,9 @@ _lector: asyncio.Task | None = None
 # importa: esconder los botones y dejar al obrero mandando sería peor que no
 # esconder nada.
 def correo_activo() -> bool:
-    return db.ajuste_bool("correos_activos", False)
+    # Prendido salvo que alguien lo apague a mano. Se apagó un rato en
+    # octubre de 2026, cuando B2K se usó solo para alimentar el CRM.
+    return db.ajuste_bool("correos_activos", True)
 
 
 async def _tanda() -> None:
