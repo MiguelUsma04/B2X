@@ -20,6 +20,7 @@ import time
 
 import httpx
 
+from . import db as db_mod
 from . import telefonos
 from .db import get_db
 
@@ -364,17 +365,40 @@ def armar_contacto(c: dict, ids: dict) -> dict:
     return cuerpo
 
 
+# Dónde caen los leads nuevos: qué embudo y en qué etapa.
+#
+# Lo elegido desde Ajustes manda sobre el .env. El .env se fija al desplegar y
+# cambiarlo obliga a entrar al servidor; esto se cambia desde la pantalla, que
+# es donde está la persona que sabe a qué embudo va cada campaña.
+_DESTINO = (("crm_pipeline_id", "KOMMO_PIPELINE_ID", "pipeline_id"),
+            ("crm_status_id", "KOMMO_STATUS_ID", "status_id"))
+
+
+def destino_del_lead() -> dict:
+    """{"pipeline_id": n, "status_id": n} con lo que haya configurado.
+
+    Un valor guardado en blanco es una decisión ("no quiero embudo") y no una
+    falta de configuración: en ese caso no se cae al .env. Por eso se mira si
+    el ajuste existe, y no si tiene algo adentro.
+    """
+    salida: dict = {}
+    for clave, var, campo in _DESTINO:
+        v = db_mod.ajuste(clave)
+        if v is None:
+            v = os.getenv(var) or ""
+        v = str(v).strip()
+        if v.isdigit():
+            salida[campo] = int(v)
+    return salida
+
+
 def armar_lead(c: dict, tag: str | None, campos_ids: dict | None = None) -> dict:
     """El lead: la oportunidad que va a avanzar por el embudo."""
     nombre = (c.get("company_name") or c.get("full_name")
               or c.get("email") or "Prospecto").strip()
     lead: dict = {"name": nombre[:250]}
 
-    for var, clave in (("KOMMO_PIPELINE_ID", "pipeline_id"),
-                       ("KOMMO_STATUS_ID", "status_id")):
-        v = (os.getenv(var) or "").strip()
-        if v.isdigit():
-            lead[clave] = int(v)
+    lead.update(destino_del_lead())
 
     responsable = (os.getenv("KOMMO_RESPONSIBLE_ID") or "").strip()
     if responsable.isdigit():
@@ -742,7 +766,7 @@ async def send_contacts(contact_ids: list[int], tag: str | None = None) -> dict:
             "already_in_crm": ya,
             "updated": actualizados, "not_verified": sin_confirmar,
             "recreated": rehechos,
-            "pipeline_configured": bool((os.getenv("KOMMO_PIPELINE_ID") or "").strip()),
+            "pipeline_configured": bool(destino_del_lead().get("pipeline_id")),
             "results": resultados}
 
 
@@ -869,8 +893,8 @@ async def listar_embudos() -> dict:
                         for u in ru.json().get("_embedded", {}).get("users", [])]
 
     return {"pipelines": salida, "users": usuarios,
-            "selected_pipeline": (os.getenv("KOMMO_PIPELINE_ID") or "").strip(),
-            "selected_status": (os.getenv("KOMMO_STATUS_ID") or "").strip(),
+            "selected_pipeline": str(destino_del_lead().get("pipeline_id") or ""),
+            "selected_status": str(destino_del_lead().get("status_id") or ""),
             "selected_user": (os.getenv("KOMMO_RESPONSIBLE_ID") or "").strip()}
 
 # ======================================================================

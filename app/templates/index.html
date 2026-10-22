@@ -54,11 +54,11 @@
       <span class="ico" aria-hidden="true">◆</span><span class="num">3</span>
       <span><span class="t">Contactos</span><span class="d">Revisá y mandá al CRM</span></span>
     </button>
-    <button class="step" data-panel="mail">
+    <button class="step" data-panel="mail" id="step-mail">
       <span class="ico" aria-hidden="true">✈</span><span class="num">4</span>
       <span><span class="t">Correos</span><span class="d">Campaña en goteo</span></span>
     </button>
-    <button class="step" data-panel="results">
+    <button class="step" data-panel="results" id="step-results">
       <span class="ico" aria-hidden="true">📈</span><span class="num">5</span>
       <span><span class="t">Resultados</span><span class="d">Aperturas y clics</span></span>
     </button>
@@ -144,7 +144,11 @@
     <div class="card list">
       <h2>Contactos <span class="hint" id="ccount"></span>
         <span class="spacer"></span>
+        <button class="ghost sm" onclick="marcarLosNuevos()"
+                title="Los de la última búsqueda que todavía no fueron al CRM">
+          Marcar solo los nuevos</button>
         <button class="ghost sm" onclick="selectAllFiltered()">Marcar todos</button>
+        <button class="ghost sm" onclick="exportarMarcados()">Exportar a Excel</button>
       </h2>
       <div class="tbl-scroll">
         <table class="rtable">
@@ -512,6 +516,22 @@
 
     <div id="set-sistema" hidden>
       <div class="card">
+        <h2>Qué hace B2K</h2>
+        <div class="body">
+          <p class="lede">B2K siempre busca empresas y las manda al CRM. El
+            envío de correos desde la app es aparte y se puede apagar.</p>
+          <label class="switch">
+            <input type="checkbox" id="f-correos" onchange="guardarFuncionCorreos()">
+            <span>Mandar correos desde B2K</span>
+          </label>
+          <p class="help">Apagado, desaparecen los pasos de Correos y
+            Resultados y el goteo queda en pausa. No se borra nada: las
+            campañas, la cola y los buzones quedan donde están y vuelven a
+            andar si lo prendés de nuevo.</p>
+        </div>
+      </div>
+
+      <div class="card" id="card-horario">
         <h2>Horario de envío</h2>
         <div class="body">
           <p class="lede">Los correos salen solo dentro de este rango. Fuera de
@@ -741,7 +761,7 @@
   <div class="n"><span id="selcount">0</span> marcados<small id="selhint"></small></div>
   <button class="ghost sm" onclick="clearSelection()" title="Desmarcar todos"
           aria-label="Desmarcar todos">✕</button>
-  <button class="sm" onclick="goToStep('mail')">Correo</button>
+  <button class="sm" id="selbar-mail" onclick="goToStep('mail')">Correo</button>
   <button class="danger sm" onclick="borrarContactos()">Borrar</button>
   <button class="go sm" id="selbar-go" onclick="sendToGHL()">Al CRM</button>
 </div>

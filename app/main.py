@@ -43,7 +43,7 @@ from . import db as db_mod              # noqa: E402
 from .db import get_db, init_db          # noqa: E402
 from .importer import (delete_batch, import_contacts,      # noqa: E402
                        import_places, preview_csv)
-from . import (ai, auth, dnscheck, duplicados, enrichment,  # noqa: E402
+from . import (ai, auth, dnscheck, duplicados, enrichment, exportar,  # noqa: E402
                ghl, kommo, mailer, places, redactor, respaldo)
 from .providers import build_chain       # noqa: E402
 
@@ -158,7 +158,11 @@ def api_me(request: Request):
     s = auth.sesion(request) or {}
     return {"email": s.get("email"),
             "google": auth.google_configured(),
-            "domain": auth.dominio_permitido()}
+            "domain": auth.dominio_permitido(),
+            # Si esta instalación manda correos o solo alimenta el CRM. Va acá
+            # porque la pantalla lo necesita antes de dibujar los pasos, y
+            # /api/me ya se pide al arrancar.
+            "correos": mailer.correo_activo()}
 
 
 @app.post("/api/logout")
@@ -614,6 +618,37 @@ async def api_places_search(request: Request, query: str = Form(...),
         "requests": r.get("pages", 0),
         "usage": _places_usage(),
     }
+
+
+@app.get("/api/places/export")
+def api_places_export():
+    """Baja la búsqueda que está en pantalla, sin guardarla como contactos.
+
+    Sirve para pasarle la lista a alguien que no entra a B2K, o para revisarla
+    antes de decidir. Es la misma búsqueda que ya se pagó: exportar no vuelve
+    a consultarle nada a Google.
+    """
+    pend = _PENDING_PLACES.get("places") or []
+    if not pend:
+        raise HTTPException(400, "No hay una búsqueda en pantalla. Buscá de nuevo.")
+    return exportar.csv_respuesta(pend, exportar.COLUMNAS_MAPS,
+                                  _PENDING_PLACES.get("query") or "busqueda-maps")
+
+
+@app.post("/api/contacts/export")
+def api_contacts_export(contact_ids: str = Form(...)):
+    """Baja los contactos marcados, con todo lo que se les haya averiguado."""
+    try:
+        ids = [int(i) for i in json.loads(contact_ids)]
+    except Exception:
+        raise HTTPException(400, "contact_ids debe ser un array JSON de enteros.")
+    if not ids:
+        raise HTTPException(400, "No se marcó ningún contacto.")
+    ph = ",".join("?" * len(ids))
+    with get_db() as conn:
+        filas = [dict(r) for r in conn.execute(
+            f"SELECT * FROM contacts WHERE id IN ({ph}) ORDER BY id DESC", ids)]
+    return exportar.csv_respuesta(filas, exportar.COLUMNAS_CONTACTOS, "contactos-b2k")
 
 
 @app.post("/api/places/import")
@@ -1209,6 +1244,26 @@ async def api_crm_sincronizar(request: Request):
 # Se guarda en la base y no en el entorno: cambiar a qué hora salen los
 # correos no puede exigir entrar al servidor y redesplegar.
 
+@app.get("/api/funciones")
+def api_funciones():
+    return {"correos": mailer.correo_activo()}
+
+
+@app.post("/api/funciones")
+def api_funciones_guardar(request: Request, correos: str = Form(...)):
+    """Prende o apaga el envío de correos desde la app.
+
+    Apagado, B2K busca empresas y las manda al CRM, y nada más. No se borra
+    ninguna campaña ni ningún buzón: el goteo queda en pausa y retoma solo si
+    alguien lo vuelve a prender.
+    """
+    on = str(correos).strip().lower() in ("1", "true", "si", "sí", "on", "yes")
+    db_mod.poner_ajuste("correos_activos", "1" if on else "0")
+    anotar(request, "Cambió el envío de correos",
+           "prendido" if on else "apagado: solo CRM")
+    return {"correos": on}
+
+
 @app.get("/api/mail/ventana")
 def api_ventana():
     desde, hasta, fines = mailer.ventana()
@@ -1569,47 +1624,29 @@ async def api_ghl_pipelines():
 
 @app.get("/api/ghl/settings")
 def api_ghl_settings():
-    return {"pipeline_id": os.getenv("GHL_PIPELINE_ID", ""),
-            "stage_id": os.getenv("GHL_STAGE_ID", ""),
-            "default_tag": os.getenv("GHL_DEFAULT_TAG", "")}
+    d = kommo.destino_del_lead()
+    return {"pipeline_id": str(d.get("pipeline_id") or ""),
+            "stage_id": str(d.get("status_id") or ""),
+            "default_tag": os.getenv("KOMMO_DEFAULT_TAG", "")}
 
 
 @app.post("/api/ghl/settings")
-def api_ghl_settings_save(pipeline_id: str = Form(""), stage_id: str = Form("")):
-    """Guarda el embudo elegido.
+def api_ghl_settings_save(request: Request, pipeline_id: str = Form(""),
+                          stage_id: str = Form("")):
+    """Guarda a qué embudo y a qué etapa van los leads nuevos.
 
-    Se escribe en el entorno del proceso y en el .env cuando existe, para que
-    sobreviva a un reinicio. En Docker el .env no está montado: ahí el valor
-    dura lo que dure el contenedor, y conviene fijarlo en docker-compose.
+    Va a la tabla de ajustes y no al .env: el .env no está montado en el
+    contenedor, así que lo que se escribía ahí se perdía en el siguiente
+    despliegue. La base vive en el volumen y sobrevive.
     """
-    os.environ["GHL_PIPELINE_ID"] = pipeline_id.strip()
-    os.environ["GHL_STAGE_ID"] = stage_id.strip()
-
-    persisted = False
-    env_path = BASE_DIR.parent / ".env"
-    if env_path.exists():
-        try:
-            lines = env_path.read_text(encoding="utf-8").splitlines()
-            out, seen = [], set()
-            for line in lines:
-                key = line.split("=", 1)[0].strip() if "=" in line else ""
-                if key == "GHL_PIPELINE_ID":
-                    out.append(f"GHL_PIPELINE_ID={pipeline_id.strip()}"); seen.add(key)
-                elif key == "GHL_STAGE_ID":
-                    out.append(f"GHL_STAGE_ID={stage_id.strip()}"); seen.add(key)
-                else:
-                    out.append(line)
-            if "GHL_PIPELINE_ID" not in seen:
-                out.append(f"GHL_PIPELINE_ID={pipeline_id.strip()}")
-            if "GHL_STAGE_ID" not in seen:
-                out.append(f"GHL_STAGE_ID={stage_id.strip()}")
-            env_path.write_text("\n".join(out) + "\n", encoding="utf-8")
-            persisted = True
-        except OSError:
-            persisted = False
-
-    return {"saved": True, "persisted_to_env": persisted,
-            "pipeline_id": pipeline_id.strip(), "stage_id": stage_id.strip()}
+    pid, sid = pipeline_id.strip(), stage_id.strip()
+    if not pid:
+        sid = ""          # sin embudo no hay etapa que valga
+    db_mod.poner_ajuste("crm_pipeline_id", pid)
+    db_mod.poner_ajuste("crm_status_id", sid)
+    anotar(request, "Cambió el embudo del CRM",
+           f"embudo {pid or 'ninguno'} · etapa {sid or '—'}")
+    return {"saved": True, "pipeline_id": pid, "stage_id": sid}
 
 
 @app.post("/api/ghl/send")

@@ -7,6 +7,7 @@ créditos de más, no la velocidad.
 import asyncio
 import json
 import os
+import sqlite3
 from dataclasses import dataclass, field
 
 import httpx
@@ -231,6 +232,30 @@ async def run_enrichment(limit: int | None = None, batch_id: int | None = None) 
             PROGRESS.current_provider = None
 
 
+# ----------------------------------------------------------- cuántos a la vez
+# Los dos trabajos largos —leer sitios y armar fichas— van de a varios
+# contactos en paralelo. Es la diferencia entre esperar la suma de todos los
+# sitios y esperar al más lento de cada tanda.
+#
+# Los topes son conservadores a propósito: cada contacto abre adentro sus
+# propias descargas (ver A_LA_VEZ en website.py), así que el total de
+# conexiones es el producto de los dos, no la suma.
+
+
+def sitios_a_la_vez() -> int:
+    try:
+        return max(1, min(12, int(os.getenv("SITIOS_A_LA_VEZ") or "5")))
+    except ValueError:
+        return 5
+
+
+def fichas_a_la_vez() -> int:
+    try:
+        return max(1, min(8, int(os.getenv("FICHAS_A_LA_VEZ") or "3")))
+    except ValueError:
+        return 3
+
+
 # ------------------------------------------------------------- ficha con IA
 AI_PROGRESS = EnrichProgress()
 _AI_LOCK = asyncio.Lock()
@@ -257,6 +282,12 @@ async def run_ai_profile(contact_ids: list[int], rehacer: bool = False) -> None:
     Esto sí cuesta plata por contacto, así que va sobre una selección explícita
     y no sobre toda la base. El sitio se baja una sola vez: el mismo texto que
     se usa para sacar emails con reglas es el que después lee el modelo.
+
+    Van varios contactos a la vez. De a uno, cada ficha espera a que termine
+    la anterior —bajar el sitio entero y encima la vuelta al modelo—, y con
+    una lista mediana eso es un café entero mirando la barra. El tope es más
+    bajo que el de la lectura de sitios a secas porque acá hay además una
+    cuenta de OpenAI del otro lado.
     """
     global AI_PROGRESS
     if _AI_LOCK.locked():
@@ -273,71 +304,76 @@ async def run_ai_profile(contact_ids: list[int], rehacer: bool = False) -> None:
                                  "puede leer ningún sitio con IA.")
             return
 
-        try:
-            async with httpx.AsyncClient(timeout=90.0) as client:
-                for c in contactos:
-                    AI_PROGRESS.current_contact = c.get("full_name") or f"#{c['id']}"
-                    AI_PROGRESS.current_provider = c.get("company_domain")
+        limite = asyncio.Semaphore(fichas_a_la_vez())
 
-                    leido = await website.scrape(client, c["company_domain"])
-                    texto = leido.get("text") or ""
-                    if not texto.strip():
-                        AI_PROGRESS.not_found += 1
-                        AI_PROGRESS.processed += 1
-                        with get_db() as conn:
-                            conn.execute(
-                                """INSERT INTO enrichment_log (contact_id, provider,
-                                   success, request_payload, error_message)
-                                   VALUES (?, 'ia', 0, ?, ?)""",
-                                (c["id"],
-                                 json.dumps({"domain": c["company_domain"]},
-                                            ensure_ascii=False),
-                                 leido.get("error") or "No se pudo leer el sitio."))
-                        continue
+        async def uno(client, c: dict) -> None:
+            async with limite:
+                AI_PROGRESS.current_contact = c.get("full_name") or f"#{c['id']}"
+                AI_PROGRESS.current_provider = c.get("company_domain")
 
-                    r = await ai.analizar(client, c, texto)
-                    tok = r.get("tokens") or {}
-
+                leido = await website.scrape(client, c["company_domain"])
+                texto = leido.get("text") or ""
+                if not texto.strip():
+                    AI_PROGRESS.not_found += 1
+                    AI_PROGRESS.processed += 1
                     with get_db() as conn:
                         conn.execute(
-                            """INSERT INTO ai_usage (contact_id, model, tokens_in,
-                               tokens_out, ok) VALUES (?,?,?,?,?)""",
-                            (c["id"], ai.modelo_ficha(), tok.get("entrada", 0),
-                             tok.get("salida", 0), 1 if r["perfil"] else 0))
-                        conn.execute(
                             """INSERT INTO enrichment_log (contact_id, provider,
-                               success, request_payload, response_payload, error_message)
-                               VALUES (?, 'ia', ?, ?, ?, ?)""",
-                            (c["id"], 1 if r["perfil"] else 0,
-                             json.dumps({"domain": c["company_domain"],
-                                         "pages": leido.get("pages"),
-                                         "model": ai.modelo_ficha()},
-                                        ensure_ascii=False)[:20000],
-                             json.dumps(r.get("perfil") or r.get("body"),
-                                        ensure_ascii=False)[:20000],
-                             r.get("error")))
+                               success, request_payload, error_message)
+                               VALUES (?, 'ia', 0, ?, ?)""",
+                            (c["id"],
+                             json.dumps({"domain": c["company_domain"]},
+                                        ensure_ascii=False),
+                             leido.get("error") or "No se pudo leer el sitio."))
+                    return
 
-                        if r["perfil"]:
-                            conn.execute(
-                                """UPDATE contacts SET ai_profile=?, ai_summary=?,
-                                   ai_updated_at=datetime('now'),
-                                   updated_at=datetime('now') WHERE id=?""",
-                                (json.dumps(r["perfil"], ensure_ascii=False),
-                                 (r["perfil"].get("resumen") or "")[:400], c["id"]))
+                r = await ai.analizar(client, c, texto)
+                tok = r.get("tokens") or {}
+
+                with get_db() as conn:
+                    conn.execute(
+                        """INSERT INTO ai_usage (contact_id, model, tokens_in,
+                           tokens_out, ok) VALUES (?,?,?,?,?)""",
+                        (c["id"], ai.modelo_ficha(), tok.get("entrada", 0),
+                         tok.get("salida", 0), 1 if r["perfil"] else 0))
+                    conn.execute(
+                        """INSERT INTO enrichment_log (contact_id, provider,
+                           success, request_payload, response_payload, error_message)
+                           VALUES (?, 'ia', ?, ?, ?, ?)""",
+                        (c["id"], 1 if r["perfil"] else 0,
+                         json.dumps({"domain": c["company_domain"],
+                                     "pages": leido.get("pages"),
+                                     "model": ai.modelo_ficha()},
+                                    ensure_ascii=False)[:20000],
+                         json.dumps(r.get("perfil") or r.get("body"),
+                                    ensure_ascii=False)[:20000],
+                         r.get("error")))
 
                     if r["perfil"]:
-                        AI_PROGRESS.found += 1
-                        AI_PROGRESS.found_items.append(
-                            {"name": c.get("full_name"), "company": c.get("company_name"),
-                             "value": (r["perfil"].get("resumen") or "")[:120],
-                             "provider": "ia"})
-                    else:
-                        AI_PROGRESS.not_found += 1
-                        if r.get("error") and not AI_PROGRESS.error:
-                            AI_PROGRESS.error = r["error"]
+                        conn.execute(
+                            """UPDATE contacts SET ai_profile=?, ai_summary=?,
+                               ai_updated_at=datetime('now'),
+                               updated_at=datetime('now') WHERE id=?""",
+                            (json.dumps(r["perfil"], ensure_ascii=False),
+                             (r["perfil"].get("resumen") or "")[:400], c["id"]))
 
-                    AI_PROGRESS.processed += 1
-                    await asyncio.sleep(0.2)
+                if r["perfil"]:
+                    AI_PROGRESS.found += 1
+                    AI_PROGRESS.found_items.append(
+                        {"name": c.get("full_name"), "company": c.get("company_name"),
+                         "value": (r["perfil"].get("resumen") or "")[:120],
+                         "provider": "ia"})
+                else:
+                    AI_PROGRESS.not_found += 1
+                    if r.get("error") and not AI_PROGRESS.error:
+                        AI_PROGRESS.error = r["error"]
+
+                AI_PROGRESS.processed += 1
+
+        try:
+            async with httpx.AsyncClient(timeout=90.0) as client:
+                await asyncio.gather(*(uno(client, c) for c in contactos),
+                                     return_exceptions=True)
         except Exception as exc:
             AI_PROGRESS.error = f"{type(exc).__name__}: {exc}"[:500]
         finally:
@@ -345,7 +381,6 @@ async def run_ai_profile(contact_ids: list[int], rehacer: bool = False) -> None:
             AI_PROGRESS.finished = True
             AI_PROGRESS.current_contact = None
             AI_PROGRESS.current_provider = None
-
 
 # ------------------------------------------------------- sitio web del negocio
 WEB_PROGRESS = EnrichProgress()
@@ -371,6 +406,12 @@ async def run_website_scrape(contact_ids: list[int]) -> None:
     No consume créditos de ningún proveedor: son visitas al sitio del propio
     negocio. Por eso puede correr sobre toda la lista, a diferencia de la
     búsqueda de móviles.
+
+    Los sitios se leen de a varios a la vez. Antes iban uno atrás del otro y
+    la espera se sumaba: con veinte contactos eran veinte minutos de mirar una
+    barra. Son servidores distintos, así que atenderlos en paralelo no le
+    aprieta el cuello a nadie; lo que limita el ritmo dentro de cada sitio
+    sigue estando en website.py.
     """
     global WEB_PROGRESS
     if _WEB_LOCK.locked():
@@ -380,82 +421,101 @@ async def run_website_scrape(contact_ids: list[int]) -> None:
 
         contactos = contacts_with_site(contact_ids)
         WEB_PROGRESS = EnrichProgress(running=True, total=len(contactos))
+        limite = asyncio.Semaphore(sitios_a_la_vez())
 
-        try:
-            async with httpx.AsyncClient(timeout=website.TIMEOUT) as client:
-                for c in contactos:
-                    WEB_PROGRESS.current_contact = c.get("full_name") or f"#{c['id']}"
-                    WEB_PROGRESS.current_provider = c.get("company_domain")
-                    try:
-                        r = await website.scrape(client, c["company_domain"])
-                    except Exception as exc:
-                        r = {"emails": [], "phones": [], "people": [], "pages": [],
-                             "error": f"{type(exc).__name__}: {exc}"[:300]}
+        async def uno(client, c: dict) -> None:
+            async with limite:
+                WEB_PROGRESS.current_contact = c.get("full_name") or f"#{c['id']}"
+                WEB_PROGRESS.current_provider = c.get("company_domain")
+                try:
+                    r = await website.scrape(client, c["company_domain"])
+                except Exception as exc:
+                    r = {"emails": [], "phones": [], "people": [], "pages": [],
+                         "error": f"{type(exc).__name__}: {exc}"[:300]}
 
-                    # Dos negocios distintos publican a veces el mismo email
-                    # (una cadena, o la misma agencia listada dos veces). El
-                    # índice único lo rechaza, así que se busca el mejor que
-                    # todavía no sea de otro contacto en vez de reventar.
-                    email, ocupado = None, None
-                    for cand in r["emails"]:
-                        with get_db() as conn:
-                            duenio = conn.execute(
-                                "SELECT id FROM contacts WHERE lower(email)=lower(?) AND id<>?",
-                                (cand["email"], c["id"])).fetchone()
-                        if duenio is None:
-                            email = cand["email"]
-                            break
-                        ocupado = ocupado or f"{cand['email']} ya es de #{duenio['id']}"
-
-                    # El mejor teléfono del sitio: WhatsApp primero, que es el
-                    # canal por el que un negocio chico realmente contesta.
-                    tel = r["phones"][0] if r["phones"] else None
-
+                # Dos negocios distintos publican a veces el mismo email
+                # (una cadena, o la misma agencia listada dos veces). El
+                # índice único lo rechaza, así que se busca el mejor que
+                # todavía no sea de otro contacto en vez de reventar.
+                email, ocupado = None, None
+                for cand in r["emails"]:
                     with get_db() as conn:
-                        conn.execute(
-                            """INSERT INTO enrichment_log
-                               (contact_id, provider, success, request_payload,
-                                response_payload, error_message)
-                               VALUES (?, 'web', ?, ?, ?, ?)""",
-                            (c["id"], 1 if (email or tel) else 0,
-                             json.dumps({"domain": c["company_domain"],
-                                         "pages": r["pages"]}, ensure_ascii=False)[:20000],
-                             json.dumps({"emails": r["emails"], "phones": r["phones"],
-                                         "people": r["people"]},
-                                        ensure_ascii=False)[:20000],
-                             r.get("error") or ocupado))
+                        duenio = conn.execute(
+                            "SELECT id FROM contacts WHERE lower(email)=lower(?) AND id<>?",
+                            (cand["email"], c["id"])).fetchone()
+                    if duenio is None:
+                        email = cand["email"]
+                        break
+                    ocupado = ocupado or f"{cand['email']} ya es de #{duenio['id']}"
 
-                        if email and not c.get("email"):
-                            # 'unverified': está publicado, nadie lo validó.
+                # El mejor teléfono del sitio: WhatsApp primero, que es el
+                # canal por el que un negocio chico realmente contesta.
+                tel = r["phones"][0] if r["phones"] else None
+
+                with get_db() as conn:
+                    conn.execute(
+                        """INSERT INTO enrichment_log
+                           (contact_id, provider, success, request_payload,
+                            response_payload, error_message)
+                           VALUES (?, 'web', ?, ?, ?, ?)""",
+                        (c["id"], 1 if (email or tel) else 0,
+                         json.dumps({"domain": c["company_domain"],
+                                     "pages": r["pages"]}, ensure_ascii=False)[:20000],
+                         json.dumps({"emails": r["emails"], "phones": r["phones"],
+                                     "people": r["people"]},
+                                    ensure_ascii=False)[:20000],
+                         r.get("error") or ocupado))
+
+                    guardado = False
+                    if email and not c.get("email"):
+                        # 'unverified': está publicado, nadie lo validó.
+                        try:
                             conn.execute(
                                 """UPDATE contacts SET email=?, email_status='unverified',
                                    email_source='web', updated_at=datetime('now')
                                    WHERE id=?""", (email, c["id"]))
-                            WEB_PROGRESS.found += 1
-                            WEB_PROGRESS.by_provider["email"] =                                 WEB_PROGRESS.by_provider.get("email", 0) + 1
-                            WEB_PROGRESS.found_items.append(
-                                {"name": c.get("full_name"), "company": c.get("company_name"),
-                                 "value": email, "provider": "web"})
-                        elif email:
-                            WEB_PROGRESS.not_found += 1   # ya tenía email
+                            guardado = True
+                        except sqlite3.IntegrityError:
+                            # Otro sitio leído al mismo tiempo publicaba el
+                            # mismo email y llegó primero. Mirar antes de
+                            # escribir no alcanza cuando se lee en paralelo:
+                            # el que decide es el índice único.
+                            guardado = False
 
-                        # El teléfono solo mejora: un WhatsApp le gana al número
-                        # general, pero nunca se pisa un directo ya conocido.
-                        mejora = tel and (
-                            not c.get("phone")
-                            or (tel["kind"] == "whatsapp"
-                                and c.get("phone_type") not in ("personal", "whatsapp")))
-                        if mejora:
-                            conn.execute(
-                                """UPDATE contacts SET phone=?, phone_type=?,
-                                   updated_at=datetime('now') WHERE id=?""",
-                                (tel["value"],
-                                 "whatsapp" if tel["kind"] == "whatsapp" else "company",
-                                 c["id"]))
-                            WEB_PROGRESS.by_provider["telefono"] =                                 WEB_PROGRESS.by_provider.get("telefono", 0) + 1
+                    if guardado:
+                        WEB_PROGRESS.found += 1
+                        WEB_PROGRESS.by_provider["email"] = \
+                            WEB_PROGRESS.by_provider.get("email", 0) + 1
+                        WEB_PROGRESS.found_items.append(
+                            {"name": c.get("full_name"), "company": c.get("company_name"),
+                             "value": email, "provider": "web"})
+                    elif email:
+                        WEB_PROGRESS.not_found += 1   # ya tenía email
 
-                    WEB_PROGRESS.processed += 1
-                    await asyncio.sleep(0.3)      # cortesía entre sitios
+                    # El teléfono solo mejora: un WhatsApp le gana al número
+                    # general, pero nunca se pisa un directo ya conocido.
+                    mejora = tel and (
+                        not c.get("phone")
+                        or (tel["kind"] == "whatsapp"
+                            and c.get("phone_type") not in ("personal", "whatsapp")))
+                    if mejora:
+                        conn.execute(
+                            """UPDATE contacts SET phone=?, phone_type=?,
+                               updated_at=datetime('now') WHERE id=?""",
+                            (tel["value"],
+                             "whatsapp" if tel["kind"] == "whatsapp" else "company",
+                             c["id"]))
+                        WEB_PROGRESS.by_provider["telefono"] = \
+                            WEB_PROGRESS.by_provider.get("telefono", 0) + 1
+
+                WEB_PROGRESS.processed += 1
+
+        try:
+            async with httpx.AsyncClient(timeout=website.TIMEOUT) as client:
+                # return_exceptions: que un sitio raro no deje a los otros
+                # sin registrar. El error puntual ya quedó en la bitácora.
+                await asyncio.gather(*(uno(client, c) for c in contactos),
+                                     return_exceptions=True)
         except Exception as exc:
             WEB_PROGRESS.error = f"{type(exc).__name__}: {exc}"[:500]
         finally:

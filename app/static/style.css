@@ -100,6 +100,12 @@ img,svg{max-width:100%}
 @keyframes rise{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
 
 /* pasos: barra inferior fija en móvil, riel horizontal en escritorio */
+/* El atributo hidden pone display:none con la fuerza de una regla del
+   navegador: cualquier regla nuestra que fije display —y .step y .seg fijan
+   flex— le gana, y el elemento sigue a la vista. Esto lo zanja de una vez
+   para toda la app, en vez de acordarse caso por caso. */
+[hidden]{display:none !important}
+
 .steps{
   position:fixed;left:0;right:0;bottom:0;z-index:55;
   /* Se reparten solos: con un número fijo de columnas, agregar un paso los

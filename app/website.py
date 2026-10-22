@@ -28,8 +28,13 @@ import httpx
 UA = "B2K/1.0 (prospeccion B2B; contacto por el sitio)"
 TIMEOUT = 12.0
 PAGE_BYTES = 600_000     # más que esto no es una página, es una descarga
-A_LA_VEZ = 4             # cuántas se bajan en paralelo
-ESPERA = 0.5             # segundos entre tandas: el sitio no es nuestro
+# Cuántas páginas del MISMO sitio se bajan a la vez, y cuánto se espera entre
+# tandas. Subirlo acelera cada sitio sin leer menos: lo que cambia es cuántas
+# páginas entran en el presupuesto de tiempo, no cuántas se miran. Seis es un
+# número que cualquier hosting compartido aguanta sin despeinarse; la espera
+# entre tandas es lo que lo mantiene educado.
+A_LA_VEZ = 6
+ESPERA = 0.35            # segundos entre tandas: el sitio no es nuestro
 
 
 def max_paginas() -> int:

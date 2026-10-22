@@ -1428,8 +1428,22 @@ _worker: asyncio.Task | None = None
 _lector: asyncio.Task | None = None
 
 
+# ¿Esta instalación manda correos, o solo alimenta el CRM?
+#
+# Hay equipos que usan B2K nada más para encontrar empresas y empujarlas a
+# Kommo, y el envío desde la app les sobra. Apagarlo no borra nada: la cola,
+# los buzones y las campañas quedan donde estaban y vuelven a andar si se
+# prende de nuevo. Lo que sí hace es frenar el goteo en seco, que es lo que
+# importa: esconder los botones y dejar al obrero mandando sería peor que no
+# esconder nada.
+def correo_activo() -> bool:
+    return db.ajuste_bool("correos_activos", False)
+
+
 async def _tanda() -> None:
     """Manda lo que ya venció. Uno por vuelta: el goteo no se acelera solo."""
+    if not correo_activo():
+        return          # esta instalación solo manda al CRM
     if not en_horario():
         return          # fuera de horario se espera; nada se pierde
     cfg = _credenciales()
@@ -1619,7 +1633,8 @@ async def loop_buzones() -> None:
     """Revisa los buzones cada tanto, sin que nadie tenga que apretar nada."""
     while True:
         try:
-            await revisar_buzones()
+            if correo_activo():
+                await revisar_buzones()
         except Exception:
             # Que no se caiga el ciclo: el próximo intento es en diez minutos.
             pass

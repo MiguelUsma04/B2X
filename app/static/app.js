@@ -41,6 +41,8 @@ async function loadMe() {
   try {
     const m = await (await fetch('/api/me')).json();
     YO = m.email || '';
+    CORREOS = m.correos !== false;
+    aplicarFunciones();
     if (!m.email) return;
     const el = $('quien');
     el.hidden = false;
@@ -627,6 +629,109 @@ function telNota(c) {
   return '';
 }
 
+/* ======================= qué funciones están prendidas =======================
+   B2K puede usarse de dos maneras: buscando empresas y mandándolas al CRM, o
+   eso más escribirles desde la app. Lo segundo se apaga en Ajustes → Sistema.
+   Lo que sigue es solo la pantalla: lo que de verdad frena el goteo está en el
+   servidor (mailer.correo_activo), porque esconder botones no detiene a nadie. */
+let CORREOS = true;
+
+function aplicarFunciones() {
+  // Los pasos 4 y 5 del menú, la pestaña de buzones y la de salud del envío,
+  // y el atajo a Correo de la barra de selección.
+  const fuera = ['step-mail', 'step-results', 'seg-buzones', 'seg-salud',
+                 'selbar-mail', 'card-horario'];
+  for (const id of fuera) {
+    const el = $(id);
+    if (el) el.hidden = !CORREOS;
+  }
+  const estado = $('mail-status');
+  if (estado && !CORREOS) estado.innerHTML = '';
+
+  // Si alguien estaba parado en un paso que acaba de desaparecer, se lo lleva
+  // a Contactos en vez de dejarlo mirando una sección huérfana.
+  if (!CORREOS) {
+    const activo = document.querySelector('.panel.active');
+    if (activo && ['panel-mail', 'panel-results'].includes(activo.id)) {
+      goToStep('contacts');
+    }
+    // Y si estaba en una pestaña de Ajustes que se fue, lo mismo.
+    const seg = document.querySelector('#panel-settings .seg.active');
+    if (seg && ['seg-buzones', 'seg-salud'].includes(seg.id)) {
+      switchAjustes('sistema');
+    }
+  }
+  const chk = $('f-correos');
+  if (chk) chk.checked = CORREOS;
+}
+
+async function guardarFuncionCorreos() {
+  const on = $('f-correos').checked;
+  const fd = new FormData();
+  fd.append('correos', on ? '1' : '0');
+  const d = await (await fetch('/api/funciones', { method: 'POST', body: fd })).json();
+  CORREOS = !!d.correos;
+  aplicarFunciones();
+  toast(CORREOS ? 'B2K vuelve a mandar correos.'
+                : 'Listo: B2K solo manda al CRM.', 'ok');
+}
+
+/* ======================= exportar a Excel ======================= */
+
+/* El archivo lo arma el servidor y viaja como descarga, así que no sirve un
+   fetch: hace falta una navegación de verdad. Con una lista de 500 contactos
+   la URL no da, por eso va por POST con un formulario de usar y tirar. */
+function descargarPost(url, campos) {
+  const f = document.createElement('form');
+  f.method = 'POST';
+  f.action = url;
+  for (const [k, v] of Object.entries(campos)) {
+    const i = document.createElement('input');
+    i.type = 'hidden'; i.name = k; i.value = v;
+    f.appendChild(i);
+  }
+  document.body.appendChild(f);
+  f.submit();
+  f.remove();
+}
+
+function exportarMarcados() {
+  const ids = [...SELECTED];
+  if (!ids.length) { toast('Marcá primero los que querés exportar', 'warn'); return; }
+  descargarPost('/api/contacts/export', { contact_ids: JSON.stringify(ids) });
+  toast(`Bajando ${ids.length} contacto(s)`, 'ok');
+}
+
+function exportarBusqueda() {
+  // Esta es la búsqueda que está en pantalla y vive en el servidor: alcanza
+  // con pedirla.
+  window.location.href = '/api/places/export';
+}
+
+/* ======================= marcar solo los nuevos =======================
+   "Los nuevos" es lo último que se cargó y todavía no fue al CRM. Se hace
+   moviendo los filtros y no marcando a mano: así la lista muestra exactamente
+   lo que quedó marcado, y se ve de dónde salió. */
+async function marcarLosNuevos() {
+  const sel = $('f-batch');
+  // La última carga, si hay historial. Puede no haberlo: los contactos que
+  // entraron antes de que existieran las cargas no cuelgan de ninguna, y ahí
+  // "lo nuevo" es simplemente lo que todavía no fue al CRM.
+  const ultima = sel && sel.options.length > 1 ? sel.options[1].value : '';
+
+  clearSelection();
+  if (sel) sel.value = ultima;
+  $('f-ghl').value = 'pending';
+  await loadContacts();
+  if (!ALL_IDS.length) {
+    toast(ultima ? 'Los de la última carga ya están todos en el CRM'
+                 : 'No quedó ninguno sin enviar al CRM', 'info');
+    return;
+  }
+  selectAllFiltered();
+}
+
+
 /* ======================= selección ======================= */
 function toggleOne(id, on) {
   on ? SELECTED.add(id) : SELECTED.delete(id);
@@ -1051,6 +1156,7 @@ async function searchPlaces() {
           <label class="fld" for="p-tag">Nombre de la carga (opcional)</label>
           <input id="p-tag" value="${esc(q)}">
         </div>
+        <button class="ghost" onclick="exportarBusqueda()">Exportar a Excel</button>
         <button class="primary" id="btn-p-import" onclick="importPlaces()">
           Guardar ${d.total} negocios</button>
       </div>
@@ -1911,9 +2017,10 @@ async function scheduleMail() {
 }
 
 async function pollMail(seguir) {
-  const d = await (await fetch('/api/mail/status')).json();
   const caja = $('mail-status');
   if (!caja) return;
+  if (!CORREOS) { caja.innerHTML = ''; return; }   // esta instalación no manda
+  const d = await (await fetch('/api/mail/status')).json();
   if (!d.campaign) { caja.innerHTML = ''; return; }
   // El envío en curso se ve al entrar al panel, sin abrir nada.
 
@@ -2306,37 +2413,37 @@ async function loadPipelines() {
     return;
   }
 
+  // Kommo manda los id como números y lo guardado vuelve como texto: sin el
+  // String() de los dos lados, el embudo elegido nunca aparecía marcado.
   const opts = PIPELINES.map((p) =>
-    `<option value="${esc(p.id)}" ${p.id === cfg.pipeline_id ? 'selected' : ''}>
-       ${esc(p.name)}</option>`).join('');
+    `<option value="${esc(p.id)}" ${String(p.id) === String(cfg.pipeline_id)
+      ? 'selected' : ''}>${esc(p.name)}</option>`).join('');
 
+  // A la vista y no detrás de un desplegable: a qué embudo y a qué etapa cae
+  // cada empresa es la decisión que más se cambia entre una campaña y otra.
   box.innerHTML = `
-    <details class="tip" ${cfg.pipeline_id ? '' : 'open'} style="margin:0">
-      <summary>Embudo de oportunidades${cfg.pipeline_id ? '' : ' — sin configurar'}</summary>
-      <div class="tip-b">
-        <p style="margin-bottom:12px">Cada contacto que envíes abre además una
-          oportunidad en el embudo que elijas.</p>
-        <div class="row">
-          <div class="field">
-            <label class="fld" for="pipe-sel">Embudo</label>
-            <select id="pipe-sel" onchange="renderStages()">
-              <option value="">— No crear oportunidades —</option>${opts}
-            </select>
-          </div>
-          <div class="field">
-            <label class="fld" for="stage-sel">Etapa</label>
-            <select id="stage-sel"></select>
-          </div>
-          <button onclick="savePipeline()">Guardar</button>
-        </div>
+    <div class="row">
+      <div class="field">
+        <label class="fld" for="pipe-sel">Embudo</label>
+        <select id="pipe-sel" onchange="renderStages()">
+          <option value="">— No crear oportunidades —</option>${opts}
+        </select>
       </div>
-    </details>`;
+      <div class="field">
+        <label class="fld" for="stage-sel">Etapa</label>
+        <select id="stage-sel"></select>
+      </div>
+      <button onclick="savePipeline()">Guardar</button>
+    </div>
+    <p class="help">${cfg.pipeline_id
+      ? 'Cada empresa que mandes abre una oportunidad acá.'
+      : '<b>Sin configurar.</b> Hoy las empresas llegan como contacto pero no abren oportunidad en ningún embudo.'}</p>`;
   renderStages(cfg.stage_id);
 }
 
 function renderStages(selected) {
   const pid = $('pipe-sel').value;
-  const pipe = PIPELINES.find((p) => p.id === pid);
+  const pipe = PIPELINES.find((p) => String(p.id) === String(pid));
   const sel = $('stage-sel');
   if (!pipe) {
     sel.innerHTML = '<option value="">—</option>';
@@ -2344,9 +2451,11 @@ function renderStages(selected) {
     return;
   }
   sel.disabled = false;
-  sel.innerHTML = pipe.stages.map((st, i) =>
-    `<option value="${esc(st.id)}" ${st.id === selected || (!selected && i === 0)
-      ? 'selected' : ''}>${esc(st.name)}</option>`).join('');
+  // En Kommo las etapas del embudo se llaman "statuses".
+  const etapas = pipe.statuses || [];
+  sel.innerHTML = etapas.map((st, i) =>
+    `<option value="${esc(st.id)}" ${String(st.id) === String(selected)
+      || (!selected && i === 0) ? 'selected' : ''}>${esc(st.name)}</option>`).join('');
 }
 
 async function savePipeline() {
@@ -2354,10 +2463,8 @@ async function savePipeline() {
   fd.append('pipeline_id', $('pipe-sel').value);
   fd.append('stage_id', $('stage-sel').value || '');
   const d = await (await fetch('/api/ghl/settings', { method: 'POST', body: fd })).json();
-  toast(d.pipeline_id
-    ? (d.persisted_to_env ? 'Embudo guardado.'
-                          : 'Guardado (se pierde al reiniciar el contenedor).')
-    : 'Listo: no se crearán oportunidades.', 'ok');
+  toast(d.pipeline_id ? 'Embudo guardado.'
+                      : 'Listo: no se crearán oportunidades.', 'ok');
 }
 
 /* ======================= borrar cargas ======================= */
