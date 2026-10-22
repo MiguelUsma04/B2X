@@ -300,7 +300,8 @@ dd{margin:0;color:var(--ink-2);font-size:15px}
     <header class="portada">
       <p class="eyebrow">gmarketing.co · Herramienta interna</p>
       <h1>Cómo se usa <em>B2K</em></h1>
-      <p class="bajada">B2K busca empresas, encuentra el correo de cada una, les
+      <p class="bajada">B2K busca empresas, encuentra el correo de cada una y
+        las manda al CRM. Si el envío de correos está prendido, además les
         escribe de a poco y te dice quién contestó. Este documento es el paso a
         paso completo. No hace falta saber nada de prospección.</p>
       <div class="meta">
@@ -314,7 +315,11 @@ dd{margin:0;color:var(--ink-2);font-size:15px}
       <p class="subtitulo">El recorrido completo</p>
       <p style="color:var(--ink-2);max-width:62ch;margin:10px 0 20px">
         Son seis pantallas, en el menú de la izquierda. Las cinco primeras van
-        en orden: cada una necesita lo que hizo la anterior.</p>
+        en orden: cada una necesita lo que hizo la anterior.
+        <br><br>
+        <b>Si solo ves cuatro</b> —Cargar, Emails, Contactos y Ajustes— es
+        porque el envío de correos está apagado y B2K está trabajando solo
+        contra el CRM. Se prende en <b>Ajustes → Sistema</b>.</p>
 
       <div class="recorrido">
         <div class="tramo"><span class="n">01</span>
@@ -363,8 +368,21 @@ dd{margin:0;color:var(--ink-2);font-size:15px}
           <li>Tocá <span class="btn">Buscar</span> y mirá la lista que aparece.
             <span class="nota">Todavía no se guardó nada: vos decidís si la
               guardás o si cambiás la búsqueda.</span></li>
-          <li>Si te sirve, guardala. Ya tenés empresas cargadas.</li>
+          <li>Si te sirve, guardala. Ya tenés empresas cargadas.
+            <span class="nota">O tocá <span class="btn">Exportar a Excel</span>
+              y te bajás la lista tal como la ves, sin guardarla.</span></li>
         </ol>
+
+        <div class="aviso tip">
+          <span class="et">Bajarla a Excel</span>
+          <span>El botón <span class="btn">Exportar a Excel</span> te da un
+            archivo con el nombre, el teléfono, el sitio, la dirección, la
+            calificación y el enlace a la ficha de Google Maps de cada negocio.
+            Sirve para pasársela a alguien que no entra a B2K, o para revisarla
+            antes de decidir si la guardás. <b>No cuesta nada</b>: es la misma
+            búsqueda que ya se pagó, no se le vuelve a preguntar a
+            Google.</span>
+        </div>
 
         <div class="aviso plata">
           <span class="et">Plata</span>
@@ -472,7 +490,16 @@ dd{margin:0;color:var(--ink-2);font-size:15px}
               les escriban, no un conmutador.</span></li>
           <li>Marcá la casilla de cada uno que te sirva.
             <span class="nota">O tocá <span class="campo">Marcar todos</span>
-              para marcar todo lo que estés viendo.</span></li>
+              para marcar todo lo que estés viendo, o
+              <span class="campo">Marcar solo los nuevos</span> para quedarte
+              con lo último que cargaste y que todavía no fue al CRM. Este
+              último mueve los filtros a la vista, así ves exactamente qué
+              quedó marcado y de dónde salió.</span></li>
+          <li>Si querés la lista afuera, tocá
+            <span class="campo">Exportar a Excel</span>.
+            <span class="nota">Baja los marcados con todo lo averiguado: correo,
+              teléfono, sitio, calificación, el enlace a Maps, si ya está en el
+              CRM y el resumen de la IA.</span></li>
           <li>Abajo aparece una barra que dice cuántos llevás marcados.
             <span class="nota">Desde ahí vas directo a escribirles
               (<span class="btn">Correo</span>) o los mandás al CRM
@@ -504,6 +531,15 @@ dd{margin:0;color:var(--ink-2);font-size:15px}
             Si no se pudo saber quién es, el contacto lleva el nombre del
             negocio. Y si el sitio nombra a dos personas sin forma de saber
             cuál atiende ese correo, tampoco se adivina.</span>
+        </div>
+
+        <div class="aviso tip">
+          <span class="et">A qué embudo cae</span>
+          <span>Debajo del botón de enviar elegís el <b>embudo</b> y la
+            <b>etapa</b> donde quedan las empresas que mandes. Tocá
+            <span class="btn">Guardar</span> y queda así para las próximas
+            veces. Si elegís <em>No crear oportunidades</em>, el contacto entra
+            en Kommo pero sin abrir ningún negocio.</span>
         </div>
 
         <div class="aviso tip">
@@ -840,8 +876,13 @@ dd{margin:0;color:var(--ink-2);font-size:15px}
         </ul>
 
         <p class="subtitulo">Sistema</p>
-        <p class="parrafo">La cuarta pestaña de Ajustes. Cuatro cosas.</p>
+        <p class="parrafo">La cuarta pestaña de Ajustes. Cinco cosas.</p>
         <ol class="acciones">
+          <li><b>Qué hace B2K</b> — si manda correos o solo alimenta el CRM.
+            <span class="nota">Apagado, desaparecen las pantallas de
+              <b>Correos</b> y <b>Resultados</b> y los envíos quedan en pausa.
+              <b>No se borra nada</b>: las campañas, la cola y los buzones
+              quedan donde están y vuelven a andar apenas lo prendas.</span></li>
           <li><b>Horario de envío</b> — entre qué horas pueden salir los
             correos.
             <span class="nota">Fuera de esa franja la cola espera; no se pierde
