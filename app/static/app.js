@@ -3268,3 +3268,29 @@ function seqModo() {
   const n = $('seq-ia-nota');
   if (n) n.hidden = !ia;
 }
+
+/* La prueba del correo con IA, sin tener que ir a buscar un borrador: toma
+   el primero que ya esté escrito, o le pide a la IA el del primer contacto
+   marcado. Llegan los tres —el 1 y los dos de seguimiento— en un solo hilo,
+   como los recibiría el cliente. */
+async function pruebaIA() {
+  let b = BORRADORES.find((x) => !x.error && x.cuerpo);
+  if (!b) {
+    const id = [...SELECTED][0];
+    if (!id) {
+      toast('Marcá al menos un contacto en Contactos: la IA necesita una empresa '
+            + 'real para escribir la prueba', 'warn', 6000);
+      return;
+    }
+    toast('La IA está escribiendo los tres correos de la prueba…', 'info', 6000);
+    const fd = new FormData();
+    fd.append('propuesta', $('ia-propuesta').value);
+    const r = await fetch(`/api/mail/borradores/${id}/rehacer`, { method: 'POST', body: fd });
+    const d = await r.json();
+    if (!r.ok || d.error) { toast(esc(d.detail || d.error || 'Error'), 'err'); return; }
+    await cargarBorradores();
+    b = BORRADORES.find((x) => x.contact_id === id);
+    if (!b) return;
+  }
+  await probarBorrador(b.contact_id);
+}
