@@ -36,18 +36,15 @@ etiqueta que dice dónde está, sin haber movido nada a mano.
 
 - **Los correos 2 y 3 son solo para quien no contestó.** Apenas alguien
   responde, a cualquiera de los tres, la secuencia se corta para él.
-- **Cuando contesta, la IA lee la respuesta y decide la etapa.** La IA solo
-  clasifica y mueve: no le contesta al cliente. La IA que conversa es otra
-  pieza y queda afuera de este trabajo.
-
-  | Lo que contesta | Etapa |
-  |---|---|
-  | Le interesa, pregunta precio o pide más información | LLAMADA COMERCIAL #1 |
-  | Confirma una reunión o propone un día y una hora | SESIÓN EJECUTIVA AGENDADA |
-  | No le interesa, ya tiene proveedor, "no gracias" | NO INTERESADO |
-  | "No me escriban más" | Se trata como baja: cerrado perdido y lista de supresión |
-  | No es la persona, o la IA no entiende | Se queda donde estaba y se avisa para revisión a mano |
-
+- **Cuando contesta, el lead pasa a IA CONVERSANDO, diga lo que diga.**
+  Lo decidió el equipo el 29 de octubre de 2026 y reemplaza la tabla de
+  respuesta → etapa que estaba acá. La IA igual clasifica la respuesta
+  (interesado, propone o confirma reunión, no interesado, no escribir, otra
+  persona, no entiende) y lo guarda, pero eso no decide la etapa: queda como
+  dato para quien sigue la conversación.
+- **"No me escriban más" pasa a IA CONVERSANDO como cualquier respuesta**,
+  pero además entra a la lista de supresión: no recibe ningún correo más, ni
+  de la secuencia ni de otra campaña.
 - **Abrir o tocar un enlace no es contestar.** No corta la secuencia ni mueve
   nada.
 - **La etiqueta se reemplaza.** El lead lleva una sola etiqueta de etapa, la
@@ -85,9 +82,6 @@ etiqueta que dice dónde está, sin haber movido nada a mano.
   no es contestar. Hoy ya se descartan esos correos y tiene que seguir así.
 - **Que una apertura de antivirus cuente como interés.** Hoy ya se filtran y
   tiene que seguir así.
-- **Que la IA mueva un lead a NO INTERESADO por un malentendido.** Ante la
-  duda, la IA no mueve y avisa. Un "no" mal leído pierde un cliente; un aviso
-  de más solo le cuesta un minuto a alguien.
 - **Que B2K pise lo que hizo el equipo.** Si un comercial ya está trabajando
   el lead, B2K no le manda más correos.
 
@@ -101,7 +95,7 @@ Leído de la API el 29 de octubre de 2026 (embudo `14420808`), en orden:
 | 40 | 111388080 | CORREO #1 - DESCUBRIMIENTO |
 | 50 | 111474760 | CORREO #2 - DIAGNÓSTICO |
 | 60 | 111474764 | CORREO #3 - OPORTUNIDAD |
-| 140 | 111474796 | LLAMADA COMERCIAL #1 |
+| 100 | 111474780 | IA CONVERSANDO |
 | 10000 | **142** | SESIÓN EJECUTIVA AGENDADA |
 | 11000 | **143** | NO INTERESADO |
 
@@ -109,15 +103,15 @@ Hay otras etapas en el medio —WhatsApp, IA conversando, llamadas—, pero la
 secuencia no las usa.
 
 **SESIÓN EJECUTIVA AGENDADA es el estado de ganado de Kommo (142) y NO
-INTERESADO el de perdido (143)**, renombrados. Eso tiene tres consecuencias:
+INTERESADO el de perdido (143)**, renombrados. Mandar un lead a cualquiera
+de los dos **lo cierra**, y B2K no vuelve a tocar un lead cerrado. La
+secuencia solo usa NO INTERESADO, cuando pasa el plazo después del tercer
+correo sin respuesta.
 
-- Mandar un lead a cualquiera de los dos **lo cierra**. B2K no vuelve a tocar
-  un lead cerrado, así que es un movimiento sin vuelta atrás.
-- "No le interesa" y "no me escriban más" terminan en la misma etapa. Los
-  separa la lista de supresión: el segundo no recibe nunca más un correo, de
-  ninguna campaña.
-- Todos los movimientos de las tablas van hacia adelante en el orden del
-  embudo, así que la regla de no mover hacia atrás no frena ninguno.
+IA CONVERSANDO está en el orden 100, después de los tres correos, así que
+pasar ahí desde cualquier paso de la secuencia es avanzar. Si un comercial ya
+llevó el lead más lejos —a una llamada comercial, por ejemplo—, la regla de
+no mover hacia atrás lo deja donde está.
 
 ## Restricciones
 
@@ -144,10 +138,9 @@ Pablo no las definió. Las dejo marcadas para que se puedan revisar:
   **3 días hábiles** entre el 1 y el 2 y entre el 2 y el 3, y **5 días
   hábiles** después del 3 antes de mandarlo a NO INTERESADO. Se cuentan desde
   que salió el correo anterior, no desde que se armó la secuencia.
-- **"Se avisa para revisión a mano"** quiere decir dos cosas a la vez: una
-  **tarea en Kommo** sobre el lead, a nombre del responsable (hoy
-  soporte@gmarketing.co), con la respuesta citada; y una lista **Para revisar**
-  en B2K. La tarea es lo que el equipo ve, porque vive en Kommo.
+- **La nota de la respuesta.** Al pasar a IA CONVERSANDO, B2K deja en el
+  lead una nota con lo que escribió el cliente y la clase que le puso la IA,
+  para que quien sigue la conversación no tenga que ir a buscarla al buzón.
 - **Si un comercial movió el lead a una etapa que no es de la secuencia**, la
   secuencia se corta para ese lead: alguien ya lo está trabajando. Se mira
   antes de cada envío.
@@ -172,9 +165,9 @@ Pablo no las definió. Las dejo marcadas para que se puedan revisar:
 - **Cómo se sabe que un comercial movió el lead.** B2K anota la última etapa
   a la que lo llevó él. Antes de cada envío compara con la etapa real en
   Kommo: si no coinciden, alguien lo movió y la secuencia se corta.
-- **Las filas de hoy para «Abrió», «Tocó un enlace» y «Contestó»** se ignoran
-  mientras el lead está en la secuencia: abrir no mueve nada, y la respuesta
-  la decide la IA. Para los leads que no están en una secuencia siguen
+- **Las filas de hoy para «Abrió» y «Tocó un enlace»** se ignoran mientras
+  el lead está en la secuencia: abrir no mueve nada. La fila «Contestó» es la
+  que lo lleva a IA CONVERSANDO. Para los leads que no están en una secuencia siguen
   funcionando como hoy.
 - **El 2 y el 3 salen del mismo buzón que el 1**, con el mismo remitente y en
   el mismo hilo de conversación. Que el seguimiento llegue de otra dirección
@@ -198,15 +191,10 @@ Pablo no las definió. Las dejo marcadas para que se puedan revisar:
 
 ## Preguntas abiertas para el equipo
 
-1. **¿Proponer una reunión ya cuenta como agendada?** SESIÓN EJECUTIVA
-   AGENDADA es el estado de ganado: mandar ahí un lead lo cierra como venta
-   ganada y B2K no lo toca más. Si el cliente escribe «¿podemos hablar el
-   martes a las 3?», la reunión todavía no existe. Se puede tratar como
-   interesado (LLAMADA COMERCIAL #1, para que alguien la confirme) y dejar
-   SESIÓN EJECUTIVA AGENDADA solo para cuando el cliente confirma una reunión
-   ya propuesta. La otra opción es que cuente como agendada apenas propone.
+Resuelta el 29 de octubre de 2026: si proponer una reunión cuenta como
+agendada ya no importa, porque toda respuesta va a IA CONVERSANDO.
 
-2. **¿Quién escribe los correos 2 y 3, y cuándo se aprueban?** Hoy la IA
+1. **¿Quién escribe los correos 2 y 3, y cuándo se aprueban?** Hoy la IA
    escribe uno por empresa a partir de lo que leyó en su sitio, y cada uno se
    aprueba antes de salir. Si escribe también el 2 y el 3, hay que decidir si
    se aprueban los tres juntos al armar la secuencia o cada uno cuando le toca
