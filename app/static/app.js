@@ -3271,28 +3271,37 @@ function seqModo() {
   if (n) n.hidden = !ia;
 }
 
-/* La prueba del correo con IA, sin tener que ir a buscar un borrador: toma
-   el primero que ya esté escrito, o le pide a la IA el del primer contacto
-   marcado. Llegan los tres —el 1 y los dos de seguimiento— en un solo hilo,
-   como los recibiría el cliente. */
+/* La prueba del correo con IA: los tres correos —el 1 y los dos de
+   seguimiento— en un solo hilo, como los recibiría el cliente. Si ya hay un
+   borrador escrito, va ese; si no, la IA escribe para el primer contacto
+   marcado o, sin marcados, para una empresa de la base. */
+let PROBANDO_IA = false;
+
 async function pruebaIA() {
-  let b = BORRADORES.find((x) => !x.error && x.cuerpo);
-  if (!b) {
-    const id = [...SELECTED][0];
-    if (!id) {
-      toast('Marcá al menos un contacto en Contactos: la IA necesita una empresa '
-            + 'real para escribir la prueba', 'warn', 6000);
-      return;
-    }
-    toast('La IA está escribiendo los tres correos de la prueba…', 'info', 6000);
+  if (PROBANDO_IA) return;
+  const b = BORRADORES.find((x) => !x.error && x.cuerpo);
+  if (b) { await probarBorrador(b.contact_id); return; }
+
+  const a = prompt('Mandar la prueba de la IA a:', 'soporte@gmarketing.co');
+  if (a === null || !a.trim()) return;
+  PROBANDO_IA = true;
+  const boton = $('btn-ia-prueba');
+  if (boton) { boton.disabled = true; boton.textContent = 'Escribiendo la prueba…'; }
+  toast('La IA está escribiendo los tres correos. Tarda unos segundos.', 'info', 8000);
+  try {
     const fd = new FormData();
+    fd.append('to', a.trim());
     fd.append('propuesta', $('ia-propuesta').value);
-    const r = await fetch(`/api/mail/borradores/${id}/rehacer`, { method: 'POST', body: fd });
+    const id = [...SELECTED][0];
+    if (id) fd.append('contact_id', String(id));
+    const r = await fetch('/api/mail/prueba-ia', { method: 'POST', body: fd });
     const d = await r.json();
-    if (!r.ok || d.error) { toast(esc(d.detail || d.error || 'Error'), 'err'); return; }
-    await cargarBorradores();
-    b = BORRADORES.find((x) => x.contact_id === id);
-    if (!b) return;
+    if (!r.ok) { toast(esc(d.detail || 'Error'), 'err'); return; }
+    if (!d.ok) { toast(esc(d.error || 'No salió'), 'err', 8000); return; }
+    toast(`${d.enviados} correo(s) para ${esc(d.empresa)} a ${esc(d.to)}, en el mismo hilo`
+          + (d.aviso ? ` — ${esc(d.aviso)}` : ''), 'ok', 8000);
+  } finally {
+    PROBANDO_IA = false;
+    if (boton) { boton.disabled = false; boton.textContent = 'Enviar una prueba'; }
   }
-  await probarBorrador(b.contact_id);
 }

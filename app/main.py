@@ -1125,6 +1125,49 @@ async def api_mail_borrador_probar(request: Request, contact_id: int,
     return {**r, "to": destino}
 
 
+@app.post("/api/mail/prueba-ia")
+async def api_mail_prueba_ia(request: Request, to: str = Form("soporte@gmarketing.co"),
+                             propuesta: str = Form(""), contact_id: str = Form("")):
+    """Escribe con la IA los tres correos para una empresa y los manda a una
+    casilla propia, en un solo hilo. No guarda borrador ni toca la cola.
+
+    La empresa es la marcada; si no hay ninguna, una de la base que tenga
+    correo y sitio; si la base está vacía, una de ejemplo.
+    """
+    if not ai.configured():
+        raise HTTPException(400, "Falta OPENAI_API_KEY en el .env.")
+    destino = (to or "").strip() or "soporte@gmarketing.co"
+    if "@" not in destino:
+        raise HTTPException(400, "Esa dirección no es válida.")
+    with get_db() as conn:
+        fila = None
+        if str(contact_id).strip().isdigit():
+            fila = conn.execute("SELECT * FROM contacts WHERE id=?",
+                                (int(contact_id),)).fetchone()
+        if not fila:
+            fila = conn.execute(
+                """SELECT * FROM contacts
+                    WHERE email IS NOT NULL AND email <> ''
+                      AND company_domain IS NOT NULL AND company_domain <> ''
+                    ORDER BY (ai_profile IS NOT NULL AND ai_profile <> '') DESC,
+                             updated_at DESC LIMIT 1""").fetchone()
+    contacto = dict(fila) if fila else {**EJEMPLO_DE_CONTACTO, "id": None,
+                                        "email": "laura@empresadeejemplo.com"}
+    async with httpx.AsyncClient(timeout=180.0) as client:
+        if contacto.get("id"):
+            contacto = await redactor._ficha_al_dia(client, contacto)
+        r = await redactor.escribir_con_seguimiento(client, contacto, propuesta)
+    empresa = contacto.get("company_name") or contacto.get("full_name") or "la empresa"
+    if r.get("error"):
+        return {"ok": False, "empresa": empresa, "error": r["error"]}
+    cuerpos = [r["cuerpo"]] + [r[k] for k in ("cuerpo2", "cuerpo3") if r.get(k)]
+    e = await mailer.enviar_hilo(destino, f"[Prueba] {r['asunto']}", cuerpos)
+    anotar(request, "Mandó una prueba del correo con IA", f"{empresa} → {destino}",
+           e.get("enviados"))
+    return {**e, "empresa": empresa, "to": destino,
+            "aviso": r.get("error_seg")}
+
+
 @app.delete("/api/mail/borradores")
 def api_mail_borradores_borrar():
     return {"ok": True, "cuantos": redactor.limpiar_borradores()}
