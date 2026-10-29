@@ -981,3 +981,28 @@ pre{font-family:var(--mono);font-size:12px;background:var(--surface-2);
 .pill.bounced{background:var(--danger-soft);color:var(--danger);
   border-color:var(--danger-line);text-decoration:line-through;
   text-decoration-thickness:1px}
+
+/* ======================= barra de actividad =======================
+   Lo que B2K está haciendo en segundo plano. Va pegada abajo del encabezado
+   para que se vea desde cualquier pantalla. */
+.actividad{position:sticky;top:57px;z-index:55;display:grid;gap:8px;
+  padding:10px 16px;background:var(--surface-2);border-bottom:1px solid var(--line)}
+.act-item{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:4px 10px;
+  align-items:center;font-size:14px}
+.act-punto{width:9px;height:9px;border-radius:50%;background:var(--ok);
+  animation:act-latido 1.2s ease-in-out infinite}
+@keyframes act-latido{0%,100%{opacity:1}50%{opacity:.3}}
+@media (prefers-reduced-motion:reduce){.act-punto{animation:none}}
+.act-titulo{font-weight:600;color:var(--ink);overflow:hidden;text-overflow:ellipsis;
+  white-space:nowrap}
+.act-titulo .act-paso{font-weight:400;color:var(--ink-3)}
+.act-num{font-size:13px;color:var(--ink-3);font-variant-numeric:tabular-nums}
+.act-barra{grid-column:2 / 4;height:5px;border-radius:999px;background:var(--surface-3);
+  overflow:hidden}
+.act-barra i{display:block;height:100%;background:var(--ok);border-radius:999px;
+  transition:width .4s ease}
+.act-barra.indef i{width:35%;animation:act-va 1.3s ease-in-out infinite}
+@keyframes act-va{0%{transform:translateX(-100%)}100%{transform:translateX(290%)}}
+@media (prefers-reduced-motion:reduce){.act-barra.indef i{animation:none;width:100%;opacity:.5}}
+.ask-campo{display:grid;gap:6px;margin-top:12px}
+.ask-campo textarea,.ask-campo input,.ask-campo select{width:100%}

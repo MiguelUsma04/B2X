@@ -2568,6 +2568,7 @@ async function escribirConIA() {
   const fd = new FormData();
   fd.append('contact_ids', JSON.stringify(ids));
   fd.append('propuesta', $('ia-propuesta').value);
+  fd.append('indicaciones', $('ia-indicaciones').value);
   const r = await fetch('/api/mail/redactar', { method: 'POST', body: fd });
   const d = await r.json();
   if (!r.ok) { toast(esc(d.detail || 'Error'), 'err'); return; }
@@ -2718,22 +2719,24 @@ async function aprobarTodos(estado) {
 async function editarBorrador(id) {
   const b = BORRADORES.find((x) => x.contact_id === id);
   if (!b) return;
-  const cuerpo = prompt(
-    `Corregí el correo para ${b.company_name || b.email}.\n` +
-    `Máximo ${IA_MAX} caracteres.`, b.cuerpo || '');
-  if (cuerpo === null) return;
-  const asunto = prompt('Asunto:', b.asunto || '');
-  if (asunto === null) return;
+  const campo = (cid, rotulo, valor, filas) => `<div class="ask-campo">
+      <label class="fld" for="${cid}">${rotulo}</label>
+      ${filas ? `<textarea id="${cid}" rows="${filas}" style="resize:vertical">${esc(valor || '')}</textarea>`
+              : `<input id="${cid}" value="${esc(valor || '')}">`}</div>`;
+  const ok = await ask(`Corregir el correo de ${b.company_name || b.email}`,
+    campo('ed-asunto', 'Asunto', b.asunto)
+    + campo('ed-c1', `Correo 1 — máximo ${IA_MAX} caracteres`, b.cuerpo, 8)
+    + (b.cuerpo2 ? campo('ed-c2', 'Correo 2 (si no contesta)', b.cuerpo2, 5)
+                   + campo('ed-c3', 'Correo 3 (el último)', b.cuerpo3, 5) : ''),
+    [{ label: 'Cancelar', value: false },
+     { label: 'Guardar', value: true, cls: 'primary' }]);
+  if (!ok) return;
   const fd = new FormData();
-  fd.append('asunto', asunto);
-  fd.append('cuerpo', cuerpo);
+  fd.append('asunto', $('ed-asunto').value);
+  fd.append('cuerpo', $('ed-c1').value);
   if (b.cuerpo2) {
-    const c2 = prompt('Correo 2 (si no contesta):', b.cuerpo2);
-    if (c2 === null) return;
-    const c3 = prompt('Correo 3 (el último):', b.cuerpo3 || '');
-    if (c3 === null) return;
-    fd.append('cuerpo2', c2);
-    fd.append('cuerpo3', c3);
+    fd.append('cuerpo2', $('ed-c2').value);
+    fd.append('cuerpo3', $('ed-c3').value);
   }
   const r = await fetch(`/api/mail/borradores/${id}/editar`,
                         { method: 'POST', body: fd });
@@ -2743,26 +2746,55 @@ async function editarBorrador(id) {
   await cargarBorradores();
 }
 
+/* A quién y desde qué buzón va una prueba. Devuelve null si se cancela. */
+async function dialogoPrueba(titulo, explicacion) {
+  const buzones = MAILBOXES.filter((m) => m.active && m.configured);
+  const seq = $('seq-on') && $('seq-on').checked;
+  const ok = await ask(titulo,
+    `<p>${explicacion}</p>
+     <div class="ask-campo"><label class="fld" for="pr-a">Le llega a</label>
+       <input id="pr-a" type="email" value="soporte@gmarketing.co"></div>
+     <div class="ask-campo"><label class="fld" for="pr-buzon">Sale desde</label>
+       <select id="pr-buzon"><option value="">El que toque por rotación</option>
+         ${buzones.map((m) => `<option value="${m.id}">${esc(m.from_email)}</option>`).join('')}
+       </select></div>
+     <label class="switch" style="margin-top:12px"><input type="checkbox" id="pr-seq"
+       ${seq ? 'checked' : ''}><span>Con los correos 2 y 3 de seguimiento</span></label>
+     <p class="help">Los correos de una misma prueba salen todos del mismo buzón:
+       son una sola conversación. En una campaña, cada empresa recibe de un buzón
+       distinto por rotación.</p>`,
+    [{ label: 'Cancelar', value: false },
+     { label: 'Mandar la prueba', value: true, cls: 'primary' }]);
+  if (!ok) return null;
+  const a = ($('pr-a').value || '').trim();
+  if (!a.includes('@')) { toast('Esa dirección no es válida', 'warn'); return null; }
+  return { a, buzon: $('pr-buzon').value, seguimiento: $('pr-seq').checked ? '1' : '0' };
+}
+
 async function probarBorrador(id) {
   const b = BORRADORES.find((x) => x.contact_id === id);
   if (!b) return;
-  const a = prompt(`Mandar la prueba de ${b.company_name || b.email} a:`,
-                   'soporte@gmarketing.co');
-  if (a === null || !a.trim()) return;
-  toast('Mandando la prueba…', 'info', 2000);
+  const elegido = await dialogoPrueba('Probar este correo',
+    `Se manda el correo escrito para <b>${esc(b.company_name || b.email)}</b>, tal
+     cual lo vería el cliente.`);
+  if (!elegido) return;
   const fd = new FormData();
-  fd.append('to', a.trim());
+  fd.append('to', elegido.a);
+  fd.append('mailbox_id', elegido.buzon);
+  fd.append('seguimiento', elegido.seguimiento);
+  refrescarActividad(true);
   const r = await fetch(`/api/mail/borradores/${id}/probar`, { method: 'POST', body: fd });
   const d = await r.json();
   if (!r.ok) { toast(esc(d.detail || 'Error'), 'err'); return; }
   if (!d.ok) { toast(esc(d.error || 'No salió'), 'err'); return; }
-  toast(`${d.enviados} correo(s) a ${esc(d.to)}, en el mismo hilo`, 'ok');
+  toast(`${d.enviados} correo(s) a ${esc(d.to)} desde ${esc(d.desde || '')}`, 'ok', 7000);
 }
 
 async function rehacerBorrador(id) {
   toast('Escribiéndolo de nuevo…', 'info', 2000);
   const fd = new FormData();
   fd.append('propuesta', $('ia-propuesta').value);
+  fd.append('indicaciones', $('ia-indicaciones').value);
   const r = await fetch(`/api/mail/borradores/${id}/rehacer`,
                         { method: 'POST', body: fd });
   const d = await r.json();
@@ -3282,26 +3314,65 @@ async function pruebaIA() {
   const b = BORRADORES.find((x) => !x.error && x.cuerpo);
   if (b) { await probarBorrador(b.contact_id); return; }
 
-  const a = prompt('Mandar la prueba de la IA a:', 'soporte@gmarketing.co');
-  if (a === null || !a.trim()) return;
+  const elegido = await dialogoPrueba('Probar el correo de la IA',
+    `La IA escribe para ${SELECTED.size ? 'el primer contacto marcado'
+      : 'una empresa de la base con correo y sitio'} y te lo manda, como lo
+     recibiría el cliente. No se guarda ni se le manda nada a la empresa.`);
+  if (!elegido) return;
   PROBANDO_IA = true;
   const boton = $('btn-ia-prueba');
   if (boton) { boton.disabled = true; boton.textContent = 'Escribiendo la prueba…'; }
-  toast('La IA está escribiendo los tres correos. Tarda unos segundos.', 'info', 8000);
+  refrescarActividad(true);
   try {
     const fd = new FormData();
-    fd.append('to', a.trim());
+    fd.append('to', elegido.a);
+    fd.append('mailbox_id', elegido.buzon);
+    fd.append('seguimiento', elegido.seguimiento);
     fd.append('propuesta', $('ia-propuesta').value);
+    fd.append('indicaciones', $('ia-indicaciones').value);
     const id = [...SELECTED][0];
     if (id) fd.append('contact_id', String(id));
     const r = await fetch('/api/mail/prueba-ia', { method: 'POST', body: fd });
     const d = await r.json();
     if (!r.ok) { toast(esc(d.detail || 'Error'), 'err'); return; }
     if (!d.ok) { toast(esc(d.error || 'No salió'), 'err', 8000); return; }
-    toast(`${d.enviados} correo(s) para ${esc(d.empresa)} a ${esc(d.to)}, en el mismo hilo`
+    toast(`${d.enviados} correo(s) para ${esc(d.empresa)} a ${esc(d.to)} desde ${esc(d.desde || '')}`
           + (d.aviso ? ` — ${esc(d.aviso)}` : ''), 'ok', 8000);
   } finally {
     PROBANDO_IA = false;
     if (boton) { boton.disabled = false; boton.textContent = 'Enviar una prueba'; }
   }
 }
+
+/* ======================= barra de actividad =======================
+   Todo lo que corre en segundo plano —buscar emails, leer sitios, escribir
+   con la IA, mandar la campaña— se ve arriba, con el paso en el que va. Se
+   pregunta seguido mientras hay algo andando y de vez en cuando si no. */
+let ACT_TIMER = null;
+
+async function refrescarActividad(pronto) {
+  if (ACT_TIMER) { clearTimeout(ACT_TIMER); ACT_TIMER = null; }
+  if (pronto) { ACT_TIMER = setTimeout(() => refrescarActividad(), 400); return; }
+  let tareas = [];
+  try {
+    tareas = (await (await fetch('/api/actividad')).json()).tareas || [];
+  } catch (e) { tareas = []; }
+  const caja = $('actividad');
+  if (caja) {
+    caja.hidden = !tareas.length;
+    caja.innerHTML = tareas.map((t) => {
+      const pct = t.total ? Math.min(100, Math.round((t.hechos / t.total) * 100)) : 0;
+      return `<div class="act-item">
+        <span class="act-punto" aria-hidden="true"></span>
+        <span class="act-titulo">${esc(t.titulo)}${t.paso
+          ? ` <span class="act-paso">— ${esc(t.paso)}</span>` : ''}</span>
+        <span class="act-num">${t.total ? `${t.hechos} de ${t.total}`
+          : (t.segundos != null ? `${t.segundos} s` : '')}</span>
+        <span class="act-barra ${t.total ? '' : 'indef'}"><i style="${
+          t.total ? `width:${pct}%` : ''}"></i></span></div>`;
+    }).join('');
+  }
+  ACT_TIMER = setTimeout(() => refrescarActividad(),
+                         document.hidden ? 15000 : (tareas.length ? 1500 : 6000));
+}
+refrescarActividad();

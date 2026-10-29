@@ -36,6 +36,8 @@
             aria-label="Cerrar sesión">⏻</button>
   </form>
 </header>
+<!-- Lo que está corriendo en segundo plano. Se llena desde /api/actividad. -->
+<div class="actividad" id="actividad" hidden aria-live="polite"></div>
 
 <div class="wrap">
 
@@ -380,8 +382,19 @@
             solución y una pregunta. <b>Nada sale sin que lo apruebes.</b></p>
           <div class="field" style="flex:1 1 100%;margin-top:12px">
             <label class="fld" for="ia-propuesta">Qué ofrecemos nosotros</label>
-            <textarea id="ia-propuesta" rows="4" style="resize:vertical"
+            <textarea id="ia-propuesta" rows="3" style="resize:vertical"
               placeholder="En una o dos frases: qué vendemos y a quién le sirve."></textarea>
+            <p class="help">Es la descripción de lo que vende gmarketing: la IA la
+              usa como argumento. Vacío, usa la de KOMMO10X.</p>
+          </div>
+          <div class="field" style="flex:1 1 100%;margin-top:12px">
+            <label class="fld" for="ia-indicaciones">Indicaciones para la IA
+              (opcional)</label>
+            <textarea id="ia-indicaciones" rows="3" style="resize:vertical"
+              placeholder="Ej.: tono más cercano, menos de 300 caracteres, mencionar que somos partners de Kommo."></textarea>
+            <p class="help">Acá sí van las órdenes: tono, largo, enfoque. La IA las
+              sigue, pero mantiene el idioma, el saludo, el máximo de caracteres y no
+              inventa datos de la empresa.</p>
           </div>
           <p class="help">El asunto y el saludo los pone la IA. Si encuentra en
             el sitio quién maneja esa dirección, lo saluda por su nombre; si no,

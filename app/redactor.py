@@ -267,12 +267,21 @@ def largo_maximo() -> int:
         return 500
 
 
+import contextvars
+# Con indicaciones propias —"un saludo corto"— no se exige el largo mínimo ni
+# los cuatro tramos: quien envía pidió otra cosa, a propósito.
+_CON_INDICACIONES = contextvars.ContextVar("con_indicaciones", default=False)
+
+
 def largo_minimo() -> int:
     """El piso. Del brief: entre 350 y 500.
 
     Un correo de 180 caracteres no tiene lugar para los cuatro tramos: sale
     un problema y un saludo, y eso no es lo que se pidió.
     """
+    if _CON_INDICACIONES.get():
+        return 18           # algo más que el saludo solo
+
     v = (os.getenv("CORREO_MIN_CARACTERES") or "350").strip()
     tope = largo_maximo()
     try:
@@ -368,6 +377,63 @@ def parece_idioma(texto: str, idioma: str) -> bool:
         return True                      # texto muy corto: no se puede afirmar
     gana = max(puntajes, key=puntajes.get)
     return gana == idioma
+
+
+_VOSEO = {"AR", "UY", "PY"}
+
+
+# Las formas de voseo que más aparecen en un correo comercial, con su tuteo.
+# Los ejemplos de estilo están escritos con voseo y el modelo lo arrastra
+# aunque se le pida tutear: pedido "tú", igual escribió "pagás" y "avisame".
+_VOSEO_A_TU = {
+    "querés": "quieres", "podés": "puedes", "tenés": "tienes", "sabés": "sabes",
+    "pagás": "pagas", "invertís": "inviertes", "necesitás": "necesitas",
+    "usás": "usas", "trabajás": "trabajas", "vendés": "vendes",
+    "manejás": "manejas", "gestionás": "gestionas", "hacés": "haces",
+    "perdés": "pierdes", "contás": "cuentas", "pensás": "piensas",
+    "preferís": "prefieres", "conocés": "conoces", "creés": "crees",
+    "ves": "ves", "estás": "estás", "sos": "eres", "vos": "tú",
+    "decime": "dime", "decímelo": "dímelo", "avisame": "avísame",
+    "avisá": "avisa", "avisáme": "avísame", "contame": "cuéntame",
+    "contáme": "cuéntame", "escribime": "escríbeme", "respondeme": "respóndeme",
+    "contestame": "contéstame", "llamame": "llámame", "mirá": "mira",
+    "fijate": "fíjate", "decís": "dices", "agendá": "agenda",
+    "respondé": "responde", "probá": "prueba",
+    # "escribí" no: también es el pasado de yo ("te escribí hace unos días").
+}
+_RE_VOSEO = None
+
+
+def sin_voseo(texto: str) -> str:
+    """Pasa a tuteo las formas de voseo conocidas, respetando la mayúscula."""
+    import re
+    global _RE_VOSEO
+    if _RE_VOSEO is None:
+        palabras = sorted((k for k, v in _VOSEO_A_TU.items() if k != v),
+                          key=len, reverse=True)
+        _RE_VOSEO = re.compile(r"(?<![\wáéíóúñ])(" + "|".join(palabras)
+                               + r")(?![\wáéíóúñ])", re.IGNORECASE)
+
+    def cambiar(m):
+        nuevo = _VOSEO_A_TU[m.group(0).lower()]
+        return nuevo[0].upper() + nuevo[1:] if m.group(0)[0].isupper() else nuevo
+    return _RE_VOSEO.sub(cambiar, texto or "")
+
+
+def tutea(contacto: dict) -> bool:
+    return not trato_de(contacto).startswith("voseo")
+
+
+def trato_de(contacto: dict) -> str:
+    """Cómo tratar a quien recibe: el voseo fuera del Río de la Plata suena
+    extranjero, y casi todos los clientes son de Colombia."""
+    pais = (contacto.get("country") or "").strip().upper()
+    if not pais:
+        from . import telefonos
+        pais = telefonos.region_de_direccion(contacto.get("address")) or ""
+    if pais in _VOSEO:
+        return "voseo rioplatense (vos)"
+    return "tuteo (tú), sin voseo: nada de «querés», «podés», «decime», «tenés»"
 
 
 def idioma_de(contacto: dict) -> str:
@@ -624,6 +690,12 @@ def con_saludo(cuerpo: str, saludo: str) -> str:
         return cuerpo
     primera = lineas[0].strip()
     if _normal(saludo) in _normal(primera):
+        # Si el renglón es solo el saludo, queda con su coma y un renglón en
+        # blanco abajo: "Hola señores de GIV Ltda" pegado al texto se lee
+        # como una frase cortada.
+        if _normal(primera.rstrip(" ,.:;!")) == _normal(saludo):
+            resto = '\n'.join(lineas[1:]).lstrip('\n')
+            return saludo + ',\n\n' + resto
         return cuerpo
     # Si lo que escribió es otro saludo, se reemplaza; si es la primera
     # frase del correo, el saludo se antepone y no se pierde nada.
@@ -674,8 +746,38 @@ def _ficha(contacto: dict, nombre: str, idioma: str) -> str:
             f"Idioma del correo: {NOMBRE_IDIOMA.get(idioma, 'español')}")
 
 
+def _prioridad(indicaciones: str) -> str:
+    """Las indicaciones de quien envía, puestas por encima de todo lo demás.
+
+    Al final del mensaje el modelo las leía como un dato más y escribía el
+    correo de prospección de siempre: pedido "un saludo corto para un amigo",
+    devolvía los cuatro tramos. Arriba y con nombre, las sigue.
+    """
+    if not (indicaciones or "").strip():
+        return ""
+    return ("PRIORIDAD MÁXIMA — INDICACIONES DE QUIEN ENVÍA:\n"
+            f"{indicaciones.strip()}\n"
+            "Seguilas aunque contradigan la estructura, el tono o el largo "
+            "mínimo de las reglas de abajo. Si piden otra clase de correo —por "
+            "ejemplo un saludo corto—, escribí ESE correo y no uno de "
+            "prospección; los campos problema, agitación y solución pueden ir "
+            "vacíos. Lo único que se mantiene: el idioma, el trato, el saludo "
+            "obligatorio, el máximo de caracteres y no inventar datos.\n\n")
+
+
+def _bloque_indicaciones(indicaciones: str) -> str:
+    if not (indicaciones or "").strip():
+        return ""
+    return ("\n\n=== Indicaciones de quien envía ===\n"
+            "Seguilas: mandan sobre el tono, el largo, el enfoque y la "
+            "estructura de arriba. Lo único que no cambian son el idioma, el "
+            "saludo obligatorio, el máximo de caracteres y no inventar datos.\n"
+            + indicaciones.strip())
+
+
 def _pedido(contacto: dict, propuesta: str, nombre: str, idioma: str,
-            insistir: bool = False, mas_corto: bool = False) -> dict:
+            insistir: bool = False, mas_corto: bool = False,
+            indicaciones: str = "") -> dict:
     lengua = NOMBRE_IDIOMA.get(idioma, "español")
     # El idioma va primero y aparte. Los ejemplos de estilo están en español,
     # y sin esto el modelo escribe en español aunque se le pida otro idioma:
@@ -684,7 +786,9 @@ def _pedido(contacto: dict, propuesta: str, nombre: str, idioma: str,
                  f"El asunto y el cuerpo van enteros en {lengua}. Los ejemplos "
                  f"de más abajo están en español y varios son largos, pero "
                  f"son ejemplos de TONO y de estructura: no copies ni el "
-                 f"idioma ni el largo, copiá la forma.")
+                 f"idioma ni el largo, copiá la forma.\n"
+                 f"TRATO OBLIGATORIO: {trato_de(contacto)}. Los ejemplos usan "
+                 f"voseo; el correo no, salvo que acá diga vos.")
     if insistir:
         exigencia += (f"\n\nEl intento anterior salió en el idioma equivocado. "
                       f"Escribí en {lengua} y en ningún otro idioma.")
@@ -697,12 +801,14 @@ def _pedido(contacto: dict, propuesta: str, nombre: str, idioma: str,
         "model": modelo_redaccion(),
         "input": [
             {"role": "system",
-             "content": f"{exigencia}\n\n{instrucciones(contacto)}\n\n"
+             "content": f"{_prioridad(indicaciones)}{exigencia}\n\n"
+                        f"{instrucciones(contacto)}\n\n"
                         f"=== Cómo suenan nuestros correos ===\n{EJEMPLOS}"},
             {"role": "user",
              "content": (f"=== Qué ofrecemos nosotros ===\n{propuesta.strip()}\n\n"
                          f"=== A quién le escribimos ===\n"
-                         f"{_ficha(contacto, nombre, idioma)}")},
+                         f"{_ficha(contacto, nombre, idioma)}"
+                         + _bloque_indicaciones(indicaciones))},
         ],
         "max_output_tokens": 3_000,
         "reasoning": {"effort": ESFUERZO_REDACCION},
@@ -778,11 +884,20 @@ def propuesta_por_defecto() -> str:
 
 
 async def escribir(client: httpx.AsyncClient, contacto: dict,
-                   propuesta: str = "") -> dict:
+                   propuesta: str = "", indicaciones: str = "") -> dict:
     """Escribe el correo para este contacto.
 
     Devuelve {"asunto", "cuerpo", "nombre", "idioma", "tokens", "error"}.
     """
+    marca = _CON_INDICACIONES.set(bool((indicaciones or "").strip()))
+    try:
+        return await _escribir(client, contacto, propuesta, indicaciones)
+    finally:
+        _CON_INDICACIONES.reset(marca)
+
+
+async def _escribir(client: httpx.AsyncClient, contacto: dict,
+                    propuesta: str, indicaciones: str) -> dict:
     if not ai.configured():
         return {"error": "Falta OPENAI_API_KEY en el .env."}
 
@@ -794,7 +909,7 @@ async def escribir(client: httpx.AsyncClient, contacto: dict,
 
     async def pedir(insistir: bool = False, mas_corto: bool = False):
         pedido = _pedido(contacto, texto_propuesta, nombre, idioma, insistir,
-                         mas_corto)
+                         mas_corto, indicaciones)
         r = await client.post(ai.URL, json=pedido, headers=cabeceras)
         body = r.json() if r.content else {}
         if r.status_code == 400:
@@ -856,6 +971,8 @@ async def escribir(client: httpx.AsyncClient, contacto: dict,
     tope, piso = largo_maximo(), largo_minimo()
     saludo = saludo_de(contacto, nombre, idioma)
     cuerpo = con_saludo(cuerpo, saludo)
+    if idioma == "es" and tutea(contacto):
+        cuerpo, asunto = sin_voseo(cuerpo), sin_voseo(asunto)
 
     def sirve(texto: str) -> bool:
         # Un saludo suelto no es un correo: tiene que tener cuerpo y cerrar
@@ -920,6 +1037,22 @@ async def escribir(client: httpx.AsyncClient, contacto: dict,
         return {"error": f"No logró entrar en {tope} caracteres "
                          f"(quedó en {len(cuerpo)}). Probá de nuevo."}
 
+    if len(cuerpo) < piso:
+        # Una vuelta más: a veces devuelve el saludo solo, sobre todo cuando
+        # se le pidió algo muy corto.
+        try:
+            r2, body2 = await pedir()
+            if r2.status_code == 200:
+                d2 = json.loads(ai._texto_de(body2) or "{}")
+                nuevo = con_saludo(limpiar((d2.get("cuerpo") or "").strip()), saludo)
+                if idioma == "es" and tutea(contacto):
+                    nuevo = sin_voseo(nuevo)
+                if piso <= len(nuevo) <= tope:
+                    d, body, cuerpo = d2, body2, nuevo
+                    asunto = sin_voseo((d2.get("asunto") or asunto).strip()) \
+                        if idioma == "es" and tutea(contacto) else (d2.get("asunto") or asunto).strip()
+        except Exception:
+            pass
     if len(cuerpo) < piso:
         return {"error": f"El correo salió demasiado corto ({len(cuerpo)} "
                          f"caracteres): no alcanza para decir nada."}
@@ -995,7 +1128,7 @@ ESQUEMA_SEGUIMIENTO = {
 
 def _pedido_seguimientos(contacto: dict, propuesta: str, asunto1: str,
                          cuerpo1: str, nombre: str, idioma: str, saludo: str,
-                         mas_corto: bool = False) -> dict:
+                         mas_corto: bool = False, indicaciones: str = "") -> dict:
     tope = largo_maximo()
     lengua = NOMBRE_IDIOMA.get(idioma, "español")
     meta = int(tope * (0.6 if mas_corto else 0.8))
@@ -1020,9 +1153,7 @@ def _pedido_seguimientos(contacto: dict, propuesta: str, asunto1: str,
         "- Distinto del 1 y del 2.",
         "",
         "Para los dos:",
-        f"- En {lengua}, con el mismo trato (tú o usted) que el correo 1. "
-        "Sin voseo —nada de «podés», «decime», «tenés»— salvo que el correo 1 "
-        "lo use: fuera del Río de la Plata suena extranjero.",
+        f"- En {lengua}. Trato: {trato_de(contacto)}.",
         f"- Primer renglón: «{saludo},», tal cual.",
         f"- Cada uno, menos de {meta} caracteres. Más cortos que el 1.",
         "- Solo datos de la ficha o del correo 1. Nada inventado sobre la "
@@ -1032,14 +1163,16 @@ def _pedido_seguimientos(contacto: dict, propuesta: str, asunto1: str,
         "model": modelo_redaccion(),
         "input": [
             {"role": "system",
-             "content": "Escribís correos de seguimiento de prospección B2B, "
+             "content": _prioridad(indicaciones)
+                        + "Escribís correos de seguimiento de prospección B2B, "
                         "cortos y humanos, que no suenan a plantilla."},
             {"role": "user",
              "content": "\n".join(reglas)
                         + f"\n\n=== Lo que ofrecemos ===\n{propuesta}"
                         + f"\n\n=== Ficha de la empresa ===\n"
                         + _ficha(contacto, nombre, idioma)
-                        + f"\n\n=== Correo 1 ===\nAsunto: {asunto1}\n\n{cuerpo1}"},
+                        + f"\n\n=== Correo 1 ===\nAsunto: {asunto1}\n\n{cuerpo1}"
+                        + _bloque_indicaciones(indicaciones)},
         ],
         "max_output_tokens": 4_000,
         "reasoning": {"effort": ESFUERZO_REDACCION},
@@ -1049,7 +1182,8 @@ def _pedido_seguimientos(contacto: dict, propuesta: str, asunto1: str,
 
 
 async def seguimientos(client: httpx.AsyncClient, contacto: dict, asunto1: str,
-                       cuerpo1: str, propuesta: str = "") -> dict:
+                       cuerpo1: str, propuesta: str = "",
+                       indicaciones: str = "") -> dict:
     """Escribe los correos 2 y 3 a partir del 1.
 
     Devuelve {"cuerpo2", "cuerpo3", "error"}. Se pasan los mismos controles
@@ -1065,14 +1199,18 @@ async def seguimientos(client: httpx.AsyncClient, contacto: dict, asunto1: str,
                  "Content-Type": "application/json"}
 
     def problema(texto: str) -> str:
-        if not texto or len(texto) < 80:
+        if not texto or len(texto) < (18 if (indicaciones or "").strip() else 40):
             return "salió vacío o demasiado corto"
         if len(texto) > tope:
             return f"quedó largo ({len(texto)} caracteres, el máximo es {tope})"
         if not parece_idioma(texto, idioma):
             return "salió en otro idioma"
-        if tiene_marcadores(texto) or repite_el_brief(texto):
+        if tiene_marcadores(texto):
             return "dejó algo sin completar"
+        # Con indicaciones propias el correo puede sonar a cualquier cosa, y el
+        # detector de "copió las instrucciones" salta con un saludo informal.
+        if not (indicaciones or "").strip() and repite_el_brief(texto):
+            return "copió las instrucciones en vez de escribirlo"
         if _normal(texto) == _normal(cuerpo1):
             return "repite el correo 1"
         return ""
@@ -1081,7 +1219,8 @@ async def seguimientos(client: httpx.AsyncClient, contacto: dict, asunto1: str,
     for intento in range(2):
         pedido = _pedido_seguimientos(contacto, propuesta or propuesta_por_defecto(),
                                       asunto1, cuerpo1, nombre, idioma, saludo,
-                                      mas_corto=bool(intento))
+                                      mas_corto=bool(intento),
+                                      indicaciones=indicaciones)
         try:
             r = await client.post(ai.URL, json=pedido, headers=cabeceras)
             if r.status_code == 400 and "reasoning" in r.text.lower():
@@ -1096,6 +1235,8 @@ async def seguimientos(client: httpx.AsyncClient, contacto: dict, asunto1: str,
             continue
         c2 = con_saludo(limpiar((d.get("cuerpo2") or "").strip()), saludo)
         c3 = con_saludo(limpiar((d.get("cuerpo3") or "").strip()), saludo)
+        if idioma == "es" and tutea(contacto):
+            c2, c3 = sin_voseo(c2), sin_voseo(c3)
         fallas = [f"el correo {n} {m}" for n, m in ((2, problema(c2)), (3, problema(c3))) if m]
         if not fallas:
             return {"cuerpo2": c2, "cuerpo3": c3, "error": None}
@@ -1104,12 +1245,20 @@ async def seguimientos(client: httpx.AsyncClient, contacto: dict, asunto1: str,
 
 
 async def escribir_con_seguimiento(client: httpx.AsyncClient, contacto: dict,
-                                   propuesta: str = "") -> dict:
-    """El correo 1 y, si salió bien, el 2 y el 3."""
-    r = await escribir(client, contacto, propuesta)
+                                   propuesta: str = "", indicaciones: str = "",
+                                   avisar=None) -> dict:
+    """El correo 1 y, si salió bien, el 2 y el 3.
+
+    `avisar(texto)` recibe en qué paso va, para la barra de actividad.
+    """
+    avisar = avisar or (lambda _t: None)
+    avisar("Escribiendo el correo 1")
+    r = await escribir(client, contacto, propuesta, indicaciones)
     if r.get("error"):
         return r
-    s = await seguimientos(client, contacto, r["asunto"], r["cuerpo"], propuesta)
+    avisar("Escribiendo los correos 2 y 3 a partir del 1")
+    s = await seguimientos(client, contacto, r["asunto"], r["cuerpo"], propuesta,
+                           indicaciones)
     if s.get("error"):
         return {**r, "error_seg": s["error"]}
     return {**r, "cuerpo2": s["cuerpo2"], "cuerpo3": s["cuerpo3"]}
@@ -1127,6 +1276,7 @@ class ProgresoRedaccion:
     listos: int = 0
     fallados: int = 0
     empresa: str | None = None
+    paso: str | None = None
     terminado: bool = False
     error: str | None = None
 
@@ -1134,6 +1284,7 @@ class ProgresoRedaccion:
         return {"running": self.corriendo, "total": self.total,
                 "processed": self.hechos, "found": self.listos,
                 "not_found": self.fallados, "current_contact": self.empresa,
+                "paso": self.paso,
                 "finished": self.terminado, "error": self.error}
 
 
@@ -1216,7 +1367,8 @@ async def _ficha_al_dia(client: httpx.AsyncClient, contacto: dict) -> dict:
     return dict(fila) if fila else contacto
 
 
-async def redactar_muchos(ids: list[int], propuesta: str = "") -> None:
+async def redactar_muchos(ids: list[int], propuesta: str = "",
+                          indicaciones: str = "") -> None:
     """Escribe el correo de cada contacto marcado y lo deja para aprobar."""
     global PROGRESO
     if _LOCK.locked():
@@ -1234,8 +1386,13 @@ async def redactar_muchos(ids: list[int], propuesta: str = "") -> None:
                     PROGRESO.empresa = (c.get("company_name")
                                         or c.get("full_name") or f"#{c['id']}")
                     try:
+                        PROGRESO.paso = "Leyendo el sitio de la empresa"
                         c = await _ficha_al_dia(client, c)
-                        r = await escribir_con_seguimiento(client, c, propuesta)
+
+                        def avisar(t):
+                            PROGRESO.paso = t
+                        r = await escribir_con_seguimiento(
+                            client, c, propuesta, indicaciones, avisar)
                     except Exception as exc:
                         r = {"error": f"Se cayó al escribirlo: {type(exc).__name__}"}
                     _guardar(c, r)
@@ -1248,7 +1405,7 @@ async def redactar_muchos(ids: list[int], propuesta: str = "") -> None:
             PROGRESO.error = f"Se cortó: {type(exc).__name__}"
         finally:
             PROGRESO.corriendo, PROGRESO.terminado = False, True
-            PROGRESO.empresa = None
+            PROGRESO.empresa = PROGRESO.paso = None
 
 
 def borradores(ids: list[int] | None = None) -> list[dict]:

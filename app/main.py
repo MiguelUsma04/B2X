@@ -46,6 +46,7 @@ from .importer import (delete_batch, import_contacts,      # noqa: E402
 from . import (ai, auth, dnscheck, duplicados, enrichment, exportar,  # noqa: E402
                ghl, kommo, mailer, places, redactor, respaldo)
 from . import secuencia as secuencia_mod  # noqa: E402
+from . import actividad                  # noqa: E402
 from .providers import build_chain       # noqa: E402
 
 app = FastAPI(title="B2K", docs_url="/api/docs")
@@ -560,6 +561,12 @@ def api_places_usage():
 @app.post("/api/places/search")
 async def api_places_search(request: Request, query: str = Form(...),
                             max_results: str = Form("20")):
+    with actividad.tarea(f"Buscando en Google Maps: «{query.strip()[:60]}»") as t:
+        t.paso("Pidiendo resultados a Google y salteando los ya vistos")
+        return await _buscar_en_maps(request, query, max_results)
+
+
+async def _buscar_en_maps(request: Request, query: str, max_results: str):
     """Busca negocios por ubicación. No guarda nada: primero se miran.
 
     Repetir la misma búsqueda tiene que traer negocios nuevos. Google contesta
@@ -1019,7 +1026,8 @@ async def api_mail_secuencia():
 
 @app.post("/api/mail/redactar")
 async def api_mail_redactar(request: Request, contact_ids: str = Form(...),
-                            propuesta: str = Form("")):
+                            propuesta: str = Form(""),
+                            indicaciones: str = Form("")):
     """Le pide a la IA un correo distinto para cada marcado."""
     if redactor.PROGRESO.corriendo:
         raise HTTPException(409, "Ya se están escribiendo correos.")
@@ -1035,7 +1043,7 @@ async def api_mail_redactar(request: Request, contact_ids: str = Form(...),
         return {"started": False,
                 "message": "Ninguno de los marcados tiene email, o todos "
                            "pidieron no recibir más correos."}
-    asyncio.create_task(redactor.redactar_muchos(ids, propuesta))
+    asyncio.create_task(redactor.redactar_muchos(ids, propuesta, indicaciones))
     anotar(request, "Le pidió a la IA que escribiera correos",
            "cuesta por contacto", len(pendientes))
     return {"started": True, "queued": len(pendientes)}
@@ -1090,7 +1098,8 @@ def api_mail_borrador_editar(contact_id: int, asunto: str = Form(...),
 
 
 @app.post("/api/mail/borradores/{contact_id}/rehacer")
-async def api_mail_borrador_rehacer(contact_id: int, propuesta: str = Form("")):
+async def api_mail_borrador_rehacer(contact_id: int, propuesta: str = Form(""),
+                                    indicaciones: str = Form("")):
     """Vuelve a pedirle ese correo a la IA. Es lo que se hace con los fallados."""
     if not ai.configured():
         raise HTTPException(400, "Falta OPENAI_API_KEY en el .env.")
@@ -1101,15 +1110,21 @@ async def api_mail_borrador_rehacer(contact_id: int, propuesta: str = Form("")):
         raise HTTPException(404, "Ese contacto no existe.")
     contacto = dict(fila)
     async with httpx.AsyncClient(timeout=180.0) as client:
-        contacto = await redactor._ficha_al_dia(client, contacto)
-        r = await redactor.escribir_con_seguimiento(client, contacto, propuesta)
+        empresa = contacto.get("company_name") or contacto.get("email")
+        with actividad.tarea(f"La IA reescribe el correo de {empresa}") as t:
+            t.paso("Leyendo el sitio de la empresa")
+            contacto = await redactor._ficha_al_dia(client, contacto)
+            r = await redactor.escribir_con_seguimiento(
+                client, contacto, propuesta, indicaciones, t.paso)
     redactor._guardar(contacto, r)
     return {"ok": not r.get("error"), **r}
 
 
 @app.post("/api/mail/borradores/{contact_id}/probar")
 async def api_mail_borrador_probar(request: Request, contact_id: int,
-                                   to: str = Form("soporte@gmarketing.co")):
+                                   to: str = Form("soporte@gmarketing.co"),
+                                   mailbox_id: str = Form(""),
+                                   seguimiento: str = Form("1")):
     """Manda el borrador —el 1 y, si los tiene, el 2 y el 3 en el mismo hilo—
     a una casilla propia, para leerlo como lo leería el cliente."""
     destino = (to or "").strip() or "soporte@gmarketing.co"
@@ -1118,16 +1133,29 @@ async def api_mail_borrador_probar(request: Request, contact_id: int,
     b = next((x for x in redactor.borradores([contact_id])), None)
     if not b or not b.get("cuerpo"):
         raise HTTPException(404, "Ese contacto no tiene un correo escrito.")
-    cuerpos = [b["cuerpo"]] + [b[k] for k in ("cuerpo2", "cuerpo3") if b.get(k)]
-    r = await mailer.enviar_hilo(destino, f"[Prueba] {b['asunto']}", cuerpos)
+    cuerpos = [b["cuerpo"]]
+    if seguimiento != "0":
+        cuerpos += [b[k] for k in ("cuerpo2", "cuerpo3") if b.get(k)]
+    mid = int(mailbox_id) if str(mailbox_id).isdigit() else None
+    with actividad.tarea(f"Enviando la prueba a {destino}") as t:
+        t.paso(f"{len(cuerpos)} correo(s) en un solo hilo")
+        r = await mailer.enviar_hilo(destino, f"[Prueba] {b['asunto']}", cuerpos, mid)
     anotar(request, "Mandó una prueba del correo con IA",
            f"{b.get('company_name') or b.get('email')} → {destino}", r.get("enviados"))
     return {**r, "to": destino}
 
 
+@app.get("/api/actividad")
+def api_actividad():
+    """Lo que está corriendo en segundo plano, para la barra de actividad."""
+    return {"tareas": actividad.ahora()}
+
+
 @app.post("/api/mail/prueba-ia")
 async def api_mail_prueba_ia(request: Request, to: str = Form("soporte@gmarketing.co"),
-                             propuesta: str = Form(""), contact_id: str = Form("")):
+                             propuesta: str = Form(""), contact_id: str = Form(""),
+                             indicaciones: str = Form(""), mailbox_id: str = Form(""),
+                             seguimiento: str = Form("1")):
     """Escribe con la IA los tres correos para una empresa y los manda a una
     casilla propia, en un solo hilo. No guarda borrador ni toca la cola.
 
@@ -1153,15 +1181,27 @@ async def api_mail_prueba_ia(request: Request, to: str = Form("soporte@gmarketin
                              updated_at DESC LIMIT 1""").fetchone()
     contacto = dict(fila) if fila else {**EJEMPLO_DE_CONTACTO, "id": None,
                                         "email": "laura@empresadeejemplo.com"}
-    async with httpx.AsyncClient(timeout=180.0) as client:
-        if contacto.get("id"):
-            contacto = await redactor._ficha_al_dia(client, contacto)
-        r = await redactor.escribir_con_seguimiento(client, contacto, propuesta)
     empresa = contacto.get("company_name") or contacto.get("full_name") or "la empresa"
-    if r.get("error"):
-        return {"ok": False, "empresa": empresa, "error": r["error"]}
-    cuerpos = [r["cuerpo"]] + [r[k] for k in ("cuerpo2", "cuerpo3") if r.get(k)]
-    e = await mailer.enviar_hilo(destino, f"[Prueba] {r['asunto']}", cuerpos)
+    con_seg = seguimiento != "0"
+    mid = int(mailbox_id) if str(mailbox_id).isdigit() else None
+    with actividad.tarea(f"Prueba de la IA para {empresa}") as t:
+        async with httpx.AsyncClient(timeout=180.0) as client:
+            if contacto.get("id"):
+                t.paso("Leyendo el sitio de la empresa")
+                contacto = await redactor._ficha_al_dia(client, contacto)
+            if con_seg:
+                r = await redactor.escribir_con_seguimiento(
+                    client, contacto, propuesta, indicaciones, t.paso)
+            else:
+                t.paso("Escribiendo el correo")
+                r = await redactor.escribir(client, contacto, propuesta, indicaciones)
+        if r.get("error"):
+            return {"ok": False, "empresa": empresa, "error": r["error"]}
+        cuerpos = [r["cuerpo"]]
+        if con_seg:
+            cuerpos += [r[k] for k in ("cuerpo2", "cuerpo3") if r.get(k)]
+        t.paso(f"Enviando {len(cuerpos)} correo(s) a {destino}")
+        e = await mailer.enviar_hilo(destino, f"[Prueba] {r['asunto']}", cuerpos, mid)
     anotar(request, "Mandó una prueba del correo con IA", f"{empresa} → {destino}",
            e.get("enviados"))
     return {**e, "empresa": empresa, "to": destino,
@@ -1783,6 +1823,16 @@ def api_ghl_settings_save(request: Request, pipeline_id: str = Form(""),
 @app.post("/api/ghl/send")
 async def api_ghl_send(request: Request, contact_ids: str = Form(...),
                        tag: str = Form("")):
+    try:
+        n = len(json.loads(contact_ids))
+    except Exception:
+        n = 0
+    with actividad.tarea(f"Mandando {n} contacto(s) a Kommo") as t:
+        t.paso("Creando contactos y leads, al ritmo que permite Kommo")
+        return await _mandar_al_crm(request, contact_ids, tag)
+
+
+async def _mandar_al_crm(request: Request, contact_ids: str, tag: str):
     try:
         ids = [int(i) for i in json.loads(contact_ids)]
     except Exception:
