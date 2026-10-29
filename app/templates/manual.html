@@ -340,6 +340,15 @@ dd{margin:0;color:var(--ink-2);font-size:15px}
       </div>
 
       <div class="aviso tip" style="margin-top:20px">
+        <span class="et">Qué está haciendo</span>
+        <span>Cuando B2K trabaja en segundo plano —busca emails, lee sitios,
+          la IA escribe, sale la campaña, busca en Maps o manda a Kommo— aparece
+          una <b>barra debajo del encabezado</b>, en cualquier pantalla, con lo
+          que está haciendo, el paso en que va y cuánto falta. Si no hay nada
+          corriendo, no aparece.</span>
+      </div>
+
+      <div class="aviso tip" style="margin-top:12px">
         <span class="et">Tu primera vez</span>
         <span>Hacé todo el recorrido con <b>5 contactos</b> antes de tocar una
           lista grande. Cuesta centavos y te muestra dónde te trabás. La sexta
@@ -584,7 +593,9 @@ dd{margin:0;color:var(--ink-2);font-size:15px}
             contactos reales.</li>
           <li>Tocá <span class="btn">Probar en mi correo</span> y revisalo en
             tu bandeja.
-            <span class="nota">Este paso no es opcional si usás diseño: Gmail
+            <span class="nota">Las variables llegan reemplazadas con los datos
+              del primer contacto marcado, o con una empresa de ejemplo si no
+              marcaste ninguno. Este paso no es opcional si usás diseño: Gmail
               recorta cosas que el navegador sí muestra.</span></li>
         </ol>
 
@@ -597,17 +608,33 @@ dd{margin:0;color:var(--ink-2);font-size:15px}
           <li>Entrá a <span class="pest">Escribe la IA</span>.</li>
           <li>En <span class="campo">QUÉ OFRECEMOS NOSOTROS</span> contá en una
             o dos frases qué vendemos.
-            <span class="nota">Si lo dejás vacío usa lo que está configurado
-              por defecto.</span></li>
+            <span class="nota">Es una descripción, no una orden: la IA la usa
+              como argumento del correo. Si lo dejás vacío usa la de
+              KOMMO10X.</span></li>
+          <li>Si querés, escribí en <span class="campo">INDICACIONES PARA LA
+            IA</span> cómo tiene que ser el correo.
+            <span class="nota">Acá sí van las órdenes: «tono más cercano»,
+              «menos de 300 caracteres», «mencioná que somos partners de Kommo».
+              Mandan sobre el estilo de siempre. Lo que no cambian: el idioma,
+              el saludo, el máximo de caracteres y que no invente datos de la
+              empresa.</span></li>
           <li>Tocá <span class="btn">Escribir los correos</span> y esperá.
-            <span class="nota">Tarda unos segundos por contacto y cuesta
-              tokens de OpenAI. Si a una empresa nunca se le leyó el sitio, lo
-              lee ahora: de ahí sale el nombre de la persona.</span></li>
-          <li>Leé cada correo. Tenés cuatro botones en cada uno:
+            <span class="nota">Por cada empresa escribe <b>tres correos</b>: el
+              primero y los dos de seguimiento, que salen solo si activás la
+              secuencia (ver más abajo). El avance se ve en la barra de arriba.
+              Tarda unos segundos por contacto y cuesta tokens de OpenAI. Si a
+              una empresa nunca se le leyó el sitio, lo lee ahora: de ahí sale
+              el nombre de la persona.</span></li>
+          <li>Leé cada correo. Los de seguimiento están en
+            <span class="pest">Si no contesta: correos 2 y 3</span>, debajo del
+            primero. Cada tarjeta tiene cinco botones:
             <span class="btn">Aprobar</span>,
             <span class="btn">Corregir</span>,
+            <span class="btn">Enviar prueba</span>,
             <span class="btn">Que lo escriba de nuevo</span> y
-            <span class="btn">Descartar</span>.</li>
+            <span class="btn">Descartar</span>.
+            <span class="nota">Aprobar aprueba los tres juntos. Corregir abre
+              una ventana con el asunto y los tres correos.</span></li>
           <li>Tocá <span class="btn">Programar el envío</span>.
             <span class="nota">Salen <b>solo los aprobados</b>. Los que
               descartaste, y los que dejaste sin revisar, no salen.</span></li>
@@ -619,6 +646,36 @@ dd{margin:0;color:var(--ink-2);font-size:15px}
             <b>Que lo escriba de nuevo</b>, se pierde tu corrección. Y volver a
             escribir un correo le saca la aprobación: hay que aprobarlo otra
             vez.</span>
+        </div>
+
+        <p class="subtitulo">Probar el correo de la IA</p>
+        <p class="parrafo">Antes de mandarle algo a un cliente, mandátelo a
+          vos. <span class="btn">Enviar una prueba</span>, al lado de
+          <span class="btn">Escribir los correos</span>, abre una ventana
+          con:</p>
+        <ul class="lista">
+          <li><b>Le llega a:</b> viene puesto soporte@gmarketing.co; se puede
+            cambiar.</li>
+          <li><b>Sale desde:</b> uno de los buzones conectados, o el que toque
+            por rotación. Sirve para probar cada buzón.</li>
+          <li><b>Con los correos 2 y 3 de seguimiento:</b> si está marcado,
+            llegan los tres en un mismo hilo, como los vería el cliente a lo
+            largo de una semana pero de una vez.</li>
+        </ul>
+        <p class="parrafo">Si ya hay un correo escrito, manda ese. Si no, la IA
+          escribe uno para el primer contacto marcado o, sin marcados, para una
+          empresa de la base que tenga correo y sitio. La prueba lleva
+          <em>[Prueba]</em> en el asunto, no se guarda y no le llega nada a la
+          empresa. Cada tarjeta tiene además su propio
+          <span class="btn">Enviar prueba</span>.</p>
+
+        <div class="aviso tip">
+          <span class="et">Por qué de un solo buzón</span>
+          <span>Los correos de una prueba —y los tres de una misma empresa—
+            salen siempre <b>del mismo buzón</b>: son una sola conversación, y
+            un seguimiento que llega de otra dirección parece otra empresa. La
+            rotación entre buzones es <b>por empresa</b>: a cada una le toca un
+            buzón distinto.</span>
         </div>
 
         <p class="subtitulo">A quién saluda</p>
@@ -638,7 +695,10 @@ dd{margin:0;color:var(--ink-2);font-size:15px}
           primer renglón, y un <em>info@</em> no es de nadie en
           particular.</p>
         <p class="parrafo">El idioma también lo decide sola, por el país y la
-          ciudad de la empresa: a una agencia de Miami le escribe en inglés.</p>
+          ciudad de la empresa: a una agencia de Miami le escribe en inglés. En
+          español <b>tutea</b>; el «vos» lo usa solo con empresas de Argentina,
+          Uruguay y Paraguay. Si igual se le escapa un «podés» o un «avisame»,
+          B2K lo pasa a tuteo antes de guardarlo.</p>
 
         <div class="aviso tip">
           <span class="et">Por qué hay que aprobarlos</span>
@@ -647,6 +707,69 @@ dd{margin:0;color:var(--ink-2);font-size:15px}
             que no cierra. Leerlos cuesta un minuto y evita mandarle eso a un
             cliente. Los que no le salieron aparecen en rojo, con el motivo, y
             se pueden volver a pedir.</span>
+        </div>
+
+        <p class="subtitulo">Seguimiento: la secuencia de tres correos</p>
+        <p class="parrafo">A quien no contesta, B2K le puede volver a escribir
+          solo, dos veces más, y moverlo en Kommo con cada correo. Se activa al
+          programar, con <span class="campo">Secuencia de tres correos</span>
+          en la tarjeta <span class="pest">Seguimiento</span>.</p>
+        <ol class="acciones">
+          <li>Marcá <span class="campo">Secuencia de tres correos</span>.
+            <span class="nota">Con <b>Escribe la IA</b>, los correos 2 y 3 son
+              los que la IA escribió para cada empresa y vos aprobaste. Con
+              Texto o Diseño HTML, aparecen dos cuadros con un texto de fábrica
+              para el 2 y el 3, que podés cambiar; aceptan las mismas
+              {{variables}}.</span></li>
+          <li>Revisá los plazos: <span class="campo">Correo 2 a los</span>,
+            <span class="campo">Correo 3 a los</span> y
+            <span class="campo">No interesado a los</span>.
+            <span class="nota">Son días hábiles, contados desde el correo
+              anterior. Por defecto: 3, 3 y 5.</span></li>
+          <li>Programá el envío como siempre. La ventana de confirmación avisa
+            que va con seguimiento.</li>
+        </ol>
+        <div class="tabla">
+          <table>
+            <thead><tr><th>Qué pasa</th><th>Dónde queda el lead en Kommo</th></tr></thead>
+            <tbody>
+              <tr><td>Sale el correo 1</td><td><b>CORREO #1 - DESCUBRIMIENTO</b></td></tr>
+              <tr><td>No contestó: sale el 2</td><td><b>CORREO #2 - DIAGNÓSTICO</b></td></tr>
+              <tr><td>No contestó: sale el 3</td><td><b>CORREO #3 - OPORTUNIDAD</b></td></tr>
+              <tr><td>Pasa el último plazo sin respuesta</td><td><b>NO INTERESADO</b></td></tr>
+              <tr><td>Contesta, a cualquiera de los tres y diga lo que diga</td><td><b>IA CONVERSANDO</b></td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="parrafo">Cada lead lleva además una <b>etiqueta con la etapa
+          en la que está</b>; la anterior se saca y las demás etiquetas no se
+          tocan. Cuando contesta, B2K deja en el lead una nota con lo que
+          escribió y cómo lo leyó la IA. Abrir el correo o tocar un enlace
+          <b>no</b> cuenta como contestar.</p>
+        <p class="parrafo">El 2 y el 3 salen del mismo buzón que el 1, como
+          respuesta en el mismo hilo (con el asunto «Re: …»), y dentro del
+          horario de envío. En el recuadro de la campaña, arriba, se ve cuántos
+          esperan cada correo, cuántos contestaron y por qué se cortó cada
+          uno.</p>
+        <div class="aviso ojo">
+          <span class="et">Cuándo se frena sola</span>
+          <span>La secuencia se corta para un lead si <b>contesta</b>, si el
+            correo <b>rebota</b>, si pide la <b>baja</b>, si <b>alguien del
+            equipo lo movió</b> de etapa en Kommo, o si el lead está en
+            <b>otro embudo</b> (ahí recibe solo el primero). Y espera, sin
+            mandar el siguiente, mientras <b>no se pudo leer el buzón</b>: sin
+            leerlo no se sabe si contestó, y escribirle de nuevo a quien ya
+            respondió es lo peor que puede pasar. Si contesta pidiendo que no le
+            escriban más, además entra a la lista de no escribir.</span>
+        </div>
+        <div class="aviso tip">
+          <span class="et">Antes de usarla</span>
+          <span>En <b>Ajustes</b>, el embudo de destino tiene que ser
+            <b>B2K</b>: ahí están las etapas. El buzón tiene que poder leerse
+            (IMAP). Solo entran contactos a los que nunca se les escribió. Una
+            secuencia con la IA no arranca si algún aprobado no tiene sus
+            correos 2 y 3: tocá <b>Que lo escriba de nuevo</b> en ese. Pausar
+            o cancelar la campaña frena también la secuencia.</span>
         </div>
 
         <p class="subtitulo">Mandarlo</p>
@@ -892,7 +1015,9 @@ dd{margin:0;color:var(--ink-2);font-size:15px}
             dónde.
             <span class="nota">Lo que dejes sin elegir no mueve nada. Quien
               pide la baja conviene mandarlo a <b>cerrado perdido</b>: ahí no
-              queda nada que trabajar.</span></li>
+              queda nada que trabajar. Los leads de una secuencia no usan este
+              mapa: se mueven solos por los correos 1, 2 y 3 (ver
+              <b>Correos</b>).</span></li>
           <li><b>Empresas repetidas</b> — la misma empresa cargada dos veces.
             <span class="nota">Las que comparten sitio, teléfono o nombre y
               ciudad aparecen como seguras; las de nombre parecido, para que
@@ -1034,6 +1159,12 @@ dd{margin:0;color:var(--ink-2);font-size:15px}
           <div><dt>Crédito</dt>
             <dd>La ficha que se gasta al pedirle un dato a un proveedor. Un
               correo gasta 1; un teléfono, 10.</dd></div>
+          <div><dt>Secuencia</dt>
+            <dd>Los tres correos a una misma empresa: el primero y dos de
+              seguimiento si no contesta. Se corta apenas contesta.</dd></div>
+          <div><dt>Hilo</dt>
+            <dd>Una conversación de correo: los mensajes que se responden unos
+              a otros y el correo muestra juntos.</dd></div>
           <div><dt>Goteo</dt>
             <dd>Mandar de a uno cada varios minutos en vez de todos juntos.
               Evita el spam.</dd></div>
