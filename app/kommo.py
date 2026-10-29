@@ -984,7 +984,17 @@ async def mover_por_evento(lead_id: str, evento: str,
         destino_id = int(destino)
     except (TypeError, ValueError):
         return {"movido": False, "motivo": "La etapa configurada no es válida."}
+    return await mover_a(lead_id, destino_id, dict(EVENTOS).get(evento, evento),
+                         detalle, saltar_reglas=(evento == "baja"))
 
+
+async def mover_a(lead_id: str, destino_id: int, etiqueta: str,
+                  detalle: str = "", saltar_reglas: bool = False) -> dict:
+    """Lleva el lead a una etapa, respetando las dos reglas de arriba.
+
+    `saltar_reglas` es solo para la baja. Devuelve también la etapa en la que
+    quedó el lead ("status_id"), para que quien llama sepa dónde está.
+    """
     try:
         async with httpx.AsyncClient(timeout=TIEMPO, headers=_headers()) as c:
             r = await _con_reintento(c, "GET", f"{base_url()}/leads/{lead_id}")
@@ -996,17 +1006,18 @@ async def mover_por_evento(lead_id: str, evento: str,
             actual = int(lead.get("status_id") or 0)
 
             if actual == destino_id:
-                return {"movido": False, "motivo": "Ya estaba en esa etapa."}
+                return {"movido": False, "motivo": "Ya estaba en esa etapa.",
+                        "status_id": actual}
 
             # La baja pasa por encima de todo: no hay nada que seguir
             # trabajando con quien pidió no recibir más.
-            if evento != "baja":
+            if not saltar_reglas:
                 if actual in (GANADO, PERDIDO_ID):
-                    return {"movido": False,
+                    return {"movido": False, "status_id": actual,
                             "motivo": "El lead ya está cerrado; no se toca."}
                 orden = await _orden_de_etapas(c)
                 if orden and orden.get(destino_id, 0) < orden.get(actual, 0):
-                    return {"movido": False,
+                    return {"movido": False, "status_id": actual,
                             "motivo": "Iría hacia atrás: alguien del equipo ya "
                                       "lo avanzó más que esto."}
 
@@ -1019,11 +1030,11 @@ async def mover_por_evento(lead_id: str, evento: str,
         return {"movido": False, "motivo": f"No se pudo hablar con Kommo: "
                                            f"{type(exc).__name__}"}
 
-    etiqueta = dict(EVENTOS).get(evento, evento)
     await anotar(lead_id, f"🔀 B2K movió el lead de etapa\n"
                           f"Motivo: {etiqueta}"
                           + (f"\n{detalle}" if detalle else ""))
-    return {"movido": True, "motivo": f"Movido por: {etiqueta}"}
+    return {"movido": True, "motivo": f"Movido por: {etiqueta}",
+            "status_id": destino_id}
 
 
 async def mover_por_email(email: str, evento: str, detalle: str = "") -> dict:
@@ -1124,3 +1135,35 @@ async def crear_tarea(lead_id: str, texto: str, horas: int = 24) -> dict:
     if r.status_code not in (200, 201):
         return {"ok": False, "motivo": _explicar(r)}
     return {"ok": True, "motivo": "Tarea creada."}
+
+
+async def leer_lead(lead_id: str) -> dict:
+    """En qué embudo y etapa está el lead. {"error": ...} si no se pudo."""
+    if not configured() or not lead_id:
+        return {"error": "Kommo no está configurado o falta el lead."}
+    try:
+        async with httpx.AsyncClient(timeout=TIEMPO, headers=_headers()) as c:
+            r = await _con_reintento(c, "GET", f"{base_url()}/leads/{lead_id}")
+    except Exception as exc:
+        return {"error": f"No se pudo hablar con Kommo: {type(exc).__name__}"}
+    if r.status_code in (204, 404):
+        return {"error": "Ese lead ya no está en Kommo.", "no_existe": True}
+    if r.status_code != 200:
+        return {"error": _explicar(r)}
+    d = r.json()
+    return {"status_id": int(d.get("status_id") or 0),
+            "pipeline_id": int(d.get("pipeline_id") or 0)}
+
+
+async def etapas_del_embudo(pipeline_id: int) -> list[dict]:
+    """Las etapas de un embudo, con su nombre y su orden."""
+    if not configured() or not pipeline_id:
+        return []
+    async with httpx.AsyncClient(timeout=TIEMPO, headers=_headers()) as c:
+        r = await _con_reintento(c, "GET",
+                                 f"{base_url()}/leads/pipelines/{pipeline_id}")
+    if r.status_code != 200:
+        return []
+    return [{"id": int(e["id"]), "name": e.get("name") or "",
+             "sort": int(e.get("sort") or 0)}
+            for e in (r.json().get("_embedded") or {}).get("statuses", [])]

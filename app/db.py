@@ -400,6 +400,7 @@ def _migrate(conn) -> None:
     _bajas_medibles(conn)
     _telefonos_al_dia(conn)
     _respuestas(conn)
+    _secuencia(conn)
 
 
 def _respuestas(conn) -> None:
@@ -427,6 +428,50 @@ def _respuestas(conn) -> None:
         );
         CREATE INDEX IF NOT EXISTS ix_respuestas_sin_clase
             ON respuestas(id) WHERE clase IS NULL;
+    """)
+
+
+def _secuencia(conn) -> None:
+    """La secuencia de tres correos. Solo agrega columnas y una tabla.
+
+    Los correos 2 y 3 van en campañas "hijas" de la original: la cola no deja
+    dos filas del mismo contacto en una campaña, y esa tabla no se rehace.
+    """
+    cols = {r["name"] for r in conn.execute("PRAGMA table_info(email_campaigns)")}
+    for col, ddl in (("secuencia", "TEXT"), ("padre_id", "INTEGER"),
+                     ("paso", "INTEGER DEFAULT 1")):
+        if col not in cols:
+            conn.execute(f"ALTER TABLE email_campaigns ADD COLUMN {col} {ddl}")
+    cols = {r["name"] for r in conn.execute("PRAGMA table_info(email_queue)")}
+    # El seguimiento sale del mismo buzón que el primero y en el mismo hilo.
+    for col, ddl in (("buzon_fijo", "INTEGER"), ("responde_a", "TEXT")):
+        if col not in cols:
+            conn.execute(f"ALTER TABLE email_queue ADD COLUMN {col} {ddl}")
+    conn.executescript("""
+        CREATE TABLE IF NOT EXISTS secuencias (
+            id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            campaign_id  INTEGER NOT NULL
+                         REFERENCES email_campaigns(id) ON DELETE CASCADE,
+            contact_id   INTEGER NOT NULL
+                         REFERENCES contacts(id) ON DELETE CASCADE,
+            -- El último correo que salió: 0 mientras el primero espera.
+            paso         INTEGER NOT NULL DEFAULT 0,
+            -- activa · respondio · sin_respuesta · cortada
+            estado       TEXT NOT NULL DEFAULT 'activa',
+            motivo       TEXT,
+            ultimo_envio TEXT,
+            buzon        INTEGER,
+            asunto       TEXT,
+            -- Los Message-ID ya enviados, para ir en el mismo hilo.
+            hilo         TEXT,
+            lead_id      TEXT,
+            -- La última etapa a la que lo llevó B2K: si en Kommo está en otra,
+            -- alguien del equipo lo movió y la secuencia se corta.
+            etapa_b2k    INTEGER,
+            at           TEXT NOT NULL DEFAULT (datetime('now')),
+            UNIQUE (campaign_id, contact_id)
+        );
+        CREATE INDEX IF NOT EXISTS ix_secuencias_estado ON secuencias(estado);
     """)
 
 

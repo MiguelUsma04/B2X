@@ -640,7 +640,7 @@ function aplicarFunciones() {
   // Los pasos 4 y 5 del menú, la pestaña de buzones y la de salud del envío,
   // y el atajo a Correo de la barra de selección.
   const fuera = ['step-mail', 'step-results', 'seg-buzones', 'seg-salud',
-                 'selbar-mail', 'card-horario'];
+                 'selbar-mail', 'card-horario', 'card-secuencia'];
   for (const id of fuera) {
     const el = $(id);
     if (el) el.hidden = !CORREOS;
@@ -1981,7 +1981,7 @@ async function scheduleMail() {
      <b>${esc(cfg.from_email || 'sin configurar')}</b>.</p>
      <p class="help">Son correos reales a empresas reales. Salen de a uno cada
      ~${Math.max(1, +$('mail-every').value || 3)} minutos y podés pausarlo en
-     cualquier momento.</p>
+     cualquier momento.</p>${avisoSecuencia()}
      ${prev.unknown_vars.length ? `<div class="alert warn" style="margin-top:12px">
        ${prev.unknown_vars.map((v) => '{{' + esc(v) + '}}').join(', ')} no existe
        y va a salir vacío.</div>` : ''}`,
@@ -2002,11 +2002,12 @@ async function scheduleMail() {
                        .reduce((a, m) => a + (m.daily_cap || 0), 0);
   fd.append('daily_cap', String(cap || 50));
 
+  agregarSecuencia(fd);
   const r = await fetch('/api/mail/schedule', { method: 'POST', body: fd });
   const d = await r.json();
   if (!r.ok) { toast(esc(d.detail || 'Error'), 'err'); return; }
   if (!d.started) { toast(esc(d.message), 'info'); return; }
-  toast(`${d.queued} correo(s) en cola`, 'ok');
+  toast(`${d.queued} correo(s) en cola${d.secuencia ? ', con seguimiento' : ''}`, 'ok');
   const caja = $('mail-sched-result');
   if (caja) {
     caja.innerHTML = `<div class="alert ok"><b>${d.queued} correo(s) programados.</b>
@@ -2028,6 +2029,8 @@ async function pollMail(seguir) {
   const total = d.pending + d.sent + d.error + d.cancelled;
   const pct = total ? Math.round(((d.sent + d.error) / total) * 100) : 0;
   const vivo = c.status === 'running' && d.pending;
+  const sq = d.secuencia;
+  const seqViva = sq && sq.activa > 0 && c.status !== 'cancelled';
   const ESTADO = { running: 'En curso', paused: 'En pausa',
                    done: 'Terminado', cancelled: 'Cancelado' };
   const ultimos = (d.last || []).map((x) => `
@@ -2048,19 +2051,20 @@ async function pollMail(seguir) {
       <div class="bar ${vivo ? 'live' : ''}"><i style="width:${pct}%"></i></div>
       ${d.next_at && vivo ? `<p class="sub">Próximo alrededor de las
         ${esc(d.next_at.slice(11, 16))} UTC</p>` : ''}
+      ${sq ? lineaSecuencia(sq) : ''}
       ${ultimos ? `<div style="margin-top:10px">${ultimos}</div>` : ''}
       <div class="rowend" style="margin-top:12px">
         ${c.status === 'running' ? `<button class="sm" onclick="mailControl(${c.id},'pause')">
           Pausar</button>` : ''}
         ${c.status === 'paused' ? `<button class="sm primary" onclick="mailControl(${c.id},'resume')">
           Reanudar</button>` : ''}
-        ${d.pending ? `<button class="sm danger" onclick="mailControl(${c.id},'cancel')">
-          Cancelar lo que falta</button>` : ''}
+        ${d.pending || seqViva ? `<button class="sm danger" onclick="mailControl(${c.id},'cancel')">
+          ${seqViva && !d.pending ? 'Detener la secuencia' : 'Cancelar lo que falta'}</button>` : ''}
       </div>
     </div></div>`;
 
   if (MAILPOLL) { clearInterval(MAILPOLL); MAILPOLL = null; }
-  if (vivo || seguir) MAILPOLL = setInterval(() => pollMail(), 15000);
+  if (vivo || seqViva || seguir) MAILPOLL = setInterval(() => pollMail(), 15000);
 }
 
 async function mailControl(id, accion) {
@@ -2753,7 +2757,7 @@ async function programarEnvioIA() {
      que aprobaste.</p>
      <p class="help">Son correos reales a empresas reales. Salen de a uno cada
      ~${cada} minutos y podés pausarlo en cualquier momento. Los que
-     descartaste o dejaste sin revisar no salen.</p>`,
+     descartaste o dejaste sin revisar no salen.</p>${avisoSecuencia()}`,
     [{ label: 'Cancelar', value: false },
      { label: `Enviar ${aprobados.length}`, value: true, cls: 'go' }]);
   if (!ok) return;
@@ -2771,11 +2775,12 @@ async function programarEnvioIA() {
                        .reduce((a, m) => a + (m.daily_cap || 0), 0);
   fd.append('daily_cap', String(cap || 50));
 
+  agregarSecuencia(fd);
   const r = await fetch('/api/mail/schedule', { method: 'POST', body: fd });
   const d = await r.json();
   if (!r.ok) { toast(esc(d.detail || 'Error'), 'err'); return; }
   if (!d.started) { toast(esc(d.message), 'info'); return; }
-  toast(`${d.queued} correo(s) en cola`, 'ok');
+  toast(`${d.queued} correo(s) en cola${d.secuencia ? ', con seguimiento' : ''}`, 'ok');
   const caja = $('mail-sched-result');
   if (caja) {
     caja.innerHTML = `<div class="alert ok"><b>${d.queued} correo(s) programados.</b>
@@ -3159,4 +3164,64 @@ async function borrarContactos() {
   }
   clearSelection();
   loadContacts();
+}
+
+/* ======================= secuencia de tres correos =======================
+   Si el contacto no contesta, B2K le vuelve a escribir dos veces más y lo
+   mueve en Kommo con cada correo. Los textos de fábrica vienen del servidor
+   y se pueden editar antes de lanzar. */
+
+let SEQ_CARGADA = false;
+
+async function toggleSecuencia() {
+  const on = $('seq-on').checked;
+  $('seq-cuerpo').hidden = !on;
+  if (!on || SEQ_CARGADA) return;
+  const d = await (await fetch('/api/mail/secuencia')).json();
+  if (!$('seq-2').value.trim()) $('seq-2').value = d.cuerpo2;
+  if (!$('seq-3').value.trim()) $('seq-3').value = d.cuerpo3;
+  const e = d.etapas || {};
+  $('seq-etapas').innerHTML = e['1']
+    ? `En Kommo: <b>${esc(e['1'])}</b> → <b>${esc(e['2'] || '?')}</b> →
+       <b>${esc(e['3'] || '?')}</b>, y sin respuesta, <b>${esc(e.sin_respuesta || '?')}</b>.
+       Si contesta: <b>${esc(e.respuesta || '?')}</b>. Cada lead lleva una
+       etiqueta con su etapa.`
+    : `<span style="color:var(--warn)">No encontré en el embudo de Kommo las
+       etapas «CORREO #1», «#2», «#3» e «IA CONVERSANDO»: los correos salen
+       igual, pero los leads no se van a mover.</span>`;
+  SEQ_CARGADA = true;
+}
+
+function agregarSecuencia(fd) {
+  if (!$('seq-on') || !$('seq-on').checked) return;
+  fd.append('secuencia', '1');
+  fd.append('cuerpo2', $('seq-2').value);
+  fd.append('cuerpo3', $('seq-3').value);
+  fd.append('dias2', $('seq-d2').value);
+  fd.append('dias3', $('seq-d3').value);
+  fd.append('dias_fin', $('seq-dfin').value);
+}
+
+function avisoSecuencia() {
+  if (!$('seq-on') || !$('seq-on').checked) return '';
+  return `<div class="alert info" style="margin-top:12px"><b>Con seguimiento.</b>
+    A quien no conteste le salen dos correos más: a los ${esc($('seq-d2').value)}
+    y ${esc($('seq-d3').value)} días hábiles. Si sigue sin contestar, pasa a
+    No interesado a los ${esc($('seq-dfin').value)} días.</div>`;
+}
+
+function lineaSecuencia(sq) {
+  const p = sq.en_paso || {};
+  const espera = (sq.esperando || []).slice(-3).map((x) => `
+    <div class="sub">${esc(x.full_name || x.email)}: ${esc(x.motivo)}</div>`).join('');
+  const salidas = (sq.salidas || []).slice(-5).reverse().map((x) => `
+    <div class="sub">${esc(x.full_name || x.email)} — ${esc(x.motivo || x.estado)}</div>`).join('');
+  return `<div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--line)">
+    <div class="statline" style="margin:0 0 4px"><b>Secuencia</b>
+      ${sq.activa ? `<span class="sub">esperando: <b>${p[1] || 0}</b> el 2 ·
+        <b>${p[2] || 0}</b> el 3 · <b>${p[3] || 0}</b> el cierre</span>` : ''}
+      <span style="color:var(--ok)"><b>${sq.respondio}</b> contestaron</span>
+      <span class="sub"><b>${sq.sin_respuesta}</b> sin respuesta ·
+        <b>${sq.cortada}</b> cortadas</span></div>
+    ${espera}${salidas}</div>`;
 }
