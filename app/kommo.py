@@ -984,7 +984,17 @@ async def mover_por_evento(lead_id: str, evento: str,
         destino_id = int(destino)
     except (TypeError, ValueError):
         return {"movido": False, "motivo": "La etapa configurada no es válida."}
+    return await mover_a(lead_id, destino_id, dict(EVENTOS).get(evento, evento),
+                         detalle, saltar_reglas=(evento == "baja"))
 
+
+async def mover_a(lead_id: str, destino_id: int, etiqueta: str,
+                  detalle: str = "", saltar_reglas: bool = False) -> dict:
+    """Lleva el lead a una etapa, respetando las dos reglas de arriba.
+
+    `saltar_reglas` es solo para la baja. Devuelve también la etapa en la que
+    quedó el lead ("status_id"), para que quien llama sepa dónde está.
+    """
     try:
         async with httpx.AsyncClient(timeout=TIEMPO, headers=_headers()) as c:
             r = await _con_reintento(c, "GET", f"{base_url()}/leads/{lead_id}")
@@ -996,17 +1006,18 @@ async def mover_por_evento(lead_id: str, evento: str,
             actual = int(lead.get("status_id") or 0)
 
             if actual == destino_id:
-                return {"movido": False, "motivo": "Ya estaba en esa etapa."}
+                return {"movido": False, "motivo": "Ya estaba en esa etapa.",
+                        "status_id": actual}
 
             # La baja pasa por encima de todo: no hay nada que seguir
             # trabajando con quien pidió no recibir más.
-            if evento != "baja":
+            if not saltar_reglas:
                 if actual in (GANADO, PERDIDO_ID):
-                    return {"movido": False,
+                    return {"movido": False, "status_id": actual,
                             "motivo": "El lead ya está cerrado; no se toca."}
                 orden = await _orden_de_etapas(c)
                 if orden and orden.get(destino_id, 0) < orden.get(actual, 0):
-                    return {"movido": False,
+                    return {"movido": False, "status_id": actual,
                             "motivo": "Iría hacia atrás: alguien del equipo ya "
                                       "lo avanzó más que esto."}
 
@@ -1019,11 +1030,11 @@ async def mover_por_evento(lead_id: str, evento: str,
         return {"movido": False, "motivo": f"No se pudo hablar con Kommo: "
                                            f"{type(exc).__name__}"}
 
-    etiqueta = dict(EVENTOS).get(evento, evento)
     await anotar(lead_id, f"🔀 B2K movió el lead de etapa\n"
                           f"Motivo: {etiqueta}"
                           + (f"\n{detalle}" if detalle else ""))
-    return {"movido": True, "motivo": f"Movido por: {etiqueta}"}
+    return {"movido": True, "motivo": f"Movido por: {etiqueta}",
+            "status_id": destino_id}
 
 
 async def mover_por_email(email: str, evento: str, detalle: str = "") -> dict:
@@ -1049,3 +1060,110 @@ async def mover_por_email(email: str, evento: str, detalle: str = "") -> dict:
     return {"movido": bool(movidos),
             "motivo": (f"{movidos} lead(s) movidos" if movidos
                        else resultados[0]["motivo"])}
+
+# ======================================================================
+# La etiqueta de etapa y la tarea de revisar
+# ======================================================================
+# La secuencia de correos le pone al lead una etiqueta con la etapa en la que
+# está. Tiene que haber una sola: si se van sumando, el lead termina con
+# CORREO #1, #2 y #3 a la vez y filtrar por etiqueta deja de servir. Las demás
+# etiquetas —la de la campaña, las que puso el equipo— no se tocan.
+
+
+async def poner_etiqueta_de_etapa(lead_id: str, nueva: str,
+                                  de_etapa: set[str] | list[str]) -> dict:
+    """Deja `nueva` como única etiqueta de etapa del lead.
+
+    `de_etapa` son los nombres que cuentan como etiqueta de etapa: se saca la
+    que haya de esas y se pone la nueva. Devuelve {"ok": bool, "motivo": str}.
+    """
+    if not configured():
+        return {"ok": False, "motivo": "Kommo no está configurado."}
+    if not lead_id or not (nueva or "").strip():
+        return {"ok": False, "motivo": "Falta el lead o la etiqueta."}
+    nueva = nueva.strip()
+    de_etapa = {n.strip().lower() for n in de_etapa} | {nueva.lower()}
+
+    try:
+        async with httpx.AsyncClient(timeout=TIEMPO, headers=_headers()) as c:
+            r = await _con_reintento(c, "GET", f"{base_url()}/leads/{lead_id}")
+            if r.status_code != 200:
+                return {"ok": False, "motivo": _explicar(r)}
+            actuales = (r.json().get("_embedded") or {}).get("tags") or []
+            if [t.get("name") for t in actuales
+                    if (t.get("name") or "").lower() in de_etapa] == [nueva]:
+                return {"ok": True, "motivo": "Ya tenía esa etiqueta."}
+
+            # Kommo reemplaza la lista entera de etiquetas con lo que se le
+            # manda: las que se quedan van por id para no duplicarlas.
+            quedan = [{"id": t["id"]} for t in actuales
+                      if (t.get("name") or "").lower() not in de_etapa and t.get("id")]
+            r2 = await _con_reintento(
+                c, "PATCH", f"{base_url()}/leads/{lead_id}",
+                json={"_embedded": {"tags": quedan + [{"name": nueva}]}})
+            if r2.status_code not in (200, 201):
+                return {"ok": False, "motivo": _explicar(r2)}
+    except Exception as exc:
+        return {"ok": False, "motivo": f"No se pudo hablar con Kommo: "
+                                       f"{type(exc).__name__}"}
+    return {"ok": True, "motivo": f"Etiqueta: {nueva}"}
+
+
+async def crear_tarea(lead_id: str, texto: str, horas: int = 24) -> dict:
+    """Una tarea sobre el lead para que alguien lo mire a mano.
+
+    Es el aviso de "la IA no entendió esta respuesta": vive en Kommo, que es
+    donde el equipo trabaja, y vence en `horas` para que no quede olvidada.
+    """
+    import time
+    if not configured():
+        return {"ok": False, "motivo": "Kommo no está configurado."}
+    if not lead_id or not (texto or "").strip():
+        return {"ok": False, "motivo": "Falta el lead o el texto."}
+    tarea = {"text": texto.strip()[:2000], "entity_id": int(lead_id),
+             "entity_type": "leads",
+             "complete_till": int(time.time()) + max(1, horas) * 3600}
+    responsable = (os.getenv("KOMMO_RESPONSIBLE_ID") or "").strip()
+    if responsable.isdigit():
+        tarea["responsible_user_id"] = int(responsable)
+    try:
+        async with httpx.AsyncClient(timeout=TIEMPO, headers=_headers()) as c:
+            r = await _con_reintento(c, "POST", f"{base_url()}/tasks", json=[tarea])
+    except Exception as exc:
+        return {"ok": False, "motivo": f"No se pudo hablar con Kommo: "
+                                       f"{type(exc).__name__}"}
+    if r.status_code not in (200, 201):
+        return {"ok": False, "motivo": _explicar(r)}
+    return {"ok": True, "motivo": "Tarea creada."}
+
+
+async def leer_lead(lead_id: str) -> dict:
+    """En qué embudo y etapa está el lead. {"error": ...} si no se pudo."""
+    if not configured() or not lead_id:
+        return {"error": "Kommo no está configurado o falta el lead."}
+    try:
+        async with httpx.AsyncClient(timeout=TIEMPO, headers=_headers()) as c:
+            r = await _con_reintento(c, "GET", f"{base_url()}/leads/{lead_id}")
+    except Exception as exc:
+        return {"error": f"No se pudo hablar con Kommo: {type(exc).__name__}"}
+    if r.status_code in (204, 404):
+        return {"error": "Ese lead ya no está en Kommo.", "no_existe": True}
+    if r.status_code != 200:
+        return {"error": _explicar(r)}
+    d = r.json()
+    return {"status_id": int(d.get("status_id") or 0),
+            "pipeline_id": int(d.get("pipeline_id") or 0)}
+
+
+async def etapas_del_embudo(pipeline_id: int) -> list[dict]:
+    """Las etapas de un embudo, con su nombre y su orden."""
+    if not configured() or not pipeline_id:
+        return []
+    async with httpx.AsyncClient(timeout=TIEMPO, headers=_headers()) as c:
+        r = await _con_reintento(c, "GET",
+                                 f"{base_url()}/leads/pipelines/{pipeline_id}")
+    if r.status_code != 200:
+        return []
+    return [{"id": int(e["id"]), "name": e.get("name") or "",
+             "sort": int(e.get("sort") or 0)}
+            for e in (r.json().get("_embedded") or {}).get("statuses", [])]

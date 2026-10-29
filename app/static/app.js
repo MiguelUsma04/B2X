@@ -640,7 +640,7 @@ function aplicarFunciones() {
   // Los pasos 4 y 5 del menú, la pestaña de buzones y la de salud del envío,
   // y el atajo a Correo de la barra de selección.
   const fuera = ['step-mail', 'step-results', 'seg-buzones', 'seg-salud',
-                 'selbar-mail', 'card-horario'];
+                 'selbar-mail', 'card-horario', 'card-secuencia'];
   for (const id of fuera) {
     const el = $(id);
     if (el) el.hidden = !CORREOS;
@@ -1718,6 +1718,7 @@ let MODO_CORREO = 'texto';
 
 function switchFormato(cual) {
   MODO_CORREO = ['html', 'ia'].includes(cual) ? cual : 'texto';
+  seqModo();
   const esHtml = MODO_CORREO === 'html';
   const esIA = MODO_CORREO === 'ia';
   $('modo-html').hidden = !esHtml;
@@ -1983,7 +1984,7 @@ async function scheduleMail() {
      <b>${esc(cfg.from_email || 'sin configurar')}</b>.</p>
      <p class="help">Son correos reales a empresas reales. Salen de a uno cada
      ~${Math.max(1, +$('mail-every').value || 3)} minutos y podés pausarlo en
-     cualquier momento.</p>
+     cualquier momento.</p>${avisoSecuencia()}
      ${prev.unknown_vars.length ? `<div class="alert warn" style="margin-top:12px">
        ${prev.unknown_vars.map((v) => '{{' + esc(v) + '}}').join(', ')} no existe
        y va a salir vacío.</div>` : ''}`,
@@ -2004,11 +2005,12 @@ async function scheduleMail() {
                        .reduce((a, m) => a + (m.daily_cap || 0), 0);
   fd.append('daily_cap', String(cap || 50));
 
+  agregarSecuencia(fd);
   const r = await fetch('/api/mail/schedule', { method: 'POST', body: fd });
   const d = await r.json();
   if (!r.ok) { toast(esc(d.detail || 'Error'), 'err'); return; }
   if (!d.started) { toast(esc(d.message), 'info'); return; }
-  toast(`${d.queued} correo(s) en cola`, 'ok');
+  toast(`${d.queued} correo(s) en cola${d.secuencia ? ', con seguimiento' : ''}`, 'ok');
   const caja = $('mail-sched-result');
   if (caja) {
     caja.innerHTML = `<div class="alert ok"><b>${d.queued} correo(s) programados.</b>
@@ -2030,6 +2032,8 @@ async function pollMail(seguir) {
   const total = d.pending + d.sent + d.error + d.cancelled;
   const pct = total ? Math.round(((d.sent + d.error) / total) * 100) : 0;
   const vivo = c.status === 'running' && d.pending;
+  const sq = d.secuencia;
+  const seqViva = sq && sq.activa > 0 && c.status !== 'cancelled';
   const ESTADO = { running: 'En curso', paused: 'En pausa',
                    done: 'Terminado', cancelled: 'Cancelado' };
   const ultimos = (d.last || []).map((x) => `
@@ -2050,19 +2054,20 @@ async function pollMail(seguir) {
       <div class="bar ${vivo ? 'live' : ''}"><i style="width:${pct}%"></i></div>
       ${d.next_at && vivo ? `<p class="sub">Próximo alrededor de las
         ${esc(d.next_at.slice(11, 16))} UTC</p>` : ''}
+      ${sq ? lineaSecuencia(sq) : ''}
       ${ultimos ? `<div style="margin-top:10px">${ultimos}</div>` : ''}
       <div class="rowend" style="margin-top:12px">
         ${c.status === 'running' ? `<button class="sm" onclick="mailControl(${c.id},'pause')">
           Pausar</button>` : ''}
         ${c.status === 'paused' ? `<button class="sm primary" onclick="mailControl(${c.id},'resume')">
           Reanudar</button>` : ''}
-        ${d.pending ? `<button class="sm danger" onclick="mailControl(${c.id},'cancel')">
-          Cancelar lo que falta</button>` : ''}
+        ${d.pending || seqViva ? `<button class="sm danger" onclick="mailControl(${c.id},'cancel')">
+          ${seqViva && !d.pending ? 'Detener la secuencia' : 'Cancelar lo que falta'}</button>` : ''}
       </div>
     </div></div>`;
 
   if (MAILPOLL) { clearInterval(MAILPOLL); MAILPOLL = null; }
-  if (vivo || seguir) MAILPOLL = setInterval(() => pollMail(), 15000);
+  if (vivo || seqViva || seguir) MAILPOLL = setInterval(() => pollMail(), 15000);
 }
 
 async function mailControl(id, accion) {
@@ -2656,6 +2661,15 @@ function pintarBorradores() {
       </div>
       <div class="borrador-asunto">${esc(b.asunto || '')}</div>
       <pre class="borrador-cuerpo" id="cuerpo-${b.contact_id}">${esc(b.cuerpo || '')}</pre>
+      ${b.cuerpo2 ? `<details class="borrador-seg">
+          <summary>Si no contesta: correos 2 y 3</summary>
+          <div class="help" style="margin-top:8px">Correo 2 — Diagnóstico</div>
+          <pre class="borrador-cuerpo">${esc(b.cuerpo2)}</pre>
+          <div class="help" style="margin-top:8px">Correo 3 — Oportunidad</div>
+          <pre class="borrador-cuerpo">${esc(b.cuerpo3 || '')}</pre>
+        </details>`
+        : b.error_seg ? `<div class="alert warn" style="margin:8px 0">${esc(b.error_seg)}
+            Tocá «Que lo escriba de nuevo».</div>` : ''}
       <div class="row borrador-acciones">
         ${b.estado === 'aprobado'
           ? `<button class="ghost" onclick="marcarBorrador(${b.contact_id},'pendiente')">
@@ -2663,6 +2677,7 @@ function pintarBorradores() {
           : `<button class="go" onclick="marcarBorrador(${b.contact_id},'aprobado')">
                Aprobar</button>`}
         <button class="ghost" onclick="editarBorrador(${b.contact_id})">Corregir</button>
+        <button class="ghost" onclick="probarBorrador(${b.contact_id})">Enviar prueba</button>
         <button class="ghost" onclick="rehacerBorrador(${b.contact_id})">
           Que lo escriba de nuevo</button>
         ${b.estado === 'descartado'
@@ -2712,12 +2727,36 @@ async function editarBorrador(id) {
   const fd = new FormData();
   fd.append('asunto', asunto);
   fd.append('cuerpo', cuerpo);
+  if (b.cuerpo2) {
+    const c2 = prompt('Correo 2 (si no contesta):', b.cuerpo2);
+    if (c2 === null) return;
+    const c3 = prompt('Correo 3 (el último):', b.cuerpo3 || '');
+    if (c3 === null) return;
+    fd.append('cuerpo2', c2);
+    fd.append('cuerpo3', c3);
+  }
   const r = await fetch(`/api/mail/borradores/${id}/editar`,
                         { method: 'POST', body: fd });
   const d = await r.json();
   if (!r.ok) { toast(esc(d.detail || 'Error'), 'err'); return; }
   toast(`Guardado, ${d.caracteres} caracteres`, 'ok');
   await cargarBorradores();
+}
+
+async function probarBorrador(id) {
+  const b = BORRADORES.find((x) => x.contact_id === id);
+  if (!b) return;
+  const a = prompt(`Mandar la prueba de ${b.company_name || b.email} a:`,
+                   'soporte@gmarketing.co');
+  if (a === null || !a.trim()) return;
+  toast('Mandando la prueba…', 'info', 2000);
+  const fd = new FormData();
+  fd.append('to', a.trim());
+  const r = await fetch(`/api/mail/borradores/${id}/probar`, { method: 'POST', body: fd });
+  const d = await r.json();
+  if (!r.ok) { toast(esc(d.detail || 'Error'), 'err'); return; }
+  if (!d.ok) { toast(esc(d.error || 'No salió'), 'err'); return; }
+  toast(`${d.enviados} correo(s) a ${esc(d.to)}, en el mismo hilo`, 'ok');
 }
 
 async function rehacerBorrador(id) {
@@ -2755,7 +2794,7 @@ async function programarEnvioIA() {
      que aprobaste.</p>
      <p class="help">Son correos reales a empresas reales. Salen de a uno cada
      ~${cada} minutos y podés pausarlo en cualquier momento. Los que
-     descartaste o dejaste sin revisar no salen.</p>`,
+     descartaste o dejaste sin revisar no salen.</p>${avisoSecuencia()}`,
     [{ label: 'Cancelar', value: false },
      { label: `Enviar ${aprobados.length}`, value: true, cls: 'go' }]);
   if (!ok) return;
@@ -2773,11 +2812,12 @@ async function programarEnvioIA() {
                        .reduce((a, m) => a + (m.daily_cap || 0), 0);
   fd.append('daily_cap', String(cap || 50));
 
+  agregarSecuencia(fd);
   const r = await fetch('/api/mail/schedule', { method: 'POST', body: fd });
   const d = await r.json();
   if (!r.ok) { toast(esc(d.detail || 'Error'), 'err'); return; }
   if (!d.started) { toast(esc(d.message), 'info'); return; }
-  toast(`${d.queued} correo(s) en cola`, 'ok');
+  toast(`${d.queued} correo(s) en cola${d.secuencia ? ', con seguimiento' : ''}`, 'ok');
   const caja = $('mail-sched-result');
   if (caja) {
     caja.innerHTML = `<div class="alert ok"><b>${d.queued} correo(s) programados.</b>
@@ -3161,4 +3201,98 @@ async function borrarContactos() {
   }
   clearSelection();
   loadContacts();
+}
+
+/* ======================= secuencia de tres correos =======================
+   Si el contacto no contesta, B2K le vuelve a escribir dos veces más y lo
+   mueve en Kommo con cada correo. Los textos de fábrica vienen del servidor
+   y se pueden editar antes de lanzar. */
+
+let SEQ_CARGADA = false;
+
+async function toggleSecuencia() {
+  const on = $('seq-on').checked;
+  $('seq-cuerpo').hidden = !on;
+  seqModo();
+  if (!on || SEQ_CARGADA) return;
+  const d = await (await fetch('/api/mail/secuencia')).json();
+  if (!$('seq-2').value.trim()) $('seq-2').value = d.cuerpo2;
+  if (!$('seq-3').value.trim()) $('seq-3').value = d.cuerpo3;
+  const e = d.etapas || {};
+  $('seq-etapas').innerHTML = e['1']
+    ? `En Kommo: <b>${esc(e['1'])}</b> → <b>${esc(e['2'] || '?')}</b> →
+       <b>${esc(e['3'] || '?')}</b>, y sin respuesta, <b>${esc(e.sin_respuesta || '?')}</b>.
+       Si contesta: <b>${esc(e.respuesta || '?')}</b>. Cada lead lleva una
+       etiqueta con su etapa.`
+    : `<span style="color:var(--warn)">No encontré en el embudo de Kommo las
+       etapas «CORREO #1», «#2», «#3» e «IA CONVERSANDO»: los correos salen
+       igual, pero los leads no se van a mover.</span>`;
+  SEQ_CARGADA = true;
+}
+
+function agregarSecuencia(fd) {
+  if (!$('seq-on') || !$('seq-on').checked) return;
+  fd.append('secuencia', '1');
+  fd.append('cuerpo2', $('seq-2').value);
+  fd.append('cuerpo3', $('seq-3').value);
+  fd.append('dias2', $('seq-d2').value);
+  fd.append('dias3', $('seq-d3').value);
+  fd.append('dias_fin', $('seq-dfin').value);
+}
+
+function avisoSecuencia() {
+  if (!$('seq-on') || !$('seq-on').checked) return '';
+  return `<div class="alert info" style="margin-top:12px"><b>Con seguimiento.</b>
+    A quien no conteste le salen dos correos más: a los ${esc($('seq-d2').value)}
+    y ${esc($('seq-d3').value)} días hábiles. Si sigue sin contestar, pasa a
+    No interesado a los ${esc($('seq-dfin').value)} días.</div>`;
+}
+
+function lineaSecuencia(sq) {
+  const p = sq.en_paso || {};
+  const espera = (sq.esperando || []).slice(-3).map((x) => `
+    <div class="sub">${esc(x.full_name || x.email)}: ${esc(x.motivo)}</div>`).join('');
+  const salidas = (sq.salidas || []).slice(-5).reverse().map((x) => `
+    <div class="sub">${esc(x.full_name || x.email)} — ${esc(x.motivo || x.estado)}</div>`).join('');
+  return `<div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--line)">
+    <div class="statline" style="margin:0 0 4px"><b>Secuencia</b>
+      ${sq.activa ? `<span class="sub">esperando: <b>${p[1] || 0}</b> el 2 ·
+        <b>${p[2] || 0}</b> el 3 · <b>${p[3] || 0}</b> el cierre</span>` : ''}
+      <span style="color:var(--ok)"><b>${sq.respondio}</b> contestaron</span>
+      <span class="sub"><b>${sq.sin_respuesta}</b> sin respuesta ·
+        <b>${sq.cortada}</b> cortadas</span></div>
+    ${espera}${salidas}</div>`;
+}
+
+function seqModo() {
+  const ia = MODO_CORREO === 'ia';
+  document.querySelectorAll('.seq-plantilla').forEach((el) => { el.hidden = ia; });
+  const n = $('seq-ia-nota');
+  if (n) n.hidden = !ia;
+}
+
+/* La prueba del correo con IA, sin tener que ir a buscar un borrador: toma
+   el primero que ya esté escrito, o le pide a la IA el del primer contacto
+   marcado. Llegan los tres —el 1 y los dos de seguimiento— en un solo hilo,
+   como los recibiría el cliente. */
+async function pruebaIA() {
+  let b = BORRADORES.find((x) => !x.error && x.cuerpo);
+  if (!b) {
+    const id = [...SELECTED][0];
+    if (!id) {
+      toast('Marcá al menos un contacto en Contactos: la IA necesita una empresa '
+            + 'real para escribir la prueba', 'warn', 6000);
+      return;
+    }
+    toast('La IA está escribiendo los tres correos de la prueba…', 'info', 6000);
+    const fd = new FormData();
+    fd.append('propuesta', $('ia-propuesta').value);
+    const r = await fetch(`/api/mail/borradores/${id}/rehacer`, { method: 'POST', body: fd });
+    const d = await r.json();
+    if (!r.ok || d.error) { toast(esc(d.detail || d.error || 'Error'), 'err'); return; }
+    await cargarBorradores();
+    b = BORRADORES.find((x) => x.contact_id === id);
+    if (!b) return;
+  }
+  await probarBorrador(b.contact_id);
 }

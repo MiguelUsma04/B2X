@@ -25,6 +25,7 @@ from email.message import EmailMessage
 from email.utils import formataddr, make_msgid
 
 from . import db
+from . import respuestas as respuestas_mod
 from .db import get_db
 
 # Lo que se puede intercalar en el asunto y el cuerpo.
@@ -973,8 +974,14 @@ def _leer_buzon_sincrono(b: dict, limite: int = 300) -> dict:
                         _apagar_por_rebote(conn, fila["contact_id"])
                 elif _es_automatico(msg):
                     automaticos += 1
-                else:
-                    respuestas += int(_anotar_respuesta(conn, fila, "reply", ref, de))
+                elif _anotar_respuesta(conn, fila, "reply", ref, de):
+                    respuestas += 1
+                    # El texto se guarda para que la IA lo lea después: acá
+                    # se está dentro de la lectura del buzón y no se espera a
+                    # OpenAI.
+                    evento = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+                    respuestas_mod.guardar(conn, evento, fila["contact_id"],
+                                           respuestas_mod.texto_de_respuesta(msg))
     except imaplib.IMAP4.error as exc:
         return {"error": _explicar_imap(exc)}
     except Exception as exc:
@@ -1043,13 +1050,22 @@ def nuevo_message_id(cfg: dict, token: str = "") -> str:
 def _enviar_sincrono(cfg: dict, destino: str, asunto: str, cuerpo: str,
                      cuerpo_html: str | None = None,
                      message_id: str | None = None,
-                     baja_url: str | None = None) -> None:
-    """Manda un correo. Bloquea: se llama siempre dentro de un hilo aparte."""
+                     baja_url: str | None = None,
+                     responde_a: str | None = None) -> None:
+    """Manda un correo. Bloquea: se llama siempre dentro de un hilo aparte.
+
+    `responde_a` son los Message-ID anteriores, separados por espacio: el
+    correo sale como respuesta en ese hilo.
+    """
     msg = EmailMessage()
     msg["From"] = formataddr((cfg.get("from_name") or "", cfg["from_email"]))
     msg["To"] = destino
     msg["Subject"] = asunto
     msg["Message-ID"] = message_id or nuevo_message_id(cfg)
+    if (responde_a or "").strip():
+        ids = responde_a.split()
+        msg["In-Reply-To"] = ids[-1]
+        msg["References"] = " ".join(ids)
     if baja_url:
         # Lo que Gmail lee para poner su propio botón de "cancelar
         # suscripción" arriba del correo. Sin esto, quien no quiere recibir
@@ -1156,6 +1172,33 @@ async def enviar(destino: str, asunto: str, cuerpo: str,
         return {"ok": False, "error": _explicar(exc)}
 
 
+async def enviar_hilo(destino: str, asunto: str, cuerpos: list[str],
+                      mailbox_id: int | None = None) -> dict:
+    """Manda varios correos seguidos, cada uno como respuesta al anterior.
+
+    Es la prueba de una secuencia: llegan como llegarían a un cliente, en un
+    solo hilo, pero de una vez y no a lo largo de una semana.
+    """
+    cfg = _credenciales(mailbox_id)
+    if not cfg:
+        return {"ok": False, "enviados": 0,
+                "error": "Falta configurar el servidor de salida."}
+    hilo: list[str] = []
+    for n, cuerpo in enumerate(cuerpos):
+        mid = nuevo_message_id(cfg)
+        titulo = asunto if n == 0 else f"Re: {asunto}"
+        try:
+            await asyncio.to_thread(_enviar_sincrono, cfg, destino, titulo,
+                                    cuerpo, None, mid, None, " ".join(hilo))
+        except Exception as exc:
+            return {"ok": False, "enviados": n, "error": _explicar(exc)}
+        hilo.append(mid)
+        if n < len(cuerpos) - 1:
+            await asyncio.sleep(2)      # para que lleguen en orden
+    return {"ok": True, "enviados": len(cuerpos), "error": None,
+            "desde": cfg.get("from_email")}
+
+
 # ------------------------------------------------------------------ goteo
 def _ahora() -> datetime:
     return datetime.now(timezone.utc)
@@ -1193,8 +1236,13 @@ def contactos_enviables(contact_ids: list[int], repetir: bool = False) -> list[d
 def crear_campania(nombre: str, asunto: str, cuerpo: str, contactos: list[dict],
                    cada_segundos: int, jitter: int, tope_diario: int,
                    cuerpo_html: str = "", base_rastreo: str = "",
-                   escritos: dict | None = None) -> dict:
-    """Arma la campaña y reparte las horas de salida del goteo."""
+                   escritos: dict | None = None,
+                   secuencia: str | None = None) -> dict:
+    """Arma la campaña y reparte las horas de salida del goteo.
+
+    Con `secuencia` (la configuración de secuencia.nueva_config), cada
+    contacto queda además inscripto para recibir los correos 2 y 3.
+    """
     with get_db() as conn:
         cur = conn.execute(
             """INSERT INTO email_campaigns
@@ -1249,6 +1297,12 @@ def crear_campania(nombre: str, asunto: str, cuerpo: str, contactos: list[dict],
                  (campaign_id, contact_id, email, subject, body, body_html,
                   token, send_after)
                VALUES (?,?,?,?,?,?,?,?)""", filas)
+        if secuencia:
+            from . import secuencia as secuencia_mod
+            conn.execute("UPDATE email_campaigns SET secuencia=? WHERE id=?",
+                         (secuencia, campania))
+            secuencia_mod.inscribir(conn, campania, [(f[1], f[3]) for f in filas],
+                                    escritos)
     return {"campaign_id": campania, "queued": len(filas),
             "termina": filas[-1][7] if filas else None}
 
@@ -1378,8 +1432,10 @@ def estado(campania: int | None = None) -> dict:
             # La que está corriendo; y si no hay ninguna, la última, para que
             # al terminar la pantalla siga mostrando cómo salió en vez de
             # quedarse en blanco justo cuando se quiere ver el resultado.
+            # Las hijas de una secuencia —los correos 2 y 3— no cuentan: se
+            # muestran dentro de la campaña que las originó.
             r = conn.execute(
-                """SELECT id FROM email_campaigns
+                """SELECT id FROM email_campaigns WHERE padre_id IS NULL
                     ORDER BY (status IN ('running', 'paused')) DESC, id DESC
                     LIMIT 1""").fetchone()
             campania = r["id"] if r else None
@@ -1401,8 +1457,13 @@ def estado(campania: int | None = None) -> dict:
                 WHERE q.campaign_id=? AND q.status IN ('sent','error')
                 ORDER BY q.sent_at DESC LIMIT 8""", (campania,))]
 
+    seq = None
+    if camp and camp["secuencia"]:
+        from . import secuencia
+        seq = secuencia.resumen(campania)
     return {
         "campaign": dict(camp) if camp else None,
+        "secuencia": seq,
         "pending": cuenta.get("pending", 0),
         "sent": cuenta.get("sent", 0),
         "error": cuenta.get("error", 0),
@@ -1414,11 +1475,15 @@ def estado(campania: int | None = None) -> dict:
 
 def cambiar_estado(campania: int, nuevo: str) -> dict:
     with get_db() as conn:
-        conn.execute("UPDATE email_campaigns SET status=? WHERE id=?", (nuevo, campania))
+        # Pausar o cancelar una secuencia alcanza también a sus correos 2 y 3.
+        conn.execute("UPDATE email_campaigns SET status=? WHERE id=? OR padre_id=?",
+                     (nuevo, campania, campania))
         if nuevo == "cancelled":
             conn.execute(
                 """UPDATE email_queue SET status='cancelled'
-                    WHERE campaign_id=? AND status='pending'""", (campania,))
+                    WHERE status='pending' AND campaign_id IN
+                      (SELECT id FROM email_campaigns WHERE id=? OR padre_id=?)""",
+                (campania, campania))
     return estado(campania)
 
 
@@ -1426,6 +1491,7 @@ def cambiar_estado(campania: int, nuevo: str) -> dict:
 INTERVALO = 20          # cada cuánto mira la cola
 _worker: asyncio.Task | None = None
 _lector: asyncio.Task | None = None
+_vigilante: asyncio.Task | None = None
 
 
 # ¿Esta instalación manda correos, o solo alimenta el CRM?
@@ -1448,18 +1514,34 @@ async def _tanda() -> None:
         return          # esta instalación solo manda al CRM
     if not en_horario():
         return          # fuera de horario se espera; nada se pierde
-    cfg = _credenciales()
-    if not cfg:
-        return
     with get_db() as conn:
-        fila = conn.execute(
+        vencidas = conn.execute(
             """SELECT q.* FROM email_queue q
                  JOIN email_campaigns c ON c.id = q.campaign_id
                 WHERE q.status='pending' AND c.status='running'
                   AND q.send_after <= ?
-                ORDER BY q.send_after LIMIT 1""", (_iso(_ahora()),)).fetchone()
-    if not fila:
+                ORDER BY q.send_after LIMIT 20""", (_iso(_ahora()),)).fetchall()
+    # El seguimiento de una secuencia tiene que salir del mismo buzón que el
+    # primer correo. Si ese buzón ya llegó a su tope de hoy, espera, y el
+    # que sigue en la cola no se queda trabado detrás de él.
+    libres = {b["id"]: b for b in buzones_disponibles() if b["remaining"] > 0}
+    fila = cfg = None
+    for f in vencidas:
+        if f["buzon_fijo"]:
+            if f["buzon_fijo"] in libres:
+                fila, cfg = f, libres[f["buzon_fijo"]]
+                break
+            continue
+        cfg = _credenciales()
+        if cfg:
+            fila = f
+        break
+    if not fila or not cfg:
         return
+    if fila["buzon_fijo"]:
+        from . import secuencia
+        if not secuencia.puede_salir(dict(fila)):
+            return          # contestó mientras esperaba: ya no sale
 
     msg_id = nuevo_message_id(cfg, fila["token"] or "")
     with get_db() as conn:
@@ -1475,7 +1557,7 @@ async def _tanda() -> None:
         baja = f"{base}/u/{fila['token']}" if base and fila["token"] else None
         await asyncio.to_thread(_enviar_sincrono, cfg, fila["email"],
                                 fila["subject"], fila["body"], fila["body_html"],
-                                msg_id, baja)
+                                msg_id, baja, fila["responde_a"])
         ok, error = True, None
     except Exception as exc:
         ok, error = False, _explicar(exc)
@@ -1516,6 +1598,11 @@ async def _tanda() -> None:
     # que abre el lead sin ver qué se le escribió no sabe con qué está
     # entrando: la conversación tiene que vivir donde él trabaja.
     if ok:
+        try:
+            from . import secuencia
+            await secuencia.al_enviar(dict(fila), msg_id, cfg.get("id"))
+        except Exception as exc:
+            print(f"[secuencia] al enviar: {type(exc).__name__}: {exc}", flush=True)
         try:
             with get_db() as conn:
                 c = conn.execute(
@@ -1651,6 +1738,17 @@ async def loop_buzones() -> None:
         await asyncio.sleep(_CADA_BUZON)
 
 
+async def loop_secuencia() -> None:
+    """Cada minuto mira qué secuencia tiene que dar el paso siguiente."""
+    from . import secuencia
+    while True:
+        try:
+            await secuencia.avanzar()
+        except Exception as exc:
+            print(f"[secuencia] {type(exc).__name__}: {exc}", flush=True)
+        await asyncio.sleep(60)
+
+
 async def loop_envio() -> None:
     while True:
         try:
@@ -1668,7 +1766,7 @@ def arrancar_worker() -> None:
     pero tampoco hay nada que romper: el obrero arranca igual con el próximo
     pedido a la app.
     """
-    global _worker, _lector
+    global _worker, _lector, _vigilante
     try:
         lazo = asyncio.get_running_loop()
     except RuntimeError:
@@ -1679,6 +1777,8 @@ def arrancar_worker() -> None:
     # curso, porque una respuesta puede llegar días después del último envío.
     if _lector is None or _lector.done():
         _lector = lazo.create_task(loop_buzones())
+    if _vigilante is None or _vigilante.done():
+        _vigilante = lazo.create_task(loop_secuencia())
 
 
 # ====================== contarle a Kommo lo que pasó ======================
@@ -1701,9 +1801,11 @@ async def sincronizar_crm(limite: int = 40) -> dict:
 
     with get_db() as conn:
         pendientes = [dict(r) for r in conn.execute(
-            """SELECT e.id, e.kind, e.contact_id, e.bot, c.crm_lead_id, c.email
+            """SELECT e.id, e.kind, e.contact_id, e.bot, c.crm_lead_id, c.email,
+                      (k.secuencia IS NOT NULL OR k.padre_id IS NOT NULL) en_secuencia
                  FROM email_events e
                  LEFT JOIN contacts c ON c.id = e.contact_id
+                 LEFT JOIN email_campaigns k ON k.id = e.campaign_id
                 WHERE COALESCE(e.crm, 0) = 0
                 ORDER BY e.id LIMIT ?""", (limite,))]
     if not pendientes:
@@ -1715,6 +1817,10 @@ async def sincronizar_crm(limite: int = 40) -> dict:
         # Una apertura de un antivirus no es una señal de interés y no puede
         # mover un lead: es el falso positivo más común del correo.
         if ev["bot"] and ev["kind"] in ("open", "click"):
+            pass
+        # En una secuencia, abrir no mueve nada y la respuesta la maneja la
+        # secuencia misma: la lleva a IA CONVERSANDO.
+        elif ev["en_secuencia"] and ev["kind"] in ("open", "click", "reply"):
             pass
         elif ev["crm_lead_id"]:
             evento = _EVENTO_DE_KIND.get(ev["kind"])

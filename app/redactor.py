@@ -971,6 +971,150 @@ async def escribir(client: httpx.AsyncClient, contacto: dict,
             "tokens": ai._tokens_de(body), "error": None}
 
 
+# ------------------------------------------------------ los correos 2 y 3
+# La secuencia le vuelve a escribir a quien no contestó. Los dos correos que
+# siguen los escribe la IA leyendo el primero: tienen que ser claramente
+# distintos —no un "¿viste mi correo?"— y a la vez sonar a la misma persona
+# escribiéndole a la misma empresa. Por eso se escriben juntos, después del
+# primero, y se aprueban con él.
+
+ESQUEMA_SEGUIMIENTO = {
+    "type": "object",
+    "additionalProperties": False,
+    "required": ["cuerpo2", "cuerpo3"],
+    "properties": {
+        "cuerpo2": {"type": "string",
+                    "description": "El correo 2 entero, en texto plano, con el "
+                                   "saludo. Sin firma."},
+        "cuerpo3": {"type": "string",
+                    "description": "El correo 3 entero, en texto plano, con el "
+                                   "saludo. Sin firma."},
+    },
+}
+
+
+def _pedido_seguimientos(contacto: dict, propuesta: str, asunto1: str,
+                         cuerpo1: str, nombre: str, idioma: str, saludo: str,
+                         mas_corto: bool = False) -> dict:
+    tope = largo_maximo()
+    lengua = NOMBRE_IDIOMA.get(idioma, "español")
+    meta = int(tope * (0.6 if mas_corto else 0.8))
+    reglas = [
+        "Le escribimos a esta empresa el correo 1 de abajo y no contestó. "
+        "Escribí los dos correos que siguen en la secuencia. Salen como "
+        "respuesta en el mismo hilo, así que no llevan asunto.",
+        "",
+        "CORREO 2 — Diagnóstico. Sale unos días después del 1.",
+        "- Trae un ángulo NUEVO: una pregunta concreta sobre cómo trabaja hoy "
+        "esta empresa, o una observación de su rubro que la haga pensar. "
+        "Usá la ficha.",
+        "- No repite ni resume el correo 1. No arranca con «te escribo de "
+        "nuevo», «solo quería hacer seguimiento» ni «¿viste mi correo?».",
+        "- Cierra con una pregunta fácil de contestar.",
+        "",
+        "CORREO 3 — Oportunidad. Es el último.",
+        "- Dice en concreto qué ganaría la empresa, sin cifras inventadas, y "
+        "propone una llamada corta.",
+        "- Deja una salida fácil: si no es el momento, que lo diga y no se "
+        "insiste más.",
+        "- Distinto del 1 y del 2.",
+        "",
+        "Para los dos:",
+        f"- En {lengua}, con el mismo trato (tú o usted) que el correo 1. "
+        "Sin voseo —nada de «podés», «decime», «tenés»— salvo que el correo 1 "
+        "lo use: fuera del Río de la Plata suena extranjero.",
+        f"- Primer renglón: «{saludo},», tal cual.",
+        f"- Cada uno, menos de {meta} caracteres. Más cortos que el 1.",
+        "- Solo datos de la ficha o del correo 1. Nada inventado sobre la "
+        "empresa, sin precios, sin corchetes ni rótulos, sin firma.",
+    ]
+    return {
+        "model": modelo_redaccion(),
+        "input": [
+            {"role": "system",
+             "content": "Escribís correos de seguimiento de prospección B2B, "
+                        "cortos y humanos, que no suenan a plantilla."},
+            {"role": "user",
+             "content": "\n".join(reglas)
+                        + f"\n\n=== Lo que ofrecemos ===\n{propuesta}"
+                        + f"\n\n=== Ficha de la empresa ===\n"
+                        + _ficha(contacto, nombre, idioma)
+                        + f"\n\n=== Correo 1 ===\nAsunto: {asunto1}\n\n{cuerpo1}"},
+        ],
+        "max_output_tokens": 4_000,
+        "reasoning": {"effort": ESFUERZO_REDACCION},
+        "text": {"format": {"type": "json_schema", "name": "seguimientos",
+                            "strict": True, "schema": ESQUEMA_SEGUIMIENTO}},
+    }
+
+
+async def seguimientos(client: httpx.AsyncClient, contacto: dict, asunto1: str,
+                       cuerpo1: str, propuesta: str = "") -> dict:
+    """Escribe los correos 2 y 3 a partir del 1.
+
+    Devuelve {"cuerpo2", "cuerpo3", "error"}. Se pasan los mismos controles
+    que el correo 1: idioma, saludo, largo y nada sin completar.
+    """
+    if not ai.configured():
+        return {"error": "Falta OPENAI_API_KEY en el .env."}
+    nombre = nombre_de_persona(contacto)
+    idioma = idioma_de(contacto)
+    saludo = saludo_de(contacto, nombre, idioma)
+    tope = largo_maximo()
+    cabeceras = {"Authorization": f"Bearer {os.getenv('OPENAI_API_KEY', '')}",
+                 "Content-Type": "application/json"}
+
+    def problema(texto: str) -> str:
+        if not texto or len(texto) < 80:
+            return "salió vacío o demasiado corto"
+        if len(texto) > tope:
+            return f"quedó largo ({len(texto)} caracteres, el máximo es {tope})"
+        if not parece_idioma(texto, idioma):
+            return "salió en otro idioma"
+        if tiene_marcadores(texto) or repite_el_brief(texto):
+            return "dejó algo sin completar"
+        if _normal(texto) == _normal(cuerpo1):
+            return "repite el correo 1"
+        return ""
+
+    ultimo = ""
+    for intento in range(2):
+        pedido = _pedido_seguimientos(contacto, propuesta or propuesta_por_defecto(),
+                                      asunto1, cuerpo1, nombre, idioma, saludo,
+                                      mas_corto=bool(intento))
+        try:
+            r = await client.post(ai.URL, json=pedido, headers=cabeceras)
+            if r.status_code == 400 and "reasoning" in r.text.lower():
+                pedido.pop("reasoning", None)
+                r = await client.post(ai.URL, json=pedido, headers=cabeceras)
+            if r.status_code != 200:
+                ultimo = f"OpenAI respondió HTTP {r.status_code}"
+                continue
+            d = json.loads(ai._texto_de(r.json()) or "{}")
+        except Exception as exc:
+            ultimo = f"No se pudo hablar con OpenAI: {type(exc).__name__}"
+            continue
+        c2 = con_saludo(limpiar((d.get("cuerpo2") or "").strip()), saludo)
+        c3 = con_saludo(limpiar((d.get("cuerpo3") or "").strip()), saludo)
+        fallas = [f"el correo {n} {m}" for n, m in ((2, problema(c2)), (3, problema(c3))) if m]
+        if not fallas:
+            return {"cuerpo2": c2, "cuerpo3": c3, "error": None}
+        ultimo = "; ".join(fallas)
+    return {"error": f"No se pudieron escribir los correos 2 y 3: {ultimo}."}
+
+
+async def escribir_con_seguimiento(client: httpx.AsyncClient, contacto: dict,
+                                   propuesta: str = "") -> dict:
+    """El correo 1 y, si salió bien, el 2 y el 3."""
+    r = await escribir(client, contacto, propuesta)
+    if r.get("error"):
+        return r
+    s = await seguimientos(client, contacto, r["asunto"], r["cuerpo"], propuesta)
+    if s.get("error"):
+        return {**r, "error_seg": s["error"]}
+    return {**r, "cuerpo2": s["cuerpo2"], "cuerpo3": s["cuerpo3"]}
+
+
 # --------------------------------------------------------------- borradores
 # Nada sale sin que alguien lo lea antes. La IA escribe, el borrador queda
 # guardado, y recién cuando está aprobado entra en la cola de envío.
@@ -1021,17 +1165,20 @@ def _guardar(contacto: dict, r: dict) -> None:
         conn.execute(
             """INSERT INTO borradores (contact_id, asunto, cuerpo, nombre,
                    saludo, idioma, caracteres, a_quien, error, estado,
-                   editado, at)
-               VALUES (?,?,?,?,?,?,?,?,?,'pendiente',0,datetime('now'))
+                   editado, at, cuerpo2, cuerpo3, error_seg)
+               VALUES (?,?,?,?,?,?,?,?,?,'pendiente',0,datetime('now'),?,?,?)
                ON CONFLICT(contact_id) DO UPDATE SET
                    asunto=excluded.asunto, cuerpo=excluded.cuerpo,
                    nombre=excluded.nombre, saludo=excluded.saludo,
                    idioma=excluded.idioma, caracteres=excluded.caracteres,
                    a_quien=excluded.a_quien, error=excluded.error,
+                   cuerpo2=excluded.cuerpo2, cuerpo3=excluded.cuerpo3,
+                   error_seg=excluded.error_seg,
                    estado='pendiente', editado=0, at=datetime('now')""",
             (contacto["id"], r.get("asunto"), r.get("cuerpo"), r.get("nombre"),
              r.get("saludo"), r.get("idioma"), r.get("caracteres"),
-             r.get("a_quien"), r.get("error")))
+             r.get("a_quien"), r.get("error"), r.get("cuerpo2"),
+             r.get("cuerpo3"), r.get("error_seg")))
 
 
 async def _ficha_al_dia(client: httpx.AsyncClient, contacto: dict) -> dict:
@@ -1088,7 +1235,7 @@ async def redactar_muchos(ids: list[int], propuesta: str = "") -> None:
                                         or c.get("full_name") or f"#{c['id']}")
                     try:
                         c = await _ficha_al_dia(client, c)
-                        r = await escribir(client, c, propuesta)
+                        r = await escribir_con_seguimiento(client, c, propuesta)
                     except Exception as exc:
                         r = {"error": f"Se cayó al escribirlo: {type(exc).__name__}"}
                     _guardar(c, r)
@@ -1123,11 +1270,13 @@ def borradores(ids: list[int] | None = None) -> list[dict]:
 
 
 def aprobados() -> dict[int, dict]:
-    """Lo que se puede mandar: {contact_id: {asunto, cuerpo}}."""
+    """Lo que se puede mandar: {contact_id: {asunto, cuerpo, cuerpo2, cuerpo3}}."""
     with get_db() as conn:
-        return {r["contact_id"]: {"asunto": r["asunto"], "cuerpo": r["cuerpo"]}
+        return {r["contact_id"]: {"asunto": r["asunto"], "cuerpo": r["cuerpo"],
+                                  "cuerpo2": r["cuerpo2"], "cuerpo3": r["cuerpo3"]}
                 for r in conn.execute(
-                    """SELECT contact_id, asunto, cuerpo FROM borradores
+                    """SELECT contact_id, asunto, cuerpo, cuerpo2, cuerpo3
+                         FROM borradores
                         WHERE estado = 'aprobado' AND error IS NULL
                           AND cuerpo IS NOT NULL AND cuerpo <> ''""")}
 
@@ -1152,20 +1301,29 @@ def marcar_todos(estado: str) -> int:
         return cur.rowcount
 
 
-def editar(contact_id: int, asunto: str, cuerpo: str) -> dict:
-    """Guarda la corrección a mano. El tope sigue valiendo."""
+def editar(contact_id: int, asunto: str, cuerpo: str,
+           cuerpo2: str | None = None, cuerpo3: str | None = None) -> dict:
+    """Guarda la corrección a mano. El tope sigue valiendo.
+
+    El 2 y el 3 solo se tocan si vienen: None es "no los corregí".
+    """
     cuerpo, asunto = (cuerpo or "").strip(), (asunto or "").strip()
     if not cuerpo or not asunto:
         raise ValueError("El correo no puede quedar vacío.")
     tope = largo_maximo()
-    if len(cuerpo) > tope:
-        raise ValueError(f"El cuerpo tiene {len(cuerpo)} caracteres y el "
-                         f"máximo es {tope}.")
+    for n, texto in ((1, cuerpo), (2, cuerpo2), (3, cuerpo3)):
+        if texto is not None and len(texto.strip()) > tope:
+            raise ValueError(f"El correo {n} tiene {len(texto.strip())} "
+                             f"caracteres y el máximo es {tope}.")
     with get_db() as conn:
         conn.execute(
             """UPDATE borradores SET asunto=?, cuerpo=?, caracteres=?,
                    error=NULL, editado=1 WHERE contact_id=?""",
             (asunto, cuerpo, len(cuerpo), contact_id))
+        for col, texto in (("cuerpo2", cuerpo2), ("cuerpo3", cuerpo3)):
+            if texto is not None and texto.strip():
+                conn.execute(f"UPDATE borradores SET {col}=?, error_seg=NULL "
+                             "WHERE contact_id=?", (texto.strip(), contact_id))
     return {"caracteres": len(cuerpo)}
 
 

@@ -45,6 +45,7 @@ from .importer import (delete_batch, import_contacts,      # noqa: E402
                        import_places, preview_csv)
 from . import (ai, auth, dnscheck, duplicados, enrichment, exportar,  # noqa: E402
                ghl, kommo, mailer, places, redactor, respaldo)
+from . import secuencia as secuencia_mod  # noqa: E402
 from .providers import build_chain       # noqa: E402
 
 app = FastAPI(title="B2K", docs_url="/api/docs")
@@ -900,7 +901,10 @@ def api_mail_schedule(request: Request,
                       limit: str = Form(""), every_seconds: str = Form("180"),
                       jitter_seconds: str = Form("60"), daily_cap: str = Form("50"),
                       repeat: str = Form(""), body_html: str = Form(""),
-                      ia: str = Form("")):
+                      ia: str = Form(""), secuencia: str = Form(""),
+                      cuerpo2: str = Form(""), cuerpo3: str = Form(""),
+                      dias2: str = Form(""), dias3: str = Form(""),
+                      dias_fin: str = Form("")):
     """Arma la campaña y deja la cola lista. El obrero la va soltando."""
     activa = mailer.estado()
     if activa.get("campaign") and activa["campaign"]["status"] == "running" \
@@ -933,7 +937,20 @@ def api_mail_schedule(request: Request,
         except ValueError:
             return x
 
-    destinos = mailer.contactos_enviables(ids, str(repeat).lower() in ("1", "true", "on"))
+    con_secuencia = str(secuencia).lower() in ("1", "true", "on", "yes")
+    config_seq = None
+    if con_secuencia:
+        desconocidas = sorted(set(mailer.variables_desconocidas(cuerpo2))
+                              | set(mailer.variables_desconocidas(cuerpo3)))
+        if desconocidas:
+            raise HTTPException(400, "Los correos 2 y 3 usan variables que no "
+                                     "existen: " + ", ".join(desconocidas))
+        config_seq = secuencia_mod.nueva_config(cuerpo2, cuerpo3, dias2, dias3,
+                                                dias_fin)
+    # A una secuencia solo entran contactos a los que nunca se les escribió:
+    # el "volver a escribir" no aplica.
+    destinos = mailer.contactos_enviables(
+        ids, str(repeat).lower() in ("1", "true", "on") and not con_secuencia)
     if con_ia:
         # Solo sale lo aprobado. Un contacto marcado cuyo correo nadie miró no
         # entra, por más que esté en la selección.
@@ -942,6 +959,18 @@ def api_mail_schedule(request: Request,
             return {"started": False,
                     "message": "Los correos aprobados son de contactos a los "
                                "que ya se les escribió o que pidieron la baja."}
+    if con_ia and con_secuencia:
+        # Con IA, el 2 y el 3 los escribió la IA para cada uno y se aprobaron
+        # con el 1. Uno sin ellos no puede entrar a la secuencia: le saldrían
+        # textos que nadie leyó.
+        sin_seg = [d for d in destinos
+                   if not (escritos[d["id"]].get("cuerpo2")
+                           and escritos[d["id"]].get("cuerpo3"))]
+        if sin_seg:
+            return {"started": False,
+                    "message": f"{len(sin_seg)} de los aprobados no tienen los "
+                               "correos 2 y 3. Tocá «Que lo escriba de nuevo» en "
+                               "esos borradores para que la IA los escriba."}
     tope = entero(limit, 0)
     if tope:
         destinos = destinos[:tope]
@@ -959,15 +988,28 @@ def api_mail_schedule(request: Request,
         tope_diario=entero(daily_cap, 50),
         cuerpo_html="" if con_ia else body_html,
         base_rastreo=_base_publica(request),
-        escritos=escritos)
+        escritos=escritos, secuencia=config_seq)
     mailer.arrancar_worker()
     if con_ia:
         # Ya salieron: el borrador cumplió su función y solo estorbaría en la
         # próxima tanda.
         redactor.limpiar_borradores([d["id"] for d in destinos])
     anotar(request, "Lanzó una campaña de correo",
-           ("escritos por IA" if con_ia else subject[:80]), r.get("queued"))
-    return {"started": True, **r}
+           ("escritos por IA" if con_ia else subject[:80])
+           + (" · secuencia de tres" if con_secuencia else ""), r.get("queued"))
+    return {"started": True, "secuencia": con_secuencia, **r}
+
+
+@app.get("/api/mail/secuencia")
+async def api_mail_secuencia():
+    """Los textos de fábrica y a qué etapas de Kommo lleva cada paso."""
+    try:
+        etapas = await secuencia_mod.etapas()
+    except Exception:
+        etapas = {}
+    return {"cuerpo2": secuencia_mod.TEXTO_2, "cuerpo3": secuencia_mod.TEXTO_3,
+            "plazos": secuencia_mod.PLAZOS,
+            "etapas": {k: v["name"] for k, v in etapas.items()}}
 
 
 # ------------------------------------------------- correos escritos por IA
@@ -1037,9 +1079,12 @@ def api_mail_borrador_marcar(contact_id: int, estado: str = Form(...)):
 
 @app.post("/api/mail/borradores/{contact_id}/editar")
 def api_mail_borrador_editar(contact_id: int, asunto: str = Form(...),
-                             cuerpo: str = Form(...)):
+                             cuerpo: str = Form(...),
+                             cuerpo2: str | None = Form(None),
+                             cuerpo3: str | None = Form(None)):
     try:
-        return {"ok": True, **redactor.editar(contact_id, asunto, cuerpo)}
+        return {"ok": True, **redactor.editar(contact_id, asunto, cuerpo,
+                                              cuerpo2, cuerpo3)}
     except ValueError as exc:
         raise HTTPException(400, str(exc))
 
@@ -1057,9 +1102,27 @@ async def api_mail_borrador_rehacer(contact_id: int, propuesta: str = Form("")):
     contacto = dict(fila)
     async with httpx.AsyncClient(timeout=180.0) as client:
         contacto = await redactor._ficha_al_dia(client, contacto)
-        r = await redactor.escribir(client, contacto, propuesta)
+        r = await redactor.escribir_con_seguimiento(client, contacto, propuesta)
     redactor._guardar(contacto, r)
     return {"ok": not r.get("error"), **r}
+
+
+@app.post("/api/mail/borradores/{contact_id}/probar")
+async def api_mail_borrador_probar(request: Request, contact_id: int,
+                                   to: str = Form("soporte@gmarketing.co")):
+    """Manda el borrador —el 1 y, si los tiene, el 2 y el 3 en el mismo hilo—
+    a una casilla propia, para leerlo como lo leería el cliente."""
+    destino = (to or "").strip() or "soporte@gmarketing.co"
+    if "@" not in destino:
+        raise HTTPException(400, "Esa dirección no es válida.")
+    b = next((x for x in redactor.borradores([contact_id])), None)
+    if not b or not b.get("cuerpo"):
+        raise HTTPException(404, "Ese contacto no tiene un correo escrito.")
+    cuerpos = [b["cuerpo"]] + [b[k] for k in ("cuerpo2", "cuerpo3") if b.get(k)]
+    r = await mailer.enviar_hilo(destino, f"[Prueba] {b['asunto']}", cuerpos)
+    anotar(request, "Mandó una prueba del correo con IA",
+           f"{b.get('company_name') or b.get('email')} → {destino}", r.get("enviados"))
+    return {**r, "to": destino}
 
 
 @app.delete("/api/mail/borradores")
