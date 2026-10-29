@@ -1920,8 +1920,8 @@ async function previewMail() {
 
 async function probarEsteCorreo() {
   // Un diseño se ve de verdad en un cliente de correo: Gmail y Outlook
-  // recortan CSS que el navegador dibuja sin chistar. Va con las variables
-  // sin reemplazar, porque acá todavía no hay un contacto elegido.
+  // recortan CSS que el navegador dibuja sin chistar. Las variables se llenan
+  // con el primer contacto marcado, o con uno de ejemplo.
   const asunto = $('mail-subject').value.trim();
   const cuerpo = cuerpoTexto().trim(), html = cuerpoHtml().trim();
   if (!asunto && !cuerpo && !html) {
@@ -1941,8 +1941,9 @@ async function probarEsteCorreo() {
        <input id="test-mio" value="${esc(YO || '')}"
               placeholder="vos@gmarketing.co">
      </div>
-     <p class="help">Las variables van sin reemplazar: todavía no hay un
-       contacto elegido.</p>`,
+     <p class="help">${SELECTED.size
+       ? 'Las variables se llenan con los datos del primer contacto marcado.'
+       : 'No hay contactos marcados: las variables se llenan con una empresa de ejemplo.'}</p>`,
     [{ label: 'Cancelar', value: false },
      { label: 'Mandar', value: true, cls: 'primary' }]);
   if (!mandar) return;
@@ -1954,6 +1955,7 @@ async function probarEsteCorreo() {
   fd.append('subject', asunto || 'Prueba de diseño');
   fd.append('body', cuerpo);
   fd.append('body_html', html);
+  if (SELECTED.size) fd.append('contact_id', String([...SELECTED][0]));
   const d = await (await fetch('/api/mail/test', { method: 'POST', body: fd })).json();
   toast(d.ok ? `Salió a ${esc(d.to)}` : esc(d.error || 'No se pudo mandar'),
         d.ok ? 'ok' : 'err');
