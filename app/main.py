@@ -762,10 +762,22 @@ def api_mail_config_delete(mailbox_id: int):
     return {"deleted": mailbox_id}
 
 
+# Con quién se prueba un correo cuando no hay ningún contacto marcado.
+EJEMPLO_DE_CONTACTO = {
+    "first_name": "Laura", "full_name": "Laura Restrepo",
+    "company_name": "Empresa de Ejemplo", "category": "Agencia de viajes",
+    "company_domain": "empresadeejemplo.com",
+    "ai_profile": '{"ciudades": ["Medellín"], "resumen": "Agencia de viajes '
+                  'corporativos.", "gancho": "Organizaron una convención de 400 '
+                  'personas en Cartagena."}',
+}
+
+
 @app.post("/api/mail/test")
 async def api_mail_test(request: Request, to: str = Form(""),
                         mailbox_id: str = Form(""), subject: str = Form(""),
-                        body: str = Form(""), body_html: str = Form("")):
+                        body: str = Form(""), body_html: str = Form(""),
+                        contact_id: str = Form("")):
     """Manda una prueba a una casilla propia. Es el paso previo obligado:
     probar la configuración contra un cliente real no es una opción.
 
@@ -788,8 +800,21 @@ async def api_mail_test(request: Request, to: str = Form(""),
     quien = (buzon or {}).get("label") or (buzon or {}).get("from_email") or "B2K"
 
     if subject.strip() or body.strip() or body_html.strip():
-        r = await mailer.enviar(destino, subject.strip() or f"Prueba — {quien}",
-                                body, mid, cuerpo_html=body_html)
+        # Las {{variables}} se reemplazan como le llegarían a un contacto: con
+        # el primero marcado, o con uno de ejemplo si no hay ninguno. Sin esto
+        # la prueba llegaba con "Hola {{nombre}}" literal.
+        contacto = None
+        if str(contact_id).strip().isdigit():
+            with get_db() as conn:
+                fila = conn.execute("SELECT * FROM contacts WHERE id=?",
+                                    (int(contact_id),)).fetchone()
+            contacto = dict(fila) if fila else None
+        contacto = contacto or EJEMPLO_DE_CONTACTO
+        r = await mailer.enviar(
+            destino, mailer.render(subject.strip(), contacto) or f"Prueba — {quien}",
+            mailer.render(body, contacto) if body.strip() else body, mid,
+            cuerpo_html=(mailer.render(body_html, contacto, para_html=True)
+                         if body_html.strip() else body_html))
         return {**r, "to": destino}
 
     r = await mailer.enviar(
