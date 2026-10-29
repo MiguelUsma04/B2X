@@ -1530,13 +1530,14 @@ async def _tanda() -> None:
         except Exception:
             pass          # anotar es un extra: nunca puede romper el envío
         # Sin pendientes, la campaña se da por terminada.
-        quedan = conn.execute(
-            """SELECT COUNT(*) n FROM email_queue
-                WHERE campaign_id=? AND status='pending'""",
-            (fila["campaign_id"],)).fetchone()["n"]
-        if not quedan:
-            conn.execute("UPDATE email_campaigns SET status='done' WHERE id=? "
-                         "AND status='running'", (fila["campaign_id"],))
+        with get_db() as conn:
+            quedan = conn.execute(
+                """SELECT COUNT(*) n FROM email_queue
+                    WHERE campaign_id=? AND status='pending'""",
+                (fila["campaign_id"],)).fetchone()["n"]
+            if not quedan:
+                conn.execute("UPDATE email_campaigns SET status='done' WHERE id=? "
+                             "AND status='running'", (fila["campaign_id"],))
 
 
 def cuidar_buzones() -> list[dict]:
