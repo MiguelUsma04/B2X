@@ -56,7 +56,11 @@ def _partes_de_texto(msg):
         if tipo not in ("text/plain", "text/html"):
             continue
         crudo = parte.get_payload(decode=True) or b""
-        texto = crudo.decode(parte.get_content_charset() or "utf-8", "replace")
+        try:
+            texto = crudo.decode(parte.get_content_charset() or "utf-8", "replace")
+        except (LookupError, TypeError):
+            # "unknown-8bit" y otros juegos que Python no conoce.
+            texto = crudo.decode("utf-8", "replace")
         if tipo == "text/plain" and plano is None:
             plano = texto
         elif tipo == "text/html" and html is None:

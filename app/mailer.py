@@ -873,11 +873,23 @@ def _es_rebote(msg) -> bool:
     """Si esto es un aviso de que el correo no llegó."""
     tipo = (msg.get_content_type() or "").lower()
     if tipo == "multipart/report":
-        return "delivery-status" in (msg.get("Content-Type") or "").lower()
-    de = (msg.get("From") or "").lower()
+        if "delivery-status" not in str(msg.get("Content-Type") or "").lower():
+            return False
+        # "Action: delayed" es un aviso de que va a seguir intentando, no un
+        # rebote: contarlo apagaría una dirección que funciona.
+        try:
+            texto = msg.as_string().lower()
+        except Exception:
+            texto = ""
+        return "action: failed" in texto or "action: delayed" not in texto
+    de = str(msg.get("From") or "").lower()
     if any(d in de for d in _DAEMONS):
         return True
-    return bool(_ASUNTO_REBOTE.search(msg.get("Subject") or ""))
+    asunto = str(msg.get("Subject") or "")
+    if re.search(r"(?i)delay|retras|demora", asunto) and \
+            not re.search(r"(?i)fail|fall", asunto):
+        return False
+    return bool(_ASUNTO_REBOTE.search(asunto))
 
 
 def _es_automatico(msg) -> bool:
@@ -886,11 +898,11 @@ def _es_automatico(msg) -> bool:
     El 'estoy de vacaciones' no es una respuesta: contarlo como interés
     llevaría a llamar a alguien que ni leyó el correo.
     """
-    auto = (msg.get("Auto-Submitted") or "").lower()
+    auto = str(msg.get("Auto-Submitted") or "").lower()
     if auto and auto != "no":
         return True
     return bool(msg.get("X-Autoreply") or msg.get("X-Autorespond")
-                or (msg.get("Precedence") or "").lower() in ("auto_reply", "bulk"))
+                or str(msg.get("Precedence") or "").lower() in ("auto_reply", "bulk"))
 
 
 def _correo_original(conn, ids: list[str]):
@@ -933,9 +945,13 @@ def _leer_buzon_sincrono(b: dict, limite: int = 300) -> dict:
     except Exception as exc:
         return {"error": f"No se pudo conectar a {host}: {type(exc).__name__}"}
 
-    respuestas = rebotes = automaticos = 0
+    respuestas = rebotes = automaticos = salteados = 0
     ultimo = int(b.get("imap_last_uid") or 0)
     visto = ultimo
+    # La hora se toma ANTES de buscar: un correo que entra mientras se lee no
+    # puede quedar contado como "ya visto". La secuencia confía en esta hora
+    # para saber si alguien contestó antes de mandarle el siguiente.
+    inicio = _iso(_ahora())
     try:
         M.login(usuario, b["password"])
         M.select("INBOX", readonly=True)
@@ -945,43 +961,30 @@ def _leer_buzon_sincrono(b: dict, limite: int = 300) -> dict:
         uids = [int(u) for u in (datos[0] or b"").split() if int(u) > ultimo]
         uids = uids[-limite:]
 
-        with get_db() as conn:
-            for uid in uids:
+        for uid in uids:
+            typ, cuerpo = M.uid("fetch", str(uid), "(BODY.PEEK[])")
+            if typ != "OK" or not cuerpo or not isinstance(cuerpo[0], tuple):
                 visto = max(visto, uid)
-                typ, cuerpo = M.uid("fetch", str(uid), "(BODY.PEEK[])")
-                if typ != "OK" or not cuerpo or not isinstance(cuerpo[0], tuple):
-                    continue
-                msg = _email.message_from_bytes(cuerpo[0][1])
-
-                # Una respuesta trae el identificador en la cabecera. Un
-                # rebote lo cita adentro, en el correo original que devuelve.
-                cabeceras = " ".join(filter(None, [msg.get("In-Reply-To"),
-                                                   msg.get("References")]))
-                fila = _correo_original(conn, _MSGID.findall(cabeceras))
-                rebote = _es_rebote(msg)
-                if not fila and rebote:
-                    crudo = cuerpo[0][1].decode("utf-8", "replace")
-                    fila = _correo_original(conn, _MSGID.findall(crudo))
-                if not fila:
-                    continue
-
-                ref = (msg.get("Message-ID") or "").strip()
-                de = msg.get("From") or ""
-                if rebote:
-                    nuevo = _anotar_respuesta(conn, fila, "bounce", ref, de)
-                    rebotes += int(nuevo)
-                    if nuevo:
-                        _apagar_por_rebote(conn, fila["contact_id"])
-                elif _es_automatico(msg):
-                    automaticos += 1
-                elif _anotar_respuesta(conn, fila, "reply", ref, de):
-                    respuestas += 1
-                    # El texto se guarda para que la IA lo lea después: acá
-                    # se está dentro de la lectura del buzón y no se espera a
-                    # OpenAI.
-                    evento = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
-                    respuestas_mod.guardar(conn, evento, fila["contact_id"],
-                                           respuestas_mod.texto_de_respuesta(msg))
+                continue
+            # Cada correo va por separado y en su propia transacción. Antes,
+            # un correo con una cabecera rara —bytes sin codificar, un juego de
+            # caracteres desconocido— tiraba la lectura entera, el puntero no
+            # avanzaba y ese buzón no se volvía a leer nunca más.
+            try:
+                with get_db() as conn:
+                    r = _procesar_correo(conn, cuerpo[0][1])
+            except Exception as exc:
+                salteados += 1
+                print(f"[buzon {b.get('id')}] correo {uid} salteado: "
+                      f"{type(exc).__name__}: {exc}"[:200], flush=True)
+                r = None
+            visto = max(visto, uid)
+            if r == "bounce":
+                rebotes += 1
+            elif r == "auto":
+                automaticos += 1
+            elif r == "reply":
+                respuestas += 1
     except imaplib.IMAP4.error as exc:
         return {"error": _explicar_imap(exc)}
     except Exception as exc:
@@ -994,9 +997,51 @@ def _leer_buzon_sincrono(b: dict, limite: int = 300) -> dict:
 
     with get_db() as conn:
         conn.execute("UPDATE smtp_config SET imap_last_uid=?, imap_error=NULL, "
-                     "imap_checked=datetime('now') WHERE id=?", (visto, b["id"]))
+                     "imap_checked=? WHERE id=?", (visto, inicio, b["id"]))
     return {"respuestas": respuestas, "rebotes": rebotes,
-            "automaticos": automaticos, "revisados": len(uids)}
+            "automaticos": automaticos, "revisados": len(uids),
+            "salteados": salteados}
+
+
+def _procesar_correo(conn, crudo_bytes: bytes) -> str | None:
+    """Anota lo que es un correo que llegó. Devuelve 'reply', 'bounce',
+    'auto' o None si no tiene que ver con nuestros envíos."""
+    import email.policy
+    msg = _email.message_from_bytes(crudo_bytes, policy=email.policy.default)
+
+    # Una respuesta trae el identificador en la cabecera. Un
+    # rebote lo cita adentro, en el correo original que devuelve.
+    cabeceras = " ".join(filter(None, [str(msg.get("In-Reply-To") or ""),
+                                       str(msg.get("References") or "")]))
+    fila = _correo_original(conn, _MSGID.findall(cabeceras))
+    rebote = _es_rebote(msg)
+    if not fila and rebote:
+        crudo = crudo_bytes.decode("utf-8", "replace")
+        fila = _correo_original(conn, _MSGID.findall(crudo))
+    if not fila:
+        return None
+
+    ref = str(msg.get("Message-ID") or "").strip()
+    de = str(msg.get("From") or "")
+    if rebote:
+        if _anotar_respuesta(conn, fila, "bounce", ref, de):
+            _apagar_por_rebote(conn, fila["contact_id"])
+            return "bounce"
+        return None
+    if _es_automatico(msg):
+        return "auto"
+    if _anotar_respuesta(conn, fila, "reply", ref, de):
+        # El texto se guarda para que la IA lo lea después. Si no
+        # se puede sacar, la respuesta igual queda anotada: lo que
+        # importa es saber que contestó.
+        evento = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+        try:
+            texto = respuestas_mod.texto_de_respuesta(msg)
+        except Exception:
+            texto = ""
+        respuestas_mod.guardar(conn, evento, fila["contact_id"], texto)
+        return "reply"
+    return None
 
 
 def _explicar_imap(exc: Exception) -> str:
@@ -1220,6 +1265,11 @@ def contactos_enviables(contact_ids: list[int], repetir: bool = False) -> list[d
     ph = ",".join("?" * len(contact_ids))
     extra = "" if repetir else """
         AND c.id NOT IN (SELECT contact_id FROM email_queue WHERE status = 'sent')"""
+    # Ni siquiera con "repetir": quien tiene un correo esperando en la cola o
+    # una secuencia en curso recibiría dos campañas a la vez.
+    extra += """
+        AND c.id NOT IN (SELECT contact_id FROM email_queue WHERE status = 'pending')
+        AND c.id NOT IN (SELECT contact_id FROM secuencias WHERE estado = 'activa')"""
     # La baja no la levanta ni el 'repetir': quien pidió no recibir más, no
     # recibe más, aunque alguien marque la casilla de volver a escribir.
     extra += """
@@ -1538,10 +1588,26 @@ async def _tanda() -> None:
         break
     if not fila or not cfg:
         return
+    # A quien pidió la baja o rebotó no le sale nada, aunque ya estuviera en
+    # la cola cuando pasó.
+    with get_db() as conn:
+        if conn.execute("SELECT 1 FROM suppression WHERE email=LOWER(?)",
+                        (fila["email"],)).fetchone():
+            conn.execute("UPDATE email_queue SET status='cancelled', "
+                         "error='en la lista de no escribir' WHERE id=?",
+                         (fila["id"],))
+            return
     if fila["buzon_fijo"]:
+        # Un seguimiento no sale sin leer el buzón justo antes: la lectura
+        # de rutina es cada diez minutos, y una respuesta de hace cinco no
+        # puede recibir el correo siguiente. Si no se puede leer, espera.
         from . import secuencia
-        if not secuencia.puede_salir(dict(fila)):
-            return          # contestó mientras esperaba: ya no sale
+        leido = await revisar_buzones(fila["buzon_fijo"])
+        if any(x.get("error") for x in leido.get("buzones", [])) \
+                or not leido.get("buzones"):
+            return
+        if not await secuencia.puede_salir(dict(fila)):
+            return          # contestó, o alguien movió el lead: ya no sale
 
     msg_id = nuevo_message_id(cfg, fila["token"] or "")
     with get_db() as conn:

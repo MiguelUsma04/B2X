@@ -193,12 +193,14 @@ def _contesto(conn, s: dict):
              ORDER BY e.id LIMIT 1""", [s["contact_id"], *fam]).fetchone()
 
 
-def puede_salir(fila: dict) -> bool:
+async def puede_salir(fila: dict) -> bool:
     """El último control antes de mandar un correo 2 o 3.
 
-    El vigilante corre cada minuto, pero el buzón se lee cada diez y el envío
-    cada veinte segundos: una respuesta puede llegar entre que el correo se
-    encoló y que sale. Acá se vuelve a mirar, justo antes.
+    Quien llama acaba de leer el buzón. Acá se mira si con eso apareció una
+    respuesta, y además el lead en Kommo: un correo encolado a las 19:00 sale
+    a las 8:00, y en el medio alguien del equipo pudo cerrarlo o moverlo.
+    Ante una duda que se resuelve sola —Kommo no contesta— se espera, no se
+    manda.
     """
     with get_db() as conn:
         s, paso = _de_la_fila(conn, fila["campaign_id"], fila["contact_id"])
@@ -208,6 +210,18 @@ def puede_salir(fila: dict) -> bool:
             conn.execute("UPDATE email_queue SET status='cancelled' WHERE id=?",
                          (fila["id"],))
             return False
+
+    if s.get("lead_id") and kommo.configured():
+        lead = await kommo.leer_lead(s["lead_id"])
+        if lead.get("error") and not lead.get("no_existe"):
+            return False                     # se prueba en la vuelta siguiente
+        if not lead.get("no_existe"):
+            cerrado = lead["status_id"] in (kommo.GANADO, kommo.PERDIDO_ID)
+            movido = s.get("etapa_b2k") and lead["status_id"] != s["etapa_b2k"]
+            if cerrado or movido:
+                _cortar(s, "El lead está cerrado en Kommo." if cerrado
+                        else "Alguien del equipo movió el lead en Kommo.")
+                return False
     return True
 
 # ------------------------------------------------------------- en Kommo
@@ -219,7 +233,11 @@ async def _llevar(s: dict, clave: str, motivo: str, detalle: str = "") -> dict:
     """
     if not s.get("lead_id") or not kommo.configured():
         return {"ok": False, "cortar": None}
-    et = await etapas()
+    try:
+        et = await etapas()
+    except Exception as exc:
+        return {"ok": False, "cortar": None,
+                "error": f"No se pudieron leer las etapas: {type(exc).__name__}"}
     destino = et.get(clave)
     if not destino:
         return {"ok": False, "cortar": None}
@@ -230,6 +248,8 @@ async def _llevar(s: dict, clave: str, motivo: str, detalle: str = "") -> dict:
             # Kommo contestó, pero el lead no puede ir ahí: está cerrado o
             # alguien del equipo lo llevó más lejos.
             return {"ok": False, "cortar": r["motivo"]}
+        if "ya no está" in (r.get("motivo") or ""):
+            return {"ok": False, "cortar": None}      # lo borraron: no hay qué mover
         return {"ok": False, "cortar": None, "error": r.get("motivo")}
 
     await kommo.poner_etiqueta_de_etapa(s["lead_id"], destino["name"],
@@ -238,6 +258,34 @@ async def _llevar(s: dict, clave: str, motivo: str, detalle: str = "") -> dict:
         conn.execute("UPDATE secuencias SET etapa_b2k=? WHERE id=?",
                      (destino["id"], s["id"]))
     return {"ok": True, "cortar": None}
+
+
+async def _mover_final(s: dict, clave: str, motivo: str, detalle: str = "") -> None:
+    """El último movimiento en Kommo: IA CONVERSANDO o NO INTERESADO.
+
+    Queda anotado antes de intentarlo. Si Kommo no contesta, el vigilante lo
+    vuelve a intentar cada minuto: el equipo trabaja desde Kommo, y una
+    respuesta que no se ve ahí es una respuesta perdida.
+    """
+    with get_db() as conn:
+        conn.execute("UPDATE secuencias SET crm_destino=?, crm_detalle=?, "
+                     "crm_pendiente=1 WHERE id=?",
+                     (clave + "|" + motivo, detalle, s["id"]))
+    r = await _llevar(s, clave, motivo, detalle)
+    if not r.get("error"):
+        with get_db() as conn:
+            conn.execute("UPDATE secuencias SET crm_pendiente=0 WHERE id=?",
+                         (s["id"],))
+
+
+async def _reintentar_kommo() -> None:
+    with get_db() as conn:
+        filas = [dict(r) for r in conn.execute(
+            "SELECT * FROM secuencias WHERE crm_pendiente=1 ORDER BY id LIMIT 20")]
+    for s in filas:
+        clave, _, motivo = (s["crm_destino"] or "").partition("|")
+        if clave:
+            await _mover_final(s, clave, motivo, s["crm_detalle"] or "")
 
 
 def _cortar(s: dict, motivo: str, estado: str = "cortada") -> None:
@@ -323,7 +371,7 @@ async def _respondio(s: dict, ev) -> None:
     if clase["clase"]:
         detalle += (f"\n\nLa IA lo leyó como: {clase['clase']} "
                     f"(confianza {clase['confianza']}). {clase['porque'] or ''}")
-    await _llevar(s, "respuesta", "Contestó el correo de la secuencia", detalle)
+    await _mover_final(s, "respuesta", "Contestó el correo de la secuencia", detalle)
 
 
 async def _revisar(s: dict, ahora: datetime) -> None:
@@ -343,8 +391,8 @@ async def _revisar(s: dict, ahora: datetime) -> None:
         # respuestas: una lectura anota las respuestas antes de anotar la
         # hora, así que si la hora es posterior al envío, lo leído está acá.
         buzon = conn.execute(
-            "SELECT imap_checked, imap_error FROM smtp_config WHERE id=?",
-            (s["buzon"],)).fetchone() if s["buzon"] else None
+            "SELECT imap_checked, imap_error, active, from_email FROM smtp_config "
+            "WHERE id=?", (s["buzon"],)).fetchone() if s["buzon"] else None
         ev = _contesto(conn, s)
         fam = _familia(conn, s["campaign_id"])
         marcas = ",".join("?" * len(fam))
@@ -378,6 +426,9 @@ async def _revisar(s: dict, ahora: datetime) -> None:
     if ultimo in ("error", "cancelled"):
         _cortar(s, f"El correo {paso or 1} no salió.")
         return
+    if paso and envios.get(paso + 1) in ("error", "cancelled"):
+        _cortar(s, f"El correo {paso + 1} no salió.")
+        return
     if paso == 0 or envios.get(paso + 1) == "pending":
         return                       # esperando a que salga lo que ya está en cola
 
@@ -387,6 +438,12 @@ async def _revisar(s: dict, ahora: datetime) -> None:
     if ahora < vence:
         return
 
+    if buzon and not buzon["active"]:
+        with get_db() as conn:
+            conn.execute("UPDATE secuencias SET motivo=? WHERE id=?",
+                         (f"El buzón {buzon['from_email']} está pausado: el "
+                          "siguiente correo espera a que se reactive.", s["id"]))
+        return
     # Sin leer el buzón después del último envío no se sabe si contestó.
     if not buzon or buzon["imap_error"] or not buzon["imap_checked"] \
             or buzon["imap_checked"] <= s["ultimo_envio"]:
@@ -409,7 +466,8 @@ async def _revisar(s: dict, ahora: datetime) -> None:
         with get_db() as conn:
             conn.execute("UPDATE secuencias SET estado='sin_respuesta', motivo=? "
                          "WHERE id=?", ("No contestó ninguno de los tres.", s["id"]))
-        await _llevar(s, "sin_respuesta", "Secuencia: no contestó ninguno de los tres")
+        await _mover_final(s, "sin_respuesta",
+                           "Secuencia: no contestó ninguno de los tres")
         return
 
     _encolar(s, paso + 1, raiz, cfg, ahora, mailer)
@@ -468,6 +526,10 @@ async def avanzar() -> dict:
             await _revisar(s, ahora)
         except Exception as exc:
             print(f"[secuencia] {s['id']}: {type(exc).__name__}: {exc}", flush=True)
+    try:
+        await _reintentar_kommo()
+    except Exception as exc:
+        print(f"[secuencia] kommo: {type(exc).__name__}: {exc}", flush=True)
     return {"mirados": len(activas)}
 
 

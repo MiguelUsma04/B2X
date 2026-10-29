@@ -482,6 +482,12 @@ def _secuencia(conn) -> None:
     for col in ("cuerpo2", "cuerpo3"):
         if col not in cols:
             conn.execute(f"ALTER TABLE secuencias ADD COLUMN {col} TEXT")
+    # El movimiento final en Kommo (IA CONVERSANDO o NO INTERESADO) que falta
+    # hacer: si Kommo no contestó, se reintenta hasta que quede.
+    for col, ddl in (("crm_destino", "TEXT"), ("crm_detalle", "TEXT"),
+                     ("crm_pendiente", "INTEGER NOT NULL DEFAULT 0")):
+        if col not in cols:
+            conn.execute(f"ALTER TABLE secuencias ADD COLUMN {col} {ddl}")
 
 
 def _telefonos_al_dia(conn) -> None:
