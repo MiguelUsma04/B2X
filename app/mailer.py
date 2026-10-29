@@ -1172,6 +1172,33 @@ async def enviar(destino: str, asunto: str, cuerpo: str,
         return {"ok": False, "error": _explicar(exc)}
 
 
+async def enviar_hilo(destino: str, asunto: str, cuerpos: list[str],
+                      mailbox_id: int | None = None) -> dict:
+    """Manda varios correos seguidos, cada uno como respuesta al anterior.
+
+    Es la prueba de una secuencia: llegan como llegarían a un cliente, en un
+    solo hilo, pero de una vez y no a lo largo de una semana.
+    """
+    cfg = _credenciales(mailbox_id)
+    if not cfg:
+        return {"ok": False, "enviados": 0,
+                "error": "Falta configurar el servidor de salida."}
+    hilo: list[str] = []
+    for n, cuerpo in enumerate(cuerpos):
+        mid = nuevo_message_id(cfg)
+        titulo = asunto if n == 0 else f"Re: {asunto}"
+        try:
+            await asyncio.to_thread(_enviar_sincrono, cfg, destino, titulo,
+                                    cuerpo, None, mid, None, " ".join(hilo))
+        except Exception as exc:
+            return {"ok": False, "enviados": n, "error": _explicar(exc)}
+        hilo.append(mid)
+        if n < len(cuerpos) - 1:
+            await asyncio.sleep(2)      # para que lleguen en orden
+    return {"ok": True, "enviados": len(cuerpos), "error": None,
+            "desde": cfg.get("from_email")}
+
+
 # ------------------------------------------------------------------ goteo
 def _ahora() -> datetime:
     return datetime.now(timezone.utc)
@@ -1274,7 +1301,8 @@ def crear_campania(nombre: str, asunto: str, cuerpo: str, contactos: list[dict],
             from . import secuencia as secuencia_mod
             conn.execute("UPDATE email_campaigns SET secuencia=? WHERE id=?",
                          (secuencia, campania))
-            secuencia_mod.inscribir(conn, campania, [(f[1], f[3]) for f in filas])
+            secuencia_mod.inscribir(conn, campania, [(f[1], f[3]) for f in filas],
+                                    escritos)
     return {"campaign_id": campania, "queued": len(filas),
             "termina": filas[-1][7] if filas else None}
 

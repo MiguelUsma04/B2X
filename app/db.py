@@ -442,6 +442,11 @@ def _secuencia(conn) -> None:
                      ("paso", "INTEGER DEFAULT 1")):
         if col not in cols:
             conn.execute(f"ALTER TABLE email_campaigns ADD COLUMN {col} {ddl}")
+    # Los correos 2 y 3 que escribió la IA para cada contacto, a partir del 1.
+    cols = {r["name"] for r in conn.execute("PRAGMA table_info(borradores)")}
+    for col in ("cuerpo2", "cuerpo3", "error_seg"):
+        if col not in cols:
+            conn.execute(f"ALTER TABLE borradores ADD COLUMN {col} TEXT")
     cols = {r["name"] for r in conn.execute("PRAGMA table_info(email_queue)")}
     # El seguimiento sale del mismo buzón que el primero y en el mismo hilo.
     for col, ddl in (("buzon_fijo", "INTEGER"), ("responde_a", "TEXT")):
@@ -473,6 +478,10 @@ def _secuencia(conn) -> None:
         );
         CREATE INDEX IF NOT EXISTS ix_secuencias_estado ON secuencias(estado);
     """)
+    cols = {r["name"] for r in conn.execute("PRAGMA table_info(secuencias)")}
+    for col in ("cuerpo2", "cuerpo3"):
+        if col not in cols:
+            conn.execute(f"ALTER TABLE secuencias ADD COLUMN {col} TEXT")
 
 
 def _telefonos_al_dia(conn) -> None:

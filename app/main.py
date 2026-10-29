@@ -934,6 +934,18 @@ def api_mail_schedule(request: Request,
             return {"started": False,
                     "message": "Los correos aprobados son de contactos a los "
                                "que ya se les escribió o que pidieron la baja."}
+    if con_ia and con_secuencia:
+        # Con IA, el 2 y el 3 los escribió la IA para cada uno y se aprobaron
+        # con el 1. Uno sin ellos no puede entrar a la secuencia: le saldrían
+        # textos que nadie leyó.
+        sin_seg = [d for d in destinos
+                   if not (escritos[d["id"]].get("cuerpo2")
+                           and escritos[d["id"]].get("cuerpo3"))]
+        if sin_seg:
+            return {"started": False,
+                    "message": f"{len(sin_seg)} de los aprobados no tienen los "
+                               "correos 2 y 3. Tocá «Que lo escriba de nuevo» en "
+                               "esos borradores para que la IA los escriba."}
     tope = entero(limit, 0)
     if tope:
         destinos = destinos[:tope]
@@ -1042,9 +1054,12 @@ def api_mail_borrador_marcar(contact_id: int, estado: str = Form(...)):
 
 @app.post("/api/mail/borradores/{contact_id}/editar")
 def api_mail_borrador_editar(contact_id: int, asunto: str = Form(...),
-                             cuerpo: str = Form(...)):
+                             cuerpo: str = Form(...),
+                             cuerpo2: str | None = Form(None),
+                             cuerpo3: str | None = Form(None)):
     try:
-        return {"ok": True, **redactor.editar(contact_id, asunto, cuerpo)}
+        return {"ok": True, **redactor.editar(contact_id, asunto, cuerpo,
+                                              cuerpo2, cuerpo3)}
     except ValueError as exc:
         raise HTTPException(400, str(exc))
 
@@ -1062,9 +1077,27 @@ async def api_mail_borrador_rehacer(contact_id: int, propuesta: str = Form("")):
     contacto = dict(fila)
     async with httpx.AsyncClient(timeout=180.0) as client:
         contacto = await redactor._ficha_al_dia(client, contacto)
-        r = await redactor.escribir(client, contacto, propuesta)
+        r = await redactor.escribir_con_seguimiento(client, contacto, propuesta)
     redactor._guardar(contacto, r)
     return {"ok": not r.get("error"), **r}
+
+
+@app.post("/api/mail/borradores/{contact_id}/probar")
+async def api_mail_borrador_probar(request: Request, contact_id: int,
+                                   to: str = Form("soporte@gmarketing.co")):
+    """Manda el borrador —el 1 y, si los tiene, el 2 y el 3 en el mismo hilo—
+    a una casilla propia, para leerlo como lo leería el cliente."""
+    destino = (to or "").strip() or "soporte@gmarketing.co"
+    if "@" not in destino:
+        raise HTTPException(400, "Esa dirección no es válida.")
+    b = next((x for x in redactor.borradores([contact_id])), None)
+    if not b or not b.get("cuerpo"):
+        raise HTTPException(404, "Ese contacto no tiene un correo escrito.")
+    cuerpos = [b["cuerpo"]] + [b[k] for k in ("cuerpo2", "cuerpo3") if b.get(k)]
+    r = await mailer.enviar_hilo(destino, f"[Prueba] {b['asunto']}", cuerpos)
+    anotar(request, "Mandó una prueba del correo con IA",
+           f"{b.get('company_name') or b.get('email')} → {destino}", r.get("enviados"))
+    return {**r, "to": destino}
 
 
 @app.delete("/api/mail/borradores")

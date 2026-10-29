@@ -1718,6 +1718,7 @@ let MODO_CORREO = 'texto';
 
 function switchFormato(cual) {
   MODO_CORREO = ['html', 'ia'].includes(cual) ? cual : 'texto';
+  seqModo();
   const esHtml = MODO_CORREO === 'html';
   const esIA = MODO_CORREO === 'ia';
   $('modo-html').hidden = !esHtml;
@@ -2658,6 +2659,15 @@ function pintarBorradores() {
       </div>
       <div class="borrador-asunto">${esc(b.asunto || '')}</div>
       <pre class="borrador-cuerpo" id="cuerpo-${b.contact_id}">${esc(b.cuerpo || '')}</pre>
+      ${b.cuerpo2 ? `<details class="borrador-seg">
+          <summary>Si no contesta: correos 2 y 3</summary>
+          <div class="help" style="margin-top:8px">Correo 2 — Diagnóstico</div>
+          <pre class="borrador-cuerpo">${esc(b.cuerpo2)}</pre>
+          <div class="help" style="margin-top:8px">Correo 3 — Oportunidad</div>
+          <pre class="borrador-cuerpo">${esc(b.cuerpo3 || '')}</pre>
+        </details>`
+        : b.error_seg ? `<div class="alert warn" style="margin:8px 0">${esc(b.error_seg)}
+            Tocá «Que lo escriba de nuevo».</div>` : ''}
       <div class="row borrador-acciones">
         ${b.estado === 'aprobado'
           ? `<button class="ghost" onclick="marcarBorrador(${b.contact_id},'pendiente')">
@@ -2665,6 +2675,7 @@ function pintarBorradores() {
           : `<button class="go" onclick="marcarBorrador(${b.contact_id},'aprobado')">
                Aprobar</button>`}
         <button class="ghost" onclick="editarBorrador(${b.contact_id})">Corregir</button>
+        <button class="ghost" onclick="probarBorrador(${b.contact_id})">Enviar prueba</button>
         <button class="ghost" onclick="rehacerBorrador(${b.contact_id})">
           Que lo escriba de nuevo</button>
         ${b.estado === 'descartado'
@@ -2714,12 +2725,36 @@ async function editarBorrador(id) {
   const fd = new FormData();
   fd.append('asunto', asunto);
   fd.append('cuerpo', cuerpo);
+  if (b.cuerpo2) {
+    const c2 = prompt('Correo 2 (si no contesta):', b.cuerpo2);
+    if (c2 === null) return;
+    const c3 = prompt('Correo 3 (el último):', b.cuerpo3 || '');
+    if (c3 === null) return;
+    fd.append('cuerpo2', c2);
+    fd.append('cuerpo3', c3);
+  }
   const r = await fetch(`/api/mail/borradores/${id}/editar`,
                         { method: 'POST', body: fd });
   const d = await r.json();
   if (!r.ok) { toast(esc(d.detail || 'Error'), 'err'); return; }
   toast(`Guardado, ${d.caracteres} caracteres`, 'ok');
   await cargarBorradores();
+}
+
+async function probarBorrador(id) {
+  const b = BORRADORES.find((x) => x.contact_id === id);
+  if (!b) return;
+  const a = prompt(`Mandar la prueba de ${b.company_name || b.email} a:`,
+                   'soporte@gmarketing.co');
+  if (a === null || !a.trim()) return;
+  toast('Mandando la prueba…', 'info', 2000);
+  const fd = new FormData();
+  fd.append('to', a.trim());
+  const r = await fetch(`/api/mail/borradores/${id}/probar`, { method: 'POST', body: fd });
+  const d = await r.json();
+  if (!r.ok) { toast(esc(d.detail || 'Error'), 'err'); return; }
+  if (!d.ok) { toast(esc(d.error || 'No salió'), 'err'); return; }
+  toast(`${d.enviados} correo(s) a ${esc(d.to)}, en el mismo hilo`, 'ok');
 }
 
 async function rehacerBorrador(id) {
@@ -3176,6 +3211,7 @@ let SEQ_CARGADA = false;
 async function toggleSecuencia() {
   const on = $('seq-on').checked;
   $('seq-cuerpo').hidden = !on;
+  seqModo();
   if (!on || SEQ_CARGADA) return;
   const d = await (await fetch('/api/mail/secuencia')).json();
   if (!$('seq-2').value.trim()) $('seq-2').value = d.cuerpo2;
@@ -3224,4 +3260,11 @@ function lineaSecuencia(sq) {
       <span class="sub"><b>${sq.sin_respuesta}</b> sin respuesta ·
         <b>${sq.cortada}</b> cortadas</span></div>
     ${espera}${salidas}</div>`;
+}
+
+function seqModo() {
+  const ia = MODO_CORREO === 'ia';
+  document.querySelectorAll('.seq-plantilla').forEach((el) => { el.hidden = ia; });
+  const n = $('seq-ia-nota');
+  if (n) n.hidden = !ia;
 }

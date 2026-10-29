@@ -437,12 +437,18 @@
               <input id="seq-dfin" type="number" inputmode="numeric" min="1" max="30" value="5">
             </div>
           </div>
-          <label class="fld" for="seq-2" style="margin-top:12px">Correo 2 —
-            Diagnóstico</label>
-          <textarea id="seq-2" rows="8" style="resize:vertical"></textarea>
-          <label class="fld" for="seq-3" style="margin-top:12px">Correo 3 —
-            Oportunidad</label>
-          <textarea id="seq-3" rows="7" style="resize:vertical"></textarea>
+          <p class="alert info" id="seq-ia-nota" hidden style="margin-top:12px">
+            La IA escribe los correos 2 y 3 de cada empresa a partir del 1. Los
+            ves —y los corregís— en cada borrador, y se aprueban junto con
+            él.</p>
+          <div class="seq-plantilla">
+            <label class="fld" for="seq-2" style="margin-top:12px">Correo 2 —
+              Diagnóstico</label>
+            <textarea id="seq-2" rows="8" style="resize:vertical"></textarea>
+            <label class="fld" for="seq-3" style="margin-top:12px">Correo 3 —
+              Oportunidad</label>
+            <textarea id="seq-3" rows="7" style="resize:vertical"></textarea>
+          </div>
           <p class="help">Salen del mismo buzón que el primero y como respuesta
             en el mismo hilo, con el asunto «Re: …». Se pueden usar las mismas
             {{variables}}. Si el contacto contesta cualquiera de los tres, la

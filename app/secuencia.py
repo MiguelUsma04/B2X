@@ -135,15 +135,24 @@ def _nombres_de_etapa(et: dict) -> list[str]:
     return [v["name"] for v in et.values()]
 
 # --------------------------------------------------------------- inscribir
-def inscribir(conn, campania: int, filas: list[tuple]) -> None:
-    """Anota a cada contacto que entró en la campaña. (contact_id, asunto)"""
+def inscribir(conn, campania: int, filas: list[tuple],
+              escritos: dict | None = None) -> None:
+    """Anota a cada contacto que entró en la campaña. (contact_id, asunto)
+
+    `escritos` son los correos 2 y 3 que la IA escribió para cada uno; sin
+    eso, salen las plantillas de la campaña.
+    """
     for contact_id, asunto in filas:
         lead = conn.execute("SELECT crm_lead_id FROM contacts WHERE id=?",
                             (contact_id,)).fetchone()
+        suyo = (escritos or {}).get(contact_id) or {}
         conn.execute(
-            """INSERT OR IGNORE INTO secuencias (campaign_id, contact_id, asunto, lead_id)
-               VALUES (?,?,?,?)""",
-            (campania, contact_id, asunto, (lead["crm_lead_id"] if lead else None) or None))
+            """INSERT OR IGNORE INTO secuencias
+                 (campaign_id, contact_id, asunto, lead_id, cuerpo2, cuerpo3)
+               VALUES (?,?,?,?,?,?)""",
+            (campania, contact_id, asunto,
+             (lead["crm_lead_id"] if lead else None) or None,
+             suyo.get("cuerpo2"), suyo.get("cuerpo3")))
 
 
 def _familia(conn, raiz: int) -> list[int]:
@@ -430,7 +439,8 @@ def _encolar(s: dict, n: int, raiz, cfg: dict, ahora: datetime, mailer) -> None:
 
         contacto = dict(conn.execute("SELECT * FROM contacts WHERE id=?",
                                      (s["contact_id"],)).fetchone())
-        cuerpo = mailer.render(cfg.get(f"cuerpo{n}") or "", contacto)
+        cuerpo = mailer.render(s.get(f"cuerpo{n}") or cfg.get(f"cuerpo{n}") or "",
+                               contacto)
         marca = secrets.token_urlsafe(16)
         if raiz["track_base"]:
             cuerpo += mailer._pie_de_baja(raiz["track_base"], marca, html=False)
