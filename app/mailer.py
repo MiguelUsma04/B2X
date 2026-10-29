@@ -25,6 +25,7 @@ from email.message import EmailMessage
 from email.utils import formataddr, make_msgid
 
 from . import db
+from . import respuestas as respuestas_mod
 from .db import get_db
 
 # Lo que se puede intercalar en el asunto y el cuerpo.
@@ -973,8 +974,14 @@ def _leer_buzon_sincrono(b: dict, limite: int = 300) -> dict:
                         _apagar_por_rebote(conn, fila["contact_id"])
                 elif _es_automatico(msg):
                     automaticos += 1
-                else:
-                    respuestas += int(_anotar_respuesta(conn, fila, "reply", ref, de))
+                elif _anotar_respuesta(conn, fila, "reply", ref, de):
+                    respuestas += 1
+                    # El texto se guarda para que la IA lo lea después: acá
+                    # se está dentro de la lectura del buzón y no se espera a
+                    # OpenAI.
+                    evento = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+                    respuestas_mod.guardar(conn, evento, fila["contact_id"],
+                                           respuestas_mod.texto_de_respuesta(msg))
     except imaplib.IMAP4.error as exc:
         return {"error": _explicar_imap(exc)}
     except Exception as exc:

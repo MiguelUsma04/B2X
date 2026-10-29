@@ -399,6 +399,35 @@ def _migrate(conn) -> None:
     _lectura_del_buzon(conn)
     _bajas_medibles(conn)
     _telefonos_al_dia(conn)
+    _respuestas(conn)
+
+
+def _respuestas(conn) -> None:
+    """Lo que contestó cada persona y qué clase de respuesta es.
+
+    Va en una tabla aparte y no como columnas de email_events: un evento es
+    una fila por apertura o clic, y el texto de una respuesta puede ser
+    largo. Solo agrega; no toca nada de lo que ya existe.
+    """
+    conn.executescript("""
+        CREATE TABLE IF NOT EXISTS respuestas (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            event_id    INTEGER NOT NULL UNIQUE
+                        REFERENCES email_events(id) ON DELETE CASCADE,
+            contact_id  INTEGER REFERENCES contacts(id) ON DELETE SET NULL,
+            texto       TEXT NOT NULL DEFAULT '',
+            -- Lo que dijo la IA. NULL = todavía no se clasificó.
+            clase       TEXT,
+            confianza   TEXT,
+            porque      TEXT,
+            clasificada TEXT,
+            -- Si una persona ya la miró, para la lista de revisar.
+            revisada    INTEGER NOT NULL DEFAULT 0,
+            at          TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        CREATE INDEX IF NOT EXISTS ix_respuestas_sin_clase
+            ON respuestas(id) WHERE clase IS NULL;
+    """)
 
 
 def _telefonos_al_dia(conn) -> None:
