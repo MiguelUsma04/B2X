@@ -3364,12 +3364,14 @@ async function refrescarActividad(pronto) {
       const pct = t.total ? Math.min(100, Math.round((t.hechos / t.total) * 100)) : 0;
       return `<div class="act-item">
         <span class="act-punto" aria-hidden="true"></span>
-        <span class="act-titulo">${esc(t.titulo)}${t.paso
-          ? ` <span class="act-paso">— ${esc(t.paso)}</span>` : ''}</span>
-        <span class="act-num">${t.total ? `${t.hechos} de ${t.total}`
-          : (t.segundos != null ? `${t.segundos} s` : '')}</span>
-        <span class="act-barra ${t.total ? '' : 'indef'}"><i style="${
-          t.total ? `width:${pct}%` : ''}"></i></span></div>`;
+        <span class="act-titulo">${esc(t.titulo)}</span>
+        ${t.paso ? `<span class="act-paso" title="${esc(t.paso)}">${esc(t.paso)}</span>` : ''}
+        <span class="act-pie">
+          <span class="act-barra ${t.total ? '' : 'indef'}"><i style="${
+            t.total ? `width:${pct}%` : ''}"></i></span>
+          <span class="act-num">${t.total ? `${t.hechos} de ${t.total}`
+            : (t.segundos != null ? `${t.segundos} s` : '')}</span>
+        </span></div>`;
     }).join('');
   }
   ACT_TIMER = setTimeout(() => refrescarActividad(),

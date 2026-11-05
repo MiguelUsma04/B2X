@@ -262,6 +262,34 @@ def index():
 
 
 # ---------------------------------------------------------------- importación
+# Un archivo de ejemplo con los encabezados que B2K reconoce. Son los de un
+# export de Apollo (pestaña People): así sirve tanto para armar una lista a
+# mano como para entender qué espera la carga. Va con ";" porque es lo que
+# Excel en español abre en columnas; la carga acepta los dos separadores.
+PLANTILLA_CSV = [
+    ["First Name", "Last Name", "Title", "Company Name", "Email", "Mobile Phone",
+     "Website", "Person Linkedin Url"],
+    ["Laura", "Restrepo", "Gerente comercial", "Viajes Andinos",
+     "tu.correo+prueba1@gmail.com", "+57 300 123 4567", "viajesandinos.co", ""],
+    ["Carlos", "Gómez", "Director general", "Seguros del Valle",
+     "tu.correo+prueba2@gmail.com", "+57 310 765 4321", "segurosdelvalle.com", ""],
+]
+
+
+@app.get("/api/import/plantilla")
+def api_import_plantilla():
+    """El CSV de ejemplo para cargar contactos a mano."""
+    import csv as csv_mod
+    import io
+    buf = io.StringIO()
+    escritor = csv_mod.writer(buf, delimiter=";", lineterminator="\r\n")
+    escritor.writerows(PLANTILLA_CSV)
+    datos = b"\xef\xbb\xbf" + buf.getvalue().encode("utf-8")
+    return Response(content=datos, media_type="text/csv; charset=utf-8",
+                    headers={"Content-Disposition":
+                             'attachment; filename="plantilla-contactos-b2k.csv"'})
+
+
 @app.post("/api/import/preview")
 async def api_preview(file: UploadFile = File(...)):
     raw = await file.read()

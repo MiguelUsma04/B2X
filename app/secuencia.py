@@ -71,12 +71,64 @@ def config_de(texto: str | None) -> dict | None:
         return None
 
 
+def _pascua(anio: int):
+    """Domingo de Pascua (cálculo gregoriano de Meeus/Jones/Butcher)."""
+    from datetime import date
+    a, b, c = anio % 19, anio // 100, anio % 100
+    d, e = b // 4, b % 4
+    f = (b + 8) // 25
+    g = (b - f + 1) // 3
+    h = (19 * a + b - d - g + 15) % 30
+    i, k = c // 4, c % 4
+    l = (32 + 2 * e + 2 * i - h - k) % 7
+    m = (a + 11 * h + 22 * l) // 451
+    mes = (h + l - 7 * m + 114) // 31
+    dia = ((h + l - 7 * m + 114) % 31) + 1
+    return date(anio, mes, dia)
+
+
+_FESTIVOS: dict[int, set] = {}
+
+
+def festivos_colombia(anio: int) -> set:
+    """Los festivos de Colombia de ese año.
+
+    Los que caen en fecha fija, los que la ley Emiliani corre al lunes
+    siguiente y los que dependen de la Pascua. Un correo que "sale a los tres
+    días hábiles" no puede contar un festivo como día de trabajo.
+    """
+    if anio in _FESTIVOS:
+        return _FESTIVOS[anio]
+    from datetime import date
+
+    def al_lunes(d):
+        return d + timedelta(days=(7 - d.weekday()) % 7)
+
+    fijos = {date(anio, 1, 1), date(anio, 5, 1), date(anio, 7, 20),
+             date(anio, 8, 7), date(anio, 12, 8), date(anio, 12, 25)}
+    corridos = {al_lunes(date(anio, m, d)) for m, d in
+                ((1, 6), (3, 19), (6, 29), (8, 15), (10, 12), (11, 1), (11, 11))}
+    p = _pascua(anio)
+    de_pascua = {p - timedelta(days=3), p - timedelta(days=2),        # jueves y viernes santo
+                 al_lunes(p + timedelta(days=39)),                     # Ascensión
+                 al_lunes(p + timedelta(days=60)),                     # Corpus Christi
+                 al_lunes(p + timedelta(days=68))}                     # Sagrado Corazón
+    _FESTIVOS[anio] = fijos | corridos | de_pascua
+    return _FESTIVOS[anio]
+
+
+def _es_habil(d: datetime) -> bool:
+    local = d - timedelta(hours=5)          # el día se cuenta en Bogotá
+    return local.weekday() < 5 and local.date() not in festivos_colombia(local.year)
+
+
 def dias_habiles(desde: datetime, n: int) -> datetime:
-    """`desde` más n días de lunes a viernes, a la misma hora."""
+    """`desde` más n días hábiles de Colombia —sin fines de semana ni
+    festivos—, a la misma hora."""
     d = desde
     while n > 0:
         d += timedelta(days=1)
-        if d.weekday() < 5:
+        if _es_habil(d):
             n -= 1
     return d
 

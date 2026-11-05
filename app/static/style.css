@@ -983,22 +983,41 @@ pre{font-family:var(--mono);font-size:12px;background:var(--surface-2);
   text-decoration-thickness:1px}
 
 /* ======================= barra de actividad =======================
-   Lo que B2K está haciendo en segundo plano. Va pegada abajo del encabezado
-   para que se vea desde cualquier pantalla. */
-.actividad{position:sticky;top:57px;z-index:55;display:grid;gap:8px;
-  padding:10px 16px;background:var(--surface-2);border-bottom:1px solid var(--line)}
-.act-item{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:4px 10px;
-  align-items:center;font-size:14px}
-.act-punto{width:9px;height:9px;border-radius:50%;background:var(--ok);
+   Lo que B2K está haciendo en segundo plano. En el computador va al pie del
+   menú de la izquierda, en el espacio que queda libre debajo de las
+   secciones: se ve desde cualquier pantalla sin empujar el contenido. En el
+   teléfono flota justo encima de la barra de secciones. */
+.actividad{position:fixed;z-index:56;left:8px;right:8px;
+  bottom:calc(72px + env(safe-area-inset-bottom));
+  display:grid;gap:10px;padding:12px;max-height:40vh;overflow-y:auto;
+  background:var(--surface-2);border:1px solid var(--line);border-radius:var(--r-sm);
+  box-shadow:0 8px 24px rgba(0,0,0,.35)}
+/* En el teléfono, lo justo: qué hace y cuánto falta. El detalle ocuparía
+   media pantalla encima de la lista. */
+@media (max-width:899px){
+  .actividad{gap:7px;padding:9px 11px;max-height:28vh}
+  .actividad .act-paso{display:none}
+  .actividad .act-titulo{font-size:12.5px;white-space:nowrap;overflow:hidden;
+    text-overflow:ellipsis}
+  .actividad .act-pie{margin-top:1px}
+}
+@media (min-width:900px){
+  .actividad{left:12px;right:auto;bottom:14px;width:calc(var(--menu) - 24px);
+    max-height:max(140px, calc(100vh - 480px));box-shadow:none}
+}
+.act-item{display:grid;grid-template-columns:auto minmax(0,1fr);gap:2px 8px;
+  align-items:center;font-size:13px}
+.act-punto{width:8px;height:8px;border-radius:50%;background:var(--ok);
   animation:act-latido 1.2s ease-in-out infinite}
 @keyframes act-latido{0%,100%{opacity:1}50%{opacity:.3}}
 @media (prefers-reduced-motion:reduce){.act-punto{animation:none}}
-.act-titulo{font-weight:600;color:var(--ink);overflow:hidden;text-overflow:ellipsis;
-  white-space:nowrap}
-.act-titulo .act-paso{font-weight:400;color:var(--ink-3)}
-.act-num{font-size:13px;color:var(--ink-3);font-variant-numeric:tabular-nums}
-.act-barra{grid-column:2 / 4;height:5px;border-radius:999px;background:var(--surface-3);
-  overflow:hidden}
+.act-titulo{font-weight:600;color:var(--ink);line-height:1.3}
+.act-paso{grid-column:2;color:var(--ink-3);font-size:12px;line-height:1.3;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.act-pie{grid-column:2;display:grid;grid-template-columns:minmax(0,1fr) auto;
+  gap:8px;align-items:center;margin-top:3px}
+.act-num{font-size:11.5px;color:var(--ink-3);font-variant-numeric:tabular-nums}
+.act-barra{height:4px;border-radius:999px;background:var(--surface-3);overflow:hidden}
 .act-barra i{display:block;height:100%;background:var(--ok);border-radius:999px;
   transition:width .4s ease}
 .act-barra.indef i{width:35%;animation:act-va 1.3s ease-in-out infinite}

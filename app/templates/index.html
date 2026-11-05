@@ -269,7 +269,12 @@
       <h2>Subí tu archivo de Apollo</h2>
       <div class="body">
         <p class="lede">Exportá desde la pestaña <b>People</b> de Apollo, no
-          desde Accounts.</p>
+          desde Accounts. ¿Armás la lista a mano? Bajá la plantilla, llenala en
+          Excel y subila tal cual.</p>
+        <div class="row" style="margin:0 0 14px">
+          <button type="button" onclick="location.href='/api/import/plantilla'">
+            Descargar la plantilla de ejemplo</button>
+        </div>
         <input type="file" id="csvfile" accept=".csv,text/csv" onchange="doPreview()"
                aria-label="Elegir archivo CSV">
         <div id="prev-alert" style="margin-top:14px"></div>
