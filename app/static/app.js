@@ -127,6 +127,8 @@ document.querySelectorAll('.step').forEach((t) => {
     // Los números grandes son de la lista: en las otras pantallas empujaban
     // la tarea hacia abajo, y en el teléfono la sacaban de la vista.
     $('metrics').hidden = t.dataset.panel !== 'contacts';
+    document.body.dataset.panel = t.dataset.panel;
+    if (t.dataset.panel === 'mail') irAPaso(PASO_CORREO);
     if (t.dataset.panel === 'enrich') refreshPending();
     // Los buzones cambian desde otra pantalla: se releen al entrar para que
     // el estimado y el botón de enviar reflejen lo que hay ahora.
@@ -1727,6 +1729,72 @@ function switchFormato(cual) {
   updateMailBtn();
 }
 
+/* ======================= Correos en cuatro pasos ======================= */
+let PASO_CORREO = 1;
+
+function irAPaso(n) {
+  PASO_CORREO = Math.max(1, Math.min(4, n));
+  document.querySelectorAll('#panel-mail .paso-bloque').forEach((b) => {
+    b.hidden = +b.dataset.paso !== PASO_CORREO;
+  });
+  document.querySelectorAll('#panel-mail .pasos .paso').forEach((p) => {
+    const k = +p.dataset.paso;
+    p.classList.toggle('ahora', k === PASO_CORREO);
+    p.classList.toggle('hecho', k < PASO_CORREO);
+    p.setAttribute('aria-selected', String(k === PASO_CORREO));
+    p.querySelector('.c').innerHTML = k < PASO_CORREO ? icono('chequeo') : String(k);
+  });
+  $('pie-atras').disabled = PASO_CORREO === 1;
+  $('pie-sig').hidden = PASO_CORREO === 4;
+  $('btn-mail').hidden = PASO_CORREO !== 4;
+  pieCorreos();
+}
+
+/* En la línea de tiempo, tocar «Correo 2» o «Correo 3» abre su texto. Con la
+   IA no hay texto acá: cada empresa tiene el suyo, en su borrador. */
+function abrirSeq(n) {
+  if (MODO_CORREO === 'ia') { irAPaso(2); return; }
+  document.querySelectorAll('#seq-cuerpo .seq-texto').forEach((b) => {
+    b.hidden = +b.dataset.seq !== n ? b.hidden : !b.hidden;
+  });
+  document.querySelectorAll('#seq-tl .tl-nodo[data-seq]').forEach((b) => {
+    const abierto = !document.querySelector(`#seq-cuerpo .seq-texto[data-seq="${b.dataset.seq}"]`).hidden;
+    b.classList.toggle('abierto', abierto);
+    b.setAttribute('aria-expanded', String(abierto));
+  });
+}
+
+/* El pie de Correos: cuántas empresas reciben el primer correo, con qué, y lo
+   que falta para poder programarlo. Lo que hace falta para decidir no va
+   escondido en un ⓘ. */
+function pieCorreos() {
+  const res = $('pie-res');
+  if (!res) return;
+  const activos = MAILBOXES.filter((m) => m.active && m.configured);
+  const aprobados = BORRADORES.filter((x) => x.estado === 'aprobado' && !x.error).length;
+  const ia = MODO_CORREO === 'ia';
+  const limite = +$('mail-limit').value || 0;
+  let n = ia ? aprobados : SELECTED.size;
+  if (!ia && limite) n = Math.min(n, limite);
+  const seq = $('seq-on') && $('seq-on').checked;
+  const buzones = $('mail-rotate') && !$('mail-rotate').checked ? Math.min(1, activos.length)
+    : activos.length;
+  const falta = [];
+  if (!ia && !SELECTED.size) falta.push('marcá contactos');
+  if (ia && !aprobados) falta.push('ningún correo aprobado');
+  if (!ia && !$('mail-subject').value.trim()) falta.push('falta el asunto');
+  if (!ia && !(MODO_CORREO === 'html' ? $('mail-html') : $('mail-body')).value.trim()) {
+    falta.push('falta el mensaje');
+  }
+  if (!activos.length) falta.push('falta un buzón activo');
+  res.innerHTML = `<b>${n} ${n === 1 ? 'empresa recibe' : 'empresas reciben'}</b> el primer correo`
+    + (ia ? ' · escrito por la IA' : '')
+    + (seq ? ' · hasta 3 correos cada una' : '')
+    + (activos.length ? ` · desde ${buzones} ${buzones === 1 ? 'buzón' : 'buzones'}` : '');
+  $('pie-falta').innerHTML = falta.length ? `${icono('alerta')}${falta.join(' · ')}` : '';
+  $('btn-mail').disabled = falta.length > 0;
+}
+
 function cuerpoTexto() { return MODO_CORREO === 'texto' ? $('mail-body').value : ''; }
 function cuerpoHtml() { return MODO_CORREO === 'html' ? $('mail-html').value : ''; }
 
@@ -1856,6 +1924,7 @@ function updateMailBtn() {
              : activos.length + ' buzones'}.</div>`);
   }
 
+  pieCorreos();
   const n = SELECTED.size;
   const cada = Math.max(1, +$('mail-every').value || 3);
   const limite = +$('mail-limit').value || n;
@@ -3388,6 +3457,14 @@ function ponerInfos() {
     'info-mail': 'Elegí qué mandar, revisalo y programalo. Salen de a poco, a horas '
       + 'irregulares, para no caer en spam.',
     'info-results': 'Quién abrió, quién tocó un enlace y quién contestó, campaña por campaña.',
+    'info-correo': 'A quien ya se le escribió antes queda afuera. Las {{variables}} se '
+      + 'reemplazan con los datos de cada empresa; si falta uno, queda vacío.',
+    'info-seq': 'B2K manda el correo 2 y el 3 <b>solo a quien no contestó</b>, del mismo '
+      + 'buzón y en el mismo hilo («Re: …»). Si contesta cualquiera de los tres, se corta '
+      + 'y el lead pasa a <b>IA conversando</b>. Los días son hábiles, sin festivos, '
+      + 'contados desde el correo anterior. Solo entran contactos a los que nunca se les escribió.',
+    'info-ritmo': 'De a poco y a horas irregulares: cien de golpe es la forma más rápida '
+      + 'de terminar en spam. Fuera del horario de envío la cola espera.',
     'info-completar': '<b>Leer sus sitios</b> saca emails, teléfonos y WhatsApp de la web de '
       + 'cada empresa, gratis. <b>Ficha con IA</b> resume qué vende, a quién y quién manda, y '
       + 'cobra por contacto. <b>Buscar celulares</b> cuesta 10 créditos cada uno, contra 1 de un '
@@ -3443,3 +3520,6 @@ function parrafosAInfo(paneles) {
     });
   });
 }
+
+document.addEventListener('input', (e) => { if (e.target.closest('#panel-mail')) pieCorreos(); });
+document.addEventListener('change', (e) => { if (e.target.closest('#panel-mail')) pieCorreos(); });

@@ -14,6 +14,17 @@ sys.path.insert(0, str(RAIZ))
 
 from app import db  # noqa: E402
 db.DB_PATH = Path(sys.argv[1])
+
+# Un buzón de mentira, para que Correos pueda habilitar el envío. No sale nada:
+# _enviar_sincrono está anulado más abajo y el servidor no existe.
+import sqlite3  # noqa: E402
+_c = sqlite3.connect(sys.argv[1])
+if not _c.execute("SELECT 1 FROM smtp_config LIMIT 1").fetchone():
+    _c.execute("""INSERT INTO smtp_config (label, host, port, from_email, username,
+                    password, active, daily_cap)
+                  VALUES ('Prueba', '127.0.0.1', 1, 'prueba@b2k.test', 'prueba', 'x', 1, 50)""")
+    _c.commit()
+_c.close()
 import app.main as m  # noqa: E402
 
 for clave in ("GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "OPENAI_API_KEY", "GHL_API_TOKEN"):

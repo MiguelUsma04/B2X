@@ -284,34 +284,40 @@
   <!-- ========================= ENVIAR CORREOS ========================= -->
   <section class="panel" id="panel-mail">
     <div class="pantalla-cab"><h1>Escribiles</h1><span id="info-mail"></span></div>
-    <div class="card">
-      <h2>Paso 4 — Escribirle a los contactos</h2>
-      <div class="body">
-        <p class="lede">A quien ya se le escribió antes queda afuera.</p>
-        <div id="mail-ready"></div>
+    <!-- Cuatro pasos a la vista: se ve en cuál vas, y se puede saltar a
+         cualquiera. Abajo, el pie dice siempre qué va a salir. -->
+    <div class="pasos" role="tablist" aria-label="Pasos del envío">
+      <button class="paso" data-paso="1" role="tab" onclick="irAPaso(1)"><span class="c">1</span><span class="t">Qué mandar</span></button>
+      <button class="paso" data-paso="2" role="tab" onclick="irAPaso(2)"><span class="c">2</span><span class="t">Revisar</span></button>
+      <button class="paso" data-paso="3" role="tab" onclick="irAPaso(3)"><span class="c">3</span><span class="t">Seguimiento</span></button>
+      <button class="paso" data-paso="4" role="tab" onclick="irAPaso(4)"><span class="c">4</span><span class="t">Cuándo sale</span></button>
+    </div>
+    <div id="mail-ready" hidden></div>
+
+    <div class="paso-bloque" data-paso="1">
+      <div class="tiles-modo" role="tablist" aria-label="Qué mandar">
+        <button class="seg tile-modo" id="seg-ia" role="tab" aria-selected="false"
+                onclick="switchFormato('ia'); irAPaso(2)">
+          <span class="badge">recomendado</span><svg class="ic"><use href="#i-chispa"/></svg>
+          <b>Lo escribe la IA</b><span>Uno distinto por empresa</span></button>
+        <button class="seg tile-modo active" id="seg-texto" role="tab" aria-selected="true"
+                onclick="switchFormato('texto'); irAPaso(2)">
+          <svg class="ic"><use href="#i-lapiz"/></svg><b>Texto</b><span>El mismo para todos</span></button>
+        <button class="seg tile-modo" id="seg-html" role="tab" aria-selected="false"
+                onclick="switchFormato('html'); irAPaso(2)">
+          <svg class="ic"><use href="#i-paleta"/></svg><b>Con diseño</b><span>Colores e imágenes</span></button>
       </div>
     </div>
 
+    <div class="paso-bloque" data-paso="2" hidden>
+
     <div class="card">
-      <h2>El correo</h2>
+      <h2>El correo <span id="info-correo"></span></h2>
       <div class="body">
         <div class="field" style="flex:1 1 100%" id="campo-asunto">
           <label class="fld" for="mail-subject">Asunto</label>
           <input id="mail-subject" placeholder="Una idea para {{empresa}}">
         </div>
-        <div class="segmented" role="tablist" aria-label="Cómo escribir el correo"
-             style="margin:14px 0 0">
-          <button class="seg active" id="seg-texto" role="tab" aria-selected="true"
-                  onclick="switchFormato('texto')">
-            <b>Texto</b><span>se ve igual en todos lados</span></button>
-          <button class="seg" id="seg-html" role="tab" aria-selected="false"
-                  onclick="switchFormato('html')">
-            <b>Diseño HTML</b><span>colores, imágenes, botón</span></button>
-          <button class="seg" id="seg-ia" role="tab" aria-selected="false"
-                  onclick="switchFormato('ia')">
-            <b>Escribe la IA</b><span>uno distinto para cada empresa</span></button>
-        </div>
-
         <div id="modo-texto">
           <div class="field" style="flex:1 1 100%;margin-top:12px">
             <label class="fld" for="mail-body">Mensaje</label>
@@ -399,59 +405,55 @@
         </div>
       </div>
     </div>
+    </div>
+
+    <div class="paso-bloque" data-paso="3" hidden>
 
     <div class="card" id="card-secuencia">
       <h2>Seguimiento</h2>
       <div class="body">
-        <label class="switch">
-          <input type="checkbox" id="seq-on" onchange="toggleSecuencia()">
-          <span>Secuencia de tres correos: si no contesta, B2K le vuelve a
-            escribir</span>
-        </label>
+        <div class="switch-fila">
+          <label class="switch">
+            <input type="checkbox" id="seq-on" onchange="toggleSecuencia()">
+            <span>Si no contesta, volver a escribirle</span>
+          </label>
+          <span id="info-seq"></span>
+        </div>
         <div id="seq-cuerpo" hidden style="margin-top:14px">
+          <div class="tl" id="seq-tl">
+            <span class="tl-nodo c1"><svg class="ic"><use href="#i-sobre"/></svg>Correo 1</span>
+            <span class="tl-f"><svg class="ic"><use href="#i-flecha-der"/></svg><input id="seq-d2" type="number" inputmode="numeric" min="1" max="30" value="3" aria-label="Días hasta el correo 2">días</span>
+            <button type="button" class="tl-nodo" data-seq="2" onclick="abrirSeq(2)"><svg class="ic"><use href="#i-sobre"/></svg>Correo 2</button>
+            <span class="tl-f"><svg class="ic"><use href="#i-flecha-der"/></svg><input id="seq-d3" type="number" inputmode="numeric" min="1" max="30" value="3" aria-label="Días hasta el correo 3">días</span>
+            <button type="button" class="tl-nodo" data-seq="3" onclick="abrirSeq(3)"><svg class="ic"><use href="#i-sobre"/></svg>Correo 3</button>
+            <span class="tl-f"><svg class="ic"><use href="#i-flecha-der"/></svg><input id="seq-dfin" type="number" inputmode="numeric" min="1" max="30" value="5" aria-label="Días hasta no interesado">días</span>
+            <span class="tl-nodo fin"><svg class="ic"><use href="#i-cruz"/></svg>No interesado</span>
+          </div>
+          <div class="tl tl-resp"><span class="tl-f">Si contesta en cualquier momento <svg class="ic"><use href="#i-flecha-der"/></svg></span>
+            <span class="tl-nodo resp"><svg class="ic"><use href="#i-whatsapp"/></svg>IA conversando</span></div>
           <p class="help" id="seq-etapas"></p>
-          <p class="help" style="margin-top:6px">Días hábiles, contados desde el
-            correo anterior.</p>
-          <div class="row" style="margin-top:8px">
-            <div class="field" style="flex:0 1 170px">
-              <label class="fld" for="seq-d2">Correo 2 a los</label>
-              <input id="seq-d2" type="number" inputmode="numeric" min="1" max="30" value="3">
-            </div>
-            <div class="field" style="flex:0 1 170px">
-              <label class="fld" for="seq-d3">Correo 3 a los</label>
-              <input id="seq-d3" type="number" inputmode="numeric" min="1" max="30" value="3">
-            </div>
-            <div class="field" style="flex:0 1 190px">
-              <label class="fld" for="seq-dfin">No interesado a los</label>
-              <input id="seq-dfin" type="number" inputmode="numeric" min="1" max="30" value="5">
-            </div>
-          </div>
           <p class="alert info" id="seq-ia-nota" hidden style="margin-top:12px">
-            La IA escribe los correos 2 y 3 de cada empresa a partir del 1. Los
-            ves —y los corregís— en cada borrador, y se aprueban junto con
-            él.</p>
+            Los correos 2 y 3 de cada empresa los escribe la IA: están en cada
+            borrador, en el paso 2.</p>
           <div class="seq-plantilla">
-            <label class="fld" for="seq-2" style="margin-top:12px">Correo 2 —
-              Diagnóstico</label>
-            <textarea id="seq-2" rows="8" style="resize:vertical"></textarea>
-            <label class="fld" for="seq-3" style="margin-top:12px">Correo 3 —
-              Oportunidad</label>
-            <textarea id="seq-3" rows="7" style="resize:vertical"></textarea>
+            <div class="seq-texto" data-seq="2" hidden>
+              <label class="fld" for="seq-2" style="margin-top:12px">Correo 2 — Diagnóstico</label>
+              <textarea id="seq-2" rows="8" style="resize:vertical"></textarea>
+            </div>
+            <div class="seq-texto" data-seq="3" hidden>
+              <label class="fld" for="seq-3" style="margin-top:12px">Correo 3 — Oportunidad</label>
+              <textarea id="seq-3" rows="7" style="resize:vertical"></textarea>
+            </div>
           </div>
-          <p class="help">Salen del mismo buzón que el primero y como respuesta
-            en el mismo hilo, con el asunto «Re: …». Se pueden usar las mismas
-            {{variables}}. Si el contacto contesta cualquiera de los tres, la
-            secuencia se corta para él. Solo entran contactos a los que nunca se
-            les escribió.</p>
         </div>
       </div>
     </div>
+    </div>
 
+    <div class="paso-bloque" data-paso="4" hidden>
     <div class="card">
-      <h2>Ritmo del envío</h2>
+      <h2>Ritmo del envío <span id="info-ritmo"></span></h2>
       <div class="body">
-        <p class="lede">De a poco y a horas irregulares: cien de golpe es la
-          forma más rápida de terminar en spam.</p>
         <div class="row">
           <div class="field" style="flex:0 1 150px">
             <label class="fld" for="mail-limit">Cuántos enviar</label>
@@ -473,12 +475,17 @@
         </label>
         <p class="help" id="mail-rotate-help"></p>
         <p class="help" id="mail-estimate"></p>
-        <div class="row" style="margin-top:16px">
-          <button class="go" id="btn-mail" onclick="scheduleMail()" disabled>
-            Programar el envío</button>
-        </div>
         <div id="mail-sched-result" style="margin-top:14px"></div>
       </div>
+    </div>
+    </div>
+
+    <!-- El pie: qué va a salir y qué falta, siempre a la vista. -->
+    <div class="pie-correos" id="pie-correos">
+      <div class="pie-txt"><span id="pie-res"></span><span id="pie-falta"></span></div>
+      <button class="ghost" id="pie-atras" onclick="irAPaso(PASO_CORREO - 1)"><svg class="ic"><use href="#i-flecha-izq"/></svg>Atrás</button>
+      <button class="primary" id="pie-sig" onclick="irAPaso(PASO_CORREO + 1)">Siguiente<svg class="ic"><use href="#i-flecha-der"/></svg></button>
+      <button class="go" id="btn-mail" onclick="scheduleMail()" disabled hidden>Programar el envío</button>
     </div>
   </section>
 

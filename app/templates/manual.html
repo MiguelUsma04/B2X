@@ -607,16 +607,29 @@ dd{margin:0;color:var(--ink-2);font-size:15px}
       </div>
 
       <div class="cuerpo">
+        <p class="parrafo">Correos son <b>cuatro pasos</b>, arriba de todo:
+          <span class="pest">Qué mandar</span> ·
+          <span class="pest">Revisar</span> ·
+          <span class="pest">Seguimiento</span> ·
+          <span class="pest">Cuándo sale</span>. El que ya pasaste lleva ✓ y se
+          puede tocar cualquiera. Abajo, siempre a la vista, el pie dice
+          <b>cuántas empresas reciben el primer correo</b>, si va con
+          seguimiento y desde cuántos buzones, y en amarillo <b>qué falta</b>
+          («falta el asunto», «ningún correo aprobado»). El botón
+          <span class="btn">Programar el envío</span> aparece en el último
+          paso y se habilita cuando no falta nada.</p>
+
         <p class="subtitulo">Escribir el correo</p>
         <ol class="acciones">
-          <li>Poné el <span class="campo">ASUNTO</span> y el mensaje.</li>
-          <li>Elegí <span class="pest">Texto</span>,
-            <span class="pest">Diseño HTML</span> o
-            <span class="pest">Escribe la IA</span>.
+          <li>En <span class="pest">Qué mandar</span> tocá una de las tres
+            tarjetas: <span class="pest">Lo escribe la IA</span> (la
+            recomendada), <span class="pest">Texto</span> o
+            <span class="pest">Con diseño</span>. Te lleva sola al paso 2.
             <span class="nota">Texto es una carta simple y se ve igual en todos
-              lados. Diseño HTML permite colores, imágenes y un botón — y es el
-              único que se puede medir después. Escribe la IA arma un correo
-              distinto para cada empresa.</span></li>
+              lados. Con diseño permite colores, imágenes y un botón — y es el
+              único que se puede medir después. La IA arma un correo distinto
+              para cada empresa.</span></li>
+          <li>Poné el <span class="campo">ASUNTO</span> y el mensaje.</li>
           <li>Insertá variables tocándolas:
             <span class="campo">{{nombre}}</span>
             <span class="campo">{{empresa}}</span>
@@ -749,19 +762,19 @@ dd{margin:0;color:var(--ink-2);font-size:15px}
 
         <p class="subtitulo">Seguimiento: la secuencia de tres correos</p>
         <p class="parrafo">A quien no contesta, B2K le puede volver a escribir
-          solo, dos veces más, y moverlo en Kommo con cada correo. Se activa al
-          programar, con <span class="campo">Secuencia de tres correos</span>
-          en la tarjeta <span class="pest">Seguimiento</span>.</p>
+          solo, dos veces más, y moverlo en Kommo con cada correo. Se activa en
+          el paso <span class="pest">Seguimiento</span>, con
+          <span class="campo">Si no contesta, volver a escribirle</span>.</p>
         <ol class="acciones">
-          <li>Marcá <span class="campo">Secuencia de tres correos</span>.
-            <span class="nota">Con <b>Escribe la IA</b>, los correos 2 y 3 son
-              los que la IA escribió para cada empresa y vos aprobaste. Con
-              Texto o Diseño HTML, aparecen dos cuadros con un texto de fábrica
-              para el 2 y el 3, que podés cambiar; aceptan las mismas
-              {{variables}}.</span></li>
-          <li>Revisá los plazos: <span class="campo">Correo 2 a los</span>,
-            <span class="campo">Correo 3 a los</span> y
-            <span class="campo">No interesado a los</span>.
+          <li>Prendé <span class="campo">Si no contesta, volver a
+            escribirle</span>. Aparece una <b>línea de tiempo</b>: Correo 1 →
+            días → Correo 2 → días → Correo 3 → días → No interesado.
+            <span class="nota">Con <b>Lo escribe la IA</b>, los correos 2 y 3
+              son los que la IA escribió para cada empresa y vos aprobaste.
+              Con Texto o Con diseño, tocá <b>Correo 2</b> o <b>Correo 3</b> en
+              la línea para abrir su texto, que viene de fábrica y podés
+              cambiar; acepta las mismas {{variables}}.</span></li>
+          <li>Revisá los días entre cada correo, en la misma línea.
             <span class="nota">Son días hábiles de Colombia —sin fines de
               semana ni festivos—, contados desde el correo anterior. Por
               defecto: 3, 3 y 5.</span></li>
@@ -831,7 +844,7 @@ dd{margin:0;color:var(--ink-2);font-size:15px}
             o cancelar la campaña frena también la secuencia.</span>
         </div>
 
-        <p class="subtitulo">Mandarlo</p>
+        <p class="subtitulo">Mandarlo (paso Cuándo sale)</p>
         <ol class="acciones">
           <li>Elegí <span class="campo">CUÁNTOS ENVIAR</span>, y cada cuántos
             minutos sale uno.

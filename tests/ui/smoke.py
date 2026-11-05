@@ -213,7 +213,66 @@ def contactos(pg, donde):
     sin_desborde(pg, donde, "Contactos con marcados")
 
 
-GRUPOS = {"base": base, "general": general, "contactos": contactos}
+def correos(pg, donde):
+    """Task 4: Correos en cuatro pasos, con el pie que dice qué va a salir."""
+    ir(pg, "contacts")
+    pg.evaluate("() => clearSelection()")
+    ir(pg, "mail")
+    pasos = pg.locator("#panel-mail .pasos .paso")
+    ver(pasos.count() == 4, f"Correos tiene 4 pasos ({pasos.count()})", donde)
+    ver("marcá contactos" in pg.inner_text("#pie-correos").lower(),
+        "sin marcados, el pie pide marcar contactos (RF 2)", donde)
+    ver(pg.locator("#btn-mail").is_disabled() or not pg.locator("#btn-mail").is_visible(),
+        "sin marcados no se puede programar (RF 2)", donde)
+    ver(not pg.locator("#selbar").is_visible(), "la barra de selección no aparece en Correos", donde)
+    # Marcar 3 desde Contactos y entrar con «Escribirles».
+    ir(pg, "contacts")
+    marcar(pg, 3)
+    pg.click("#selbar-mail"); pg.wait_for_timeout(500)
+    ver(pg.locator(".paso-bloque[data-paso='1']").is_visible(), "entra en el paso 1", donde)
+    pg.click("#seg-texto"); pg.wait_for_timeout(300)
+    ver(pg.locator(".paso-bloque[data-paso='2']").is_visible()
+        and pg.locator("#mail-subject").is_visible(), "elegir Texto lleva al paso 2 con el asunto", donde)
+    pg.fill("#mail-subject", "Una idea para {{empresa}}")
+    pg.fill("#mail-body", "Hola {{nombre}}")
+    pasos.nth(2).click(); pg.wait_for_timeout(300)
+    ver(pg.locator(".paso-bloque[data-paso='3']").is_visible(), "se puede ir directo al paso 3", donde)
+    pg.check("#seq-on"); pg.wait_for_timeout(600)
+    ver(all(pg.locator(f"#{i}").is_visible() for i in ("seq-d2", "seq-d3", "seq-dfin")),
+        "la línea de tiempo trae los tres plazos", donde)
+    ver(not pg.locator("#seq-2").is_visible(), "el texto del correo 2 está cerrado", donde)
+    pg.click(".tl-nodo[data-seq='2']"); pg.wait_for_timeout(300)
+    ver(pg.locator("#seq-2").is_visible(), "tocar «Correo 2» abre su texto", donde)
+    pasos.nth(3).click(); pg.wait_for_timeout(300)
+    pie = pg.inner_text("#pie-correos")
+    ver("3 empresas" in pie, f"el pie cuenta empresas: {pie[:60]!r}", donde)
+    ver("hasta 3 correos" in pie, "el pie avisa del seguimiento", donde)
+    ver(pg.locator("#btn-mail").is_visible() and not pg.locator("#btn-mail").is_disabled(),
+        "con todo listo se puede programar", donde)
+    pasos.nth(1).click(); pg.fill("#mail-subject", ""); pasos.nth(3).click(); pg.wait_for_timeout(200)
+    ver(pg.locator("#btn-mail").is_disabled() and "asunto" in pg.inner_text("#pie-correos"),
+        "sin asunto no se puede, y el pie dice qué falta", donde)
+    pasos.nth(1).click(); pg.fill("#mail-subject", "Una idea para {{empresa}}"); pasos.nth(3).click()
+    # Lo que viaja al programar sigue siendo lo de siempre.
+    crudo = {}
+    pg.route("**/api/mail/preview", lambda r: r.fulfill(json={"sendable": 3, "unknown_vars": []}))
+    pg.route("**/api/mail/schedule", lambda r: (crudo.update(b=r.request.post_data or ""),
+              r.fulfill(json={"started": True, "queued": 3, "secuencia": True})))
+    pg.evaluate("() => { ask = async () => true; }")
+    pg.click("#btn-mail"); pg.wait_for_timeout(1200)
+    for campo in ("secuencia", "cuerpo2", "cuerpo3", "dias2", "dias3", "dias_fin", "subject"):
+        ver(f'name="{campo}"' in crudo.get("b", ""), f"el envío lleva {campo}", donde)
+    pg.unroute("**/api/mail/preview"); pg.unroute("**/api/mail/schedule")
+    if donde == "cel":
+        p = pg.locator("#pie-correos").bounding_box()
+        t = pg.locator("nav.steps").bounding_box()
+        ver(p and t and p["y"] + p["height"] <= t["y"] + 1, "el pie queda arriba de la barra de secciones", donde)
+    ver(not EMOJI.search(pg.inner_text("#panel-mail")), "Correos sin emojis", donde)
+    sin_desborde(pg, donde, "Correos")
+    pg.reload(); pg.wait_for_timeout(1200)
+
+
+GRUPOS = {"base": base, "general": general, "contactos": contactos, "correos": correos}
 
 
 def main():
