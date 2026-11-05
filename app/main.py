@@ -1614,7 +1614,7 @@ def baja_pagina(token: str):
     """
     cuerpo = f"""
       <h1>¿Dejamos de escribirte?</h1>
-      <p>Si confirmás, no vas a volver a recibir correos nuestros.</p>
+      <p>Si confirmas, no volverás a recibir correos nuestros.</p>
       <form method="post" action="/u/{html_mod.escape(token)}">
         <button type="submit">Sí, no quiero recibir más</button>
       </form>
@@ -1630,15 +1630,15 @@ def baja_confirmar(token: str):
     if not r.get("ok"):
         cuerpo = """
           <h1>No encontramos ese correo</h1>
-          <p>El enlace puede haber vencido. Si querés que dejemos de
-            escribirte, respondé al correo que recibiste y lo hacemos a
+          <p>El enlace puede haber vencido. Si quieres que dejemos de
+            escribirte, responde al correo que recibiste y lo hacemos a
             mano.</p>"""
         return HTMLResponse(_BAJA.format(titulo="No se pudo", cuerpo=cuerpo),
                             status_code=404)
     cuerpo = f"""
       <h1>Listo</h1>
       <p class="ok">{html_mod.escape(r["email"])}</p>
-      <p>No vas a volver a recibir correos nuestros. Perdón por la
+      <p>No volverás a recibir correos nuestros. Disculpa la
         molestia.</p>"""
     return _BAJA.format(titulo="Baja confirmada", cuerpo=cuerpo)
 

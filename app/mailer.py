@@ -826,7 +826,7 @@ def _pie_de_baja(base: str, token: str, html: bool) -> str:
     url = f"{base}/u/{token}"
     if not html:
         return (f"\n\n—\n{quien}\n"
-                f"Si no querés recibir más correos nuestros, entrá acá: {url}")
+                f"Si no quieres recibir más correos nuestros, entra aquí: {url}")
     return (
         '<div style="margin-top:28px;padding-top:14px;border-top:1px solid #e0e0e0;'
         'font-family:Arial,Helvetica,sans-serif;font-size:12px;color:#888;'
@@ -1542,6 +1542,7 @@ INTERVALO = 20          # cada cuánto mira la cola
 _worker: asyncio.Task | None = None
 _lector: asyncio.Task | None = None
 _vigilante: asyncio.Task | None = None
+_crm: asyncio.Task | None = None
 
 
 # ¿Esta instalación manda correos, o solo alimenta el CRM?
@@ -1843,6 +1844,13 @@ def arrancar_worker() -> None:
     # curso, porque una respuesta puede llegar días después del último envío.
     if _lector is None or _lector.done():
         _lector = lazo.create_task(loop_buzones())
+    # Lo que mueve en Kommo a los leads de las campañas comunes según el mapa
+    # de Ajustes. Nunca se había arrancado: con el mapa entero en «no mover»
+    # (como está al 05/11/2026) los eventos viejos se marcan como vistos sin
+    # tocar ningún lead, y desde ahí cada regla que se elija vale para lo nuevo.
+    global _crm
+    if _crm is None or _crm.done():
+        _crm = lazo.create_task(loop_crm())
     if _vigilante is None or _vigilante.done():
         _vigilante = lazo.create_task(loop_secuencia())
 
