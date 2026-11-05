@@ -129,6 +129,7 @@ document.querySelectorAll('.step').forEach((t) => {
     $('metrics').hidden = t.dataset.panel !== 'contacts';
     document.body.dataset.panel = t.dataset.panel;
     if (t.dataset.panel === 'mail') irAPaso(PASO_CORREO);
+    if (t.dataset.panel === 'contacts') requestAnimationFrame(medirBarras);
     if (t.dataset.panel === 'settings') volverAjustes();
     if (t.dataset.panel === 'enrich') refreshPending();
     // Los buzones cambian desde otra pantalla: se releen al entrar para que
@@ -750,9 +751,7 @@ function updateSelInfo() {
   if (tiles) tiles.hidden = n === 0;
   // La página deja abajo el lugar de la barra: nada queda tapado.
   document.body.classList.toggle('con-selbar', n > 0);
-  requestAnimationFrame(() => {
-    document.documentElement.style.setProperty('--selbar-h', `${$('selbar').offsetHeight}px`);
-  });
+  requestAnimationFrame(medirBarras);
   for (const id of ['btn-mobile', 'btn-web', 'btn-ai']) {
     const b = $(id);
     if (b) b.disabled = n === 0;
@@ -794,6 +793,9 @@ async function enviarAKommo() {
   const fd = new FormData();
   fd.append('contact_ids', JSON.stringify(ids));
   fd.append('tag', tag);
+  // El embudo y la etapa de la ventana valen para esta tanda.
+  if ($('pipe-sel') && $('pipe-sel').value) fd.append('pipeline_id', $('pipe-sel').value);
+  if ($('stage-sel') && $('stage-sel').value) fd.append('stage_id', $('stage-sel').value);
 
   const r = await fetch('/api/ghl/send', { method: 'POST', body: fd });
   const d = await r.json();
@@ -3506,6 +3508,7 @@ async function refrescarActividad(pronto) {
         </span></div>`;
     }).join('');
   }
+  medirBarras();
   ACT_TIMER = setTimeout(() => refrescarActividad(),
                          document.hidden ? 15000 : (tareas.length ? 1500 : 6000));
 }
@@ -3594,3 +3597,15 @@ function parrafosAInfo(paneles) {
 
 document.addEventListener('input', (e) => { if (e.target.closest('#panel-mail')) pieCorreos(); });
 document.addEventListener('change', (e) => { if (e.target.closest('#panel-mail')) pieCorreos(); });
+
+/* Cuánto ocupan abajo la barra de selección y la de actividad, para que la
+   página les deje ese lugar. La de selección solo se mide cuando se ve: fuera
+   de Contactos está escondida y mediría cero. */
+function medirBarras() {
+  const raiz = document.documentElement.style;
+  const sel = $('selbar');
+  if (sel && sel.offsetHeight > 0) raiz.setProperty('--selbar-h', `${sel.offsetHeight}px`);
+  const act = $('actividad');
+  const enTelefono = matchMedia('(max-width: 899px)').matches;
+  raiz.setProperty('--act-h', act && !act.hidden && enTelefono ? `${act.offsetHeight + 8}px` : '0px');
+}

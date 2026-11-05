@@ -321,8 +321,67 @@ def ajustes(pg, donde):
     sin_desborde(pg, donde, "Ajustes")
 
 
+def barras(pg, donde):
+    """Final: las barras de abajo no tapan nada, en ninguna pantalla."""
+    if donde != "cel":
+        return
+    ir(pg, "contacts")
+    pg.evaluate("() => clearSelection()")
+    marcar(pg, 2)
+    # Important 1: en otra pantalla, con marcados, queda el lugar de las pestañas.
+    ir(pg, "settings")
+    abajo = pg.evaluate("() => parseFloat(getComputedStyle(document.querySelector('.wrap')).paddingBottom)")
+    ver(abajo >= 64, f"Ajustes con marcados deja lugar abajo ({abajo:.0f}px)", donde)
+    # Important 2: la selección cambia estando en otra pantalla.
+    ir(pg, "enrich")
+    pg.evaluate("() => { SELECTED.add(ALL_IDS[2]); updateSelInfo(); }")
+    pg.wait_for_timeout(300)
+    ir(pg, "contacts")
+    pg.wait_for_timeout(300)
+    h = pg.evaluate("() => parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--selbar-h'))")
+    ver(h > 0, f"la altura de la barra no queda en cero ({h})", donde)
+    # Important 3: con la barra de actividad a la vista, el último contacto se ve.
+    pg.evaluate("""() => { clearTimeout(ACT_TIMER); ACT_TIMER = null;
+        const a = document.getElementById('actividad'); a.hidden = false;
+        a.innerHTML = '<div class=act-item><span class=act-titulo>prueba</span>'
+          + '<span class=act-pie><span class=act-barra></span></span></div>'; medirBarras(); }""")
+    pg.wait_for_timeout(300)
+    pg.evaluate("""() => { const t = document.querySelector('.card.list > .tbl-scroll');
+        if (t) t.scrollTop = t.scrollHeight; window.scrollTo(0, document.documentElement.scrollHeight); }""")
+    pg.wait_for_timeout(300)
+    r = pg.evaluate("""() => { const f = [...document.querySelectorAll('#ctbody tr')].pop();
+        const t = document.querySelector('.card.list > .tbl-scroll');
+        const fin = Math.min(f.getBoundingClientRect().bottom, t.getBoundingClientRect().bottom);
+        const a = document.getElementById('actividad').getBoundingClientRect().top;
+        const s = document.getElementById('selbar').getBoundingClientRect().top;
+        return [fin, Math.min(a, s)]; }""")
+    ver(r[0] <= r[1] + 1, f"el último contacto queda arriba de las dos barras {r[0]:.0f}/{r[1]:.0f}", donde)
+    pg.evaluate("() => { document.getElementById('actividad').hidden = true; medirBarras(); clearSelection(); refrescarActividad(); }")
+
+
+def kommo_tanda(pg, donde):
+    """Final: el embudo y la etapa de la ventana viajan con el envío."""
+    ir(pg, "contacts")
+    pg.evaluate("() => clearSelection()")
+    marcar(pg, 2)
+    crudo = {}
+    pg.route("**/api/ghl/send", lambda r: (crudo.update(b=r.request.post_data or ""),
+              r.fulfill(json={"sent": 2, "results": []})))
+    pg.evaluate("() => { KOMMO_OK = true; }")
+    pg.click("#selbar-go"); pg.wait_for_timeout(400)
+    pg.evaluate("""() => { document.getElementById('pipeline-box').innerHTML =
+        '<select id=pipe-sel><option value=11 selected>A</option></select>'
+        + '<select id=stage-sel><option value=22 selected>B</option></select>'; }""")
+    pg.click("#btn-ghl"); pg.wait_for_timeout(600)
+    b = crudo.get("b", "")
+    ver('name="pipeline_id"' in b and "11" in b and 'name="stage_id"' in b and "22" in b,
+        "el envío lleva el embudo y la etapa de la ventana", donde)
+    pg.unroute("**/api/ghl/send")
+    pg.evaluate("() => { KOMMO_OK = false; cerrarKommo(); clearSelection(); }")
+
+
 GRUPOS = {"base": base, "general": general, "contactos": contactos, "correos": correos,
-          "ajustes": ajustes}
+          "ajustes": ajustes, "barras": barras, "kommo_tanda": kommo_tanda}
 
 
 def main():

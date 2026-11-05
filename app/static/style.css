@@ -1104,10 +1104,17 @@ pre{font-family:var(--mono);font-size:12px;background:var(--surface-2);
 .pill .ic{width:13px;height:13px;margin-right:4px;vertical-align:-2px}
 .empty .big .ic{width:34px;height:34px}
 /* La página deja lugar para la barra de selección: nada queda tapado. */
-body.con-selbar .wrap{padding-bottom:calc(var(--selbar-h, 80px) + 28px)}
+/* Solo en Contactos, que es donde se ve la barra de selección. */
+body.con-selbar:not([data-panel]) .wrap,
+body.con-selbar[data-panel="contacts"] .wrap{padding-bottom:calc(var(--selbar-h, 80px) + 28px)}
 @media (max-width:899px){
-  body.con-selbar .wrap{padding-bottom:calc(var(--selbar-h, 110px) + var(--tabbar, 64px) + 28px)}
-  body.con-selbar .actividad{bottom:calc(80px + var(--selbar-h, 110px) + env(safe-area-inset-bottom))}
+  .wrap{padding-bottom:calc(var(--tabbar, 64px) + var(--act-h, 0px) + 96px)}
+  body.con-selbar:not([data-panel]) .wrap,
+  body.con-selbar[data-panel="contacts"] .wrap{padding-bottom:calc(var(--selbar-h, 110px)
+    + var(--tabbar, 64px) + var(--act-h, 0px) + 28px)}
+  body.con-selbar:not([data-panel]) .actividad,
+  body.con-selbar[data-panel="contacts"] .actividad{bottom:calc(80px + var(--selbar-h, 110px)
+    + env(safe-area-inset-bottom))}
 }
 #kommo .modal-foot{display:flex;justify-content:flex-end;gap:8px}
 /* En el teléfono la cuenta va en su propia fila y los botones se reparten el
@@ -1180,7 +1187,6 @@ button.tl-nodo.abierto{border-color:var(--brand)}
 }
 /* La barra de selección es de Contactos: en las otras pantallas taparía su pie. */
 body[data-panel]:not([data-panel="contacts"]) .selbar{display:none}
-body[data-panel]:not([data-panel="contacts"]).con-selbar .wrap{padding-bottom:0}
 .switch-fila{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
 /* Las tarjetas de «Qué mandar» heredan de .seg: acá van alineadas a la izquierda. */
 .tiles-modo .tile-modo{display:grid;justify-items:start;align-content:start;justify-content:stretch;

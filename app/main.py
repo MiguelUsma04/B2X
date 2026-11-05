@@ -1850,14 +1850,25 @@ def api_ghl_settings_save(request: Request, pipeline_id: str = Form(""),
 
 @app.post("/api/ghl/send")
 async def api_ghl_send(request: Request, contact_ids: str = Form(...),
-                       tag: str = Form("")):
+                       tag: str = Form(""), pipeline_id: str = Form(""),
+                       stage_id: str = Form("")):
     try:
         n = len(json.loads(contact_ids))
     except Exception:
         n = 0
     with actividad.tarea(f"Mandando {n} contacto(s) a Kommo") as t:
         t.paso("Creando contactos y leads, al ritmo que permite Kommo")
-        return await _mandar_al_crm(request, contact_ids, tag)
+        # Si en la ventana se eligió otro embudo y etapa, valen para esta tanda.
+        tanda = None
+        if pipeline_id.strip().isdigit():
+            tanda = {"pipeline_id": int(pipeline_id)}
+            if stage_id.strip().isdigit():
+                tanda["status_id"] = int(stage_id)
+        marca = kommo.DESTINO_TANDA.set(tanda)
+        try:
+            return await _mandar_al_crm(request, contact_ids, tag)
+        finally:
+            kommo.DESTINO_TANDA.reset(marca)
 
 
 async def _mandar_al_crm(request: Request, contact_ids: str, tag: str):

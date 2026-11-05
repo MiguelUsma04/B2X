@@ -374,6 +374,13 @@ _DESTINO = (("crm_pipeline_id", "KOMMO_PIPELINE_ID", "pipeline_id"),
             ("crm_status_id", "KOMMO_STATUS_ID", "status_id"))
 
 
+# El embudo y la etapa elegidos en la ventana de «Mandar a Kommo» valen solo
+# para esa tanda: se ponen mientras dura el envío y después vuelve el de
+# fábrica, que es el de Ajustes.
+import contextvars
+DESTINO_TANDA: contextvars.ContextVar = contextvars.ContextVar("destino_tanda", default=None)
+
+
 def destino_del_lead() -> dict:
     """{"pipeline_id": n, "status_id": n} con lo que haya configurado.
 
@@ -381,6 +388,9 @@ def destino_del_lead() -> dict:
     falta de configuración: en ese caso no se cae al .env. Por eso se mira si
     el ajuste existe, y no si tiene algo adentro.
     """
+    tanda = DESTINO_TANDA.get()
+    if tanda:
+        return dict(tanda)
     salida: dict = {}
     for clave, var, campo in _DESTINO:
         v = db_mod.ajuste(clave)
