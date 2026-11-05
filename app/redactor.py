@@ -1418,7 +1418,8 @@ def borradores(ids: list[int] | None = None) -> list[dict]:
     with get_db() as conn:
         return [dict(r) for r in conn.execute(
             f"""SELECT b.*, c.email, c.company_name, c.full_name,
-                       c.company_domain
+                       c.company_domain,
+                       (c.ai_profile IS NOT NULL AND c.ai_profile <> '') AS con_ficha
                   FROM borradores b JOIN contacts c ON c.id = b.contact_id
                 {where}
                  ORDER BY CASE b.estado WHEN 'pendiente' THEN 0

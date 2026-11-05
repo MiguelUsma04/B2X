@@ -290,11 +290,23 @@ async def _llevar(s: dict, clave: str, motivo: str, detalle: str = "") -> dict:
     except Exception as exc:
         return {"ok": False, "cortar": None,
                 "error": f"No se pudieron leer las etapas: {type(exc).__name__}"}
-    destino = et.get(clave)
+    # "reabrir" es IA CONVERSANDO para un lead que B2K mismo cerró como NO
+    # INTERESADO y que contestó después: es la única vez que B2K saca un lead
+    # de un estado cerrado, y solo si sigue en el NO INTERESADO que puso él.
+    reabrir = clave == "reabrir"
+    destino = et.get("respuesta" if reabrir else clave)
     if not destino:
         return {"ok": False, "cortar": None}
+    if reabrir:
+        lead = await kommo.leer_lead(s["lead_id"])
+        if lead.get("error"):
+            return ({"ok": False, "cortar": None} if lead.get("no_existe")
+                    else {"ok": False, "cortar": None, "error": lead["error"]})
+        if lead["status_id"] != kommo.PERDIDO_ID:
+            reabrir = False          # alguien ya lo movió: se aplican las reglas
 
-    r = await kommo.mover_a(s["lead_id"], destino["id"], motivo, detalle)
+    r = await kommo.mover_a(s["lead_id"], destino["id"], motivo, detalle,
+                            saltar_reglas=reabrir)
     if r.get("status_id") != destino["id"]:
         if "status_id" in r:
             # Kommo contestó, pero el lead no puede ir ahí: está cerrado o
@@ -384,7 +396,7 @@ async def al_enviar(fila: dict, message_id: str, buzon: int | None) -> None:
         _cortar(s, r["cortar"])
 
 # ------------------------------------------------------------- el vigilante
-async def _respondio(s: dict, ev) -> None:
+async def _respondio(s: dict, ev, reabrir: bool = False) -> None:
     """Contestó: se corta la secuencia y el lead pasa a IA CONVERSANDO."""
     from . import mailer
     texto = (ev["texto"] or "").strip()
@@ -423,7 +435,9 @@ async def _respondio(s: dict, ev) -> None:
     if clase["clase"]:
         detalle += (f"\n\nLa IA lo leyó como: {clase['clase']} "
                     f"(confianza {clase['confianza']}). {clase['porque'] or ''}")
-    await _mover_final(s, "respuesta", "Contestó el correo de la secuencia", detalle)
+    await _mover_final(s, "reabrir" if reabrir else "respuesta",
+                       "Contestó después de la secuencia" if reabrir
+                       else "Contestó el correo de la secuencia", detalle)
 
 
 async def _revisar(s: dict, ahora: datetime) -> None:
@@ -579,10 +593,29 @@ async def avanzar() -> dict:
         except Exception as exc:
             print(f"[secuencia] {s['id']}: {type(exc).__name__}: {exc}", flush=True)
     try:
+        await _tardias()
+    except Exception as exc:
+        print(f"[secuencia] tardías: {type(exc).__name__}: {exc}", flush=True)
+    try:
         await _reintentar_kommo()
     except Exception as exc:
         print(f"[secuencia] kommo: {type(exc).__name__}: {exc}", flush=True)
     return {"mirados": len(activas)}
+
+
+async def _tardias() -> None:
+    """Contestó después de los tres correos, cuando ya estaba en NO INTERESADO.
+
+    Lo decidió Pablo el 05/11/2026: pasa a IA CONVERSANDO igual que si hubiera
+    contestado a tiempo. Se miran los de los últimos 90 días.
+    """
+    with get_db() as conn:
+        filas = [dict(r) for r in conn.execute(
+            """SELECT * FROM secuencias WHERE estado='sin_respuesta'
+                 AND ultimo_envio >= datetime('now', '-90 days')""")]
+        tardias = [(s, ev) for s in filas if (ev := _contesto(conn, s))]
+    for s, ev in tardias:
+        await _respondio(s, ev, reabrir=True)
 
 
 def resumen(campania: int) -> dict:

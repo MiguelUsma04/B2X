@@ -2660,6 +2660,11 @@ function pintarBorradores() {
         <span class="help">${esc(b.email)} · ${b.caracteres} caracteres${
           b.editado ? ' · corregido a mano' : ''} · ${esc(b.a_quien || '')}</span>
       </div>
+      ${b.con_ficha ? '' : `<div class="alert warn" style="margin:8px 0">
+        No se pudo leer el sitio${b.company_domain ? ` <b>${esc(b.company_domain)}</b>` : ''}:
+        este correo sale del nombre y el rubro, no de lo que la empresa cuenta en
+        su web. Revisá que el sitio exista y abra, y tocá «Que lo escriba de
+        nuevo».</div>`}
       <div class="borrador-asunto">${esc(b.asunto || '')}</div>
       <pre class="borrador-cuerpo" id="cuerpo-${b.contact_id}">${esc(b.cuerpo || '')}</pre>
       ${b.cuerpo2 ? `<details class="borrador-seg">
