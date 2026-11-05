@@ -45,27 +45,27 @@
 
   <nav class="steps" aria-label="Secciones">
     <button class="step" data-panel="import">
-      <span class="ico" aria-hidden="true">⬆</span><span class="num">1</span>
+      <span class="ico" aria-hidden="true"><svg class="ic"><use href="#i-subir"/></svg></span><span class="num">1</span>
       <span><span class="t">Cargar</span><span class="d">De Maps o de un CSV</span></span>
     </button>
     <button class="step" data-panel="enrich">
-      <span class="ico" aria-hidden="true">✉</span><span class="num">2</span>
+      <span class="ico" aria-hidden="true"><svg class="ic"><use href="#i-sobre"/></svg></span><span class="num">2</span>
       <span><span class="t">Emails</span><span class="d">Buscá los que faltan</span></span>
     </button>
     <button class="step active" data-panel="contacts" aria-current="page">
-      <span class="ico" aria-hidden="true">◆</span><span class="num">3</span>
+      <span class="ico" aria-hidden="true"><svg class="ic"><use href="#i-rombo"/></svg></span><span class="num">3</span>
       <span><span class="t">Contactos</span><span class="d">Revisá y mandá al CRM</span></span>
     </button>
     <button class="step" data-panel="mail" id="step-mail">
-      <span class="ico" aria-hidden="true">✈</span><span class="num">4</span>
+      <span class="ico" aria-hidden="true"><svg class="ic"><use href="#i-avion"/></svg></span><span class="num">4</span>
       <span><span class="t">Correos</span><span class="d">Campaña en goteo</span></span>
     </button>
     <button class="step" data-panel="results" id="step-results">
-      <span class="ico" aria-hidden="true">📈</span><span class="num">5</span>
+      <span class="ico" aria-hidden="true"><svg class="ic"><use href="#i-grafico"/></svg></span><span class="num">5</span>
       <span><span class="t">Resultados</span><span class="d">Aperturas y clics</span></span>
     </button>
     <button class="step" data-panel="settings">
-      <span class="ico" aria-hidden="true">⚙</span><span class="num">·</span>
+      <span class="ico" aria-hidden="true"><svg class="ic"><use href="#i-engranaje"/></svg></span><span class="num">·</span>
       <span><span class="t">Ajustes</span>
         <span class="d">Buzones e historial</span></span>
     </button>
@@ -145,6 +145,7 @@
 
     <div class="card list">
       <h2>Contactos <span class="hint" id="ccount"></span>
+        <span id="info-contactos"></span>
         <span class="spacer"></span>
         <button class="ghost sm" onclick="marcarLosNuevos()"
                 title="Los de la última búsqueda que todavía no fueron al CRM">
@@ -853,6 +854,7 @@
   </div>
 </div>
 
+<script src="/static/iconos.js"></script>
 <script src="/static/app.js"></script>
 </body>
 </html>

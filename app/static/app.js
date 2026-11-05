@@ -3383,3 +3383,14 @@ async function refrescarActividad(pronto) {
                          document.hidden ? 15000 : (tareas.length ? 1500 : 6000));
 }
 refrescarActividad();
+
+/* ⓘ fijos de la página: se ponen al cargar, con el texto que antes era un
+   párrafo a la vista. */
+function ponerInfos() {
+  const textos = {
+    'info-contactos': 'Marcá las empresas con la casilla. Con los marcados elegís abajo: '
+      + '<b>Escribirles</b> o <b>Mandar a Kommo</b>.',
+  };
+  Object.entries(textos).forEach(([id, t]) => { const el = $(id); if (el) el.innerHTML = info(t); });
+}
+ponerInfos();

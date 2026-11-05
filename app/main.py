@@ -203,7 +203,7 @@ def anotar(request: Request, accion: str, detalle: str = "",
         pass          # el registro nunca puede hacer fallar la acción
 
 
-_ESTATICOS = ("style.css", "app.js")
+_ESTATICOS = ("style.css", "iconos.js", "app.js")
 
 
 def _con_version(html: str) -> str:

@@ -1025,3 +1025,36 @@ pre{font-family:var(--mono);font-size:12px;background:var(--surface-2);
 @media (prefers-reduced-motion:reduce){.act-barra.indef i{animation:none;width:100%;opacity:.5}}
 .ask-campo{display:grid;gap:6px;margin-top:12px}
 .ask-campo textarea,.ask-campo input,.ask-campo select{width:100%}
+
+/* ======================= íconos, ⓘ y ⋯ =======================
+   Íconos de línea en vez de emojis. El ⓘ guarda la explicación que no hace
+   falta para usar la pantalla; el ⋯, lo que se usa poco y lo peligroso. */
+.ic{width:18px;height:18px;flex:none;vertical-align:-3px}
+.step .ico .ic{width:18px;height:18px}
+.info{position:relative;display:inline-grid;place-items:center;width:28px;height:28px;
+  margin:-4px 0;padding:0;border:0;border-radius:50%;background:none;color:var(--ink-3);
+  cursor:pointer;vertical-align:middle;flex:none}
+.info::before{content:"";position:absolute;inset:-8px}           /* 44 px para tocar */
+.info:hover,.info[aria-expanded="true"]{color:var(--ink);background:var(--surface-3)}
+.info:focus-visible,.mas-btn:focus-visible{outline:none;box-shadow:var(--ring)}
+.info .ic{width:17px;height:17px}
+.info .pop{display:none;position:absolute;z-index:80;top:calc(100% + 8px);left:-8px;
+  width:max-content;max-width:min(280px, calc(100vw - 32px));padding:11px 13px;
+  border-radius:var(--r-sm);background:var(--surface-3);border:1px solid var(--line-strong);
+  box-shadow:var(--shadow-lg);color:var(--ink-2);font:400 13px/1.5 var(--sans);
+  text-align:left;letter-spacing:0;text-transform:none;white-space:normal;cursor:default}
+.info[aria-expanded="true"] .pop{display:block}
+.info .pop b{color:var(--ink)}
+.mas-wrap{position:relative;display:inline-flex}
+.mas-btn{display:inline-grid;place-items:center;min-width:44px;min-height:40px;
+  border-radius:var(--r-sm);border:1px solid var(--line-strong);background:var(--surface);
+  color:var(--ink);cursor:pointer}
+.mas-menu{display:none;position:absolute;z-index:80;right:0;bottom:calc(100% + 6px);min-width:200px;
+  padding:6px;border-radius:var(--r-sm);background:var(--surface-3);border:1px solid var(--line-strong);
+  box-shadow:var(--shadow-lg)}
+.mas-btn[aria-expanded="true"] + .mas-menu{display:grid}
+.mas-menu button{display:flex;align-items:center;gap:10px;min-height:44px;padding:8px 12px;
+  border:0;border-radius:var(--r-xs);background:none;color:var(--ink-2);font:500 14px var(--sans);
+  text-align:left;cursor:pointer}
+.mas-menu button:hover{background:var(--surface-2);color:var(--ink)}
+.mas-menu button.peligro{color:var(--danger)}
