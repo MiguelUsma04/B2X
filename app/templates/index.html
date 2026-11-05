@@ -159,8 +159,8 @@
           <thead><tr>
             <th style="width:44px"><input type="checkbox" id="chk-all" onclick="togglePage(this)"
                 aria-label="Marcar los de esta página"></th>
-            <th>Persona</th><th>Empresa</th><th>Email</th><th>Teléfono</th>
-            <th>Estado</th><th>Fuente</th><th>CRM</th><th></th>
+            <th>Persona</th><th>Empresa</th><th>Correo</th><th>Teléfono</th>
+            <th>Email</th><th>Kommo</th><th></th>
           </tr></thead>
           <tbody id="ctbody"></tbody>
         </table>
@@ -168,57 +168,22 @@
       <div id="cempty"></div>
     </div>
 
-    <div class="card">
-      <h2>Envío al CRM <span class="hint" id="crm-hint">Kommo</span></h2>
-      <div class="body">
-        <div class="row">
-          <div class="field">
-            <label class="fld" for="ghl-tag">Etiqueta</label>
-            <input id="ghl-tag" placeholder="piloto-prospeccion">
-          </div>
-          <button class="go" id="btn-ghl" onclick="sendToGHL()" disabled>Enviar al CRM</button>
-        </div>
-        <div id="pipeline-box" style="margin-top:14px"></div>
-        <div id="ghl-result" style="margin-top:14px"></div>
+    <!-- Completar los datos de los marcados. Se ve solo con marcados, con el
+         costo de cada cosa a la vista: cuestan plata y no pueden esconderse. -->
+    <div id="completar">
+      <div class="completar-tiles" hidden>
+        <div class="completar-t">Completá a los marcados <span id="info-completar"></span></div>
+        <button class="completar-tile" id="btn-web" onclick="startWebsite()" disabled>
+          <svg class="ic"><use href="#i-sitio"/></svg><b>Leer sus sitios</b><span class="costo gratis">gratis</span></button>
+        <button class="completar-tile" id="btn-ai" onclick="startAI()" disabled>
+          <svg class="ic"><use href="#i-ia"/></svg><b>Ficha con IA</b><span class="costo">créditos de IA</span></button>
+        <button class="completar-tile" id="btn-mobile" onclick="startMobile()" disabled>
+          <svg class="ic"><use href="#i-telefono"/></svg><b>Buscar celulares</b><span class="costo caro">10× créditos</span></button>
       </div>
-    </div>
-
-    <div class="card">
-      <h2>Ficha del negocio con IA <span class="hint">cuesta por contacto</span></h2>
-      <div class="body">
-        <details class="tip">
-          <summary>Qué saca</summary>
-          <div class="tip-b">
-            <p>Qué vende y a quién, personas con su cargo, antigüedad, ciudades
-              y un gancho para abrir la conversación.</p>
-            <p>Solo lo que el sitio dice: si un dato no está, queda vacío.</p>
-          </div>
-        </details>
-        <button id="btn-ai" class="block primary" onclick="startAI()" disabled>
-          Armar la ficha de los marcados</button>
-        <div id="ai-usage" class="usage"></div>
-        <div id="ai-progress" style="margin-top:14px"></div>
-      </div>
-    </div>
-
-    <div class="card">
-      <h2>Leer los sitios web <span class="hint">gratis</span></h2>
-      <div class="body">
-        <button id="btn-web" class="block primary" onclick="startWebsite()" disabled>
-          Leer el sitio de los marcados</button>
-        <div id="web-progress" style="margin-top:14px"></div>
-      </div>
-    </div>
-
-    <div class="card">
-      <h2>Buscar teléfonos <span class="hint">10× más caro</span></h2>
-      <div class="body">
-        <p class="lede">Cada teléfono cuesta <b>10 créditos</b>, contra 1 de un
-          email. Solo para los que de verdad vas a llamar.</p>
-        <button id="btn-mobile" class="block" onclick="startMobile()" disabled>
-          Buscar teléfono de los marcados</button>
-        <div id="mobile-progress" style="margin-top:14px"></div>
-      </div>
+      <div id="ai-usage" class="usage"></div>
+      <div id="web-progress"></div>
+      <div id="ai-progress"></div>
+      <div id="mobile-progress"></div>
     </div>
   </section>
 
@@ -832,11 +797,32 @@
 <!-- barra de acciones sobre la selección -->
 <div class="selbar" id="selbar">
   <div class="n"><span id="selcount">0</span> marcados<small id="selhint"></small></div>
-  <button class="ghost sm" onclick="clearSelection()" title="Desmarcar todos"
-          aria-label="Desmarcar todos">✕</button>
-  <button class="sm" id="selbar-mail" onclick="goToStep('mail')">Correo</button>
-  <button class="danger sm" onclick="borrarContactos()">Borrar</button>
-  <button class="go sm" id="selbar-go" onclick="sendToGHL()">Al CRM</button>
+  <button class="go sm" id="selbar-mail" onclick="goToStep('mail')"><svg class="ic"><use href="#i-sobre"/></svg>Escribirles</button>
+  <button class="sm" id="selbar-go" onclick="ventanaKommo()"><svg class="ic"><use href="#i-kommo"/></svg>Mandar a Kommo</button>
+  <span id="selbar-mas"></span>
+</div>
+
+<!-- Mandar a Kommo: la etiqueta, el embudo y la etapa a la vista antes de
+     mandar, y el resultado en la misma ventana. -->
+<div class="modal sm" id="kommo" onclick="if(event.target===this)cerrarKommo()">
+  <div class="modal-box" role="dialog" aria-modal="true" aria-labelledby="kommo-t">
+    <div class="modal-head"><h3 id="kommo-t">Mandar a Kommo</h3>
+      <span class="hint" id="crm-hint" hidden></span></div>
+    <div class="modal-body">
+      <div class="alert warn" id="kommo-aviso" hidden>Kommo no está conectado en este
+        servidor: hay que cargar la conexión antes de mandar.</div>
+      <div class="field">
+        <label class="fld" for="ghl-tag">Etiqueta</label>
+        <input id="ghl-tag" placeholder="piloto-prospeccion">
+      </div>
+      <div id="pipeline-box" style="margin-top:14px"></div>
+      <div id="ghl-result" style="margin-top:14px"></div>
+    </div>
+    <div class="modal-foot">
+      <button class="ghost" onclick="cerrarKommo()">Cerrar</button>
+      <button class="go" id="btn-ghl" onclick="enviarAKommo()" disabled>Mandar</button>
+    </div>
+  </div>
 </div>
 
 <div class="toasts" id="toasts" aria-live="polite"></div>

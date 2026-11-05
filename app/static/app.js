@@ -24,14 +24,20 @@ const STATUS_TXT = {
 function estadoCorreo(c) {
   return c.rebotado ? 'bounced' : c.email_status;
 }
-const GHL_TXT = { pending: 'Sin enviar', sent: 'En el CRM', error: 'Falló' };
+const GHL_TXT = { pending: 'Sin enviar', sent: 'En Kommo', error: 'Falló' };
 const SOURCE_TXT = {
   apollo: 'Venía en el archivo', prospeo: 'Prospeo',
   icypeas: 'Icypeas', hunter: 'Hunter', web: 'Del sitio web', ia: 'IA',
 };
 
+// El ícono de cada estado: se entiende de un vistazo sin leer la palabra.
+const ICONO_ESTADO = {
+  verified: 'chequeo', unverified: 'alerta', pending: 'reloj', not_found: 'cruz',
+  bounced: 'alerta', sent: 'kommo', error: 'alerta',
+};
 const pill = (val, dict) => val
-  ? `<span class="pill ${esc(val)}">${esc((dict && dict[val]) || val)}</span>`
+  ? `<span class="pill ${esc(val)}">${ICONO_ESTADO[val] ? icono(ICONO_ESTADO[val]) : ''}${
+      esc((dict && dict[val]) || val)}</span>`
   : '<span class="sub dash">—</span>';
 
 /* ======================= quién entró ======================= */
@@ -398,6 +404,7 @@ async function loadMetrics() {
     ${srcTotal ? `<br><br>Quién encontró cada email: ${srcDefs.map(([k, label]) =>
       `${label} ${src[k] || 0}`).join(' · ')}.` : ''}
     <br><br>Tocá una pastilla para ver solo esos.`;
+  KOMMO_OK = !!m.ghl_configured;
   $('metrics').innerHTML = `<div class="metr">
     ${pastilla(m.contactable, 'contactables', "applyReach('')")}
     ${pastilla(m.with_email, 'con email', "applyReach('email')")}
@@ -537,10 +544,7 @@ async function loadContacts() {
           aria-label="Marcar ${esc(c.full_name)}"></td>
       <td class="c-main">
         <button class="linkish" onclick="showDetail(${c.id})">${esc(c.full_name)}</button>
-        ${c.job_title ? `<div class="sub">${esc(c.job_title)}</div>` : ''}
-        ${c.ai_summary ? `<div class="sub" title="${esc(c.ai_summary)}"
-          style="margin-top:3px">${esc(c.ai_summary.slice(0, 70))}${
-          c.ai_summary.length > 70 ? '…' : ''}</div>` : ''}</td>
+        ${c.job_title ? `<div class="sub">${esc(c.job_title)}</div>` : ''}</td>
       <td data-label="Empresa">${esc(c.company_name || '—')}
         ${c.company_domain ? `<div class="sub">${esc(c.company_domain)}</div>` : ''}</td>
       <td data-label="Email">${c.email
@@ -548,15 +552,12 @@ async function loadContacts() {
       <td data-label="Teléfono">${c.phone
         ? esc(c.phone) + telNota(c)
         : '<span class="sub dash">—</span>'}</td>
-      <td class="c-tag" data-label="Estado">${pill(estadoCorreo(c), STATUS_TXT)}
+      <td class="c-tag" data-label="Email">${pill(estadoCorreo(c), STATUS_TXT)}
         ${c.mobile_available && !c.phone
           ? '<div class="sub" title="Prospeo tiene su celular pero no lo reveló. Se desbloquea desde Buscar teléfonos.">hay celular</div>'
           : ''}</td>
-      <td class="c-tag" data-label="Fuente">${pill(c.email_source, SOURCE_TXT)}</td>
-      <td class="c-tag" data-label="CRM">${pill(c.crm_status, GHL_TXT)}
-        ${c.crm_error
-          ? `<div class="sub" title="${esc(c.crm_error)}">${esc(c.crm_error.slice(0, 34))}…</div>`
-          : ''}</td>
+      <td class="c-tag" data-label="Kommo">${pill(c.crm_status, GHL_TXT)}
+        ${c.crm_error ? info(esc(c.crm_error)) : ''}</td>
       <td class="c-act"><button class="sm ghost" onclick="showDetail(${c.id})">Ver detalle</button></td>
     </tr>`).join('');
 
@@ -564,10 +565,10 @@ async function loadContacts() {
     const sinFiltros = !filterParams().toString();
     $('ctbody').innerHTML = '';
     $('cempty').innerHTML = sinFiltros
-      ? `<div class="empty"><span class="big">◆</span>
+      ? `<div class="empty"><span class="big">${icono('rombo')}</span>
          <strong>Todavía no hay contactos</strong>Empezá subiendo tu archivo de Apollo.
          <br><button class="primary" onclick="goToStep('import')">Cargar contactos</button></div>`
-      : `<div class="empty"><span class="big">⌕</span>
+      : `<div class="empty"><span class="big">${icono('buscar')}</span>
          <strong>Ninguno coincide</strong>Probá con otros filtros.
          <br><button onclick="resetFilters()">Limpiar filtros</button></div>`;
   }
@@ -723,9 +724,26 @@ function clearSelection() {
 function updateSelInfo() {
   const n = SELECTED.size;
   $('selcount').textContent = n;
-  $('selhint').textContent = n ? 'listos para enviar' : '';
+  $('selhint').textContent = '';
   $('selbar').classList.toggle('show', n > 0);
-  $('btn-ghl').disabled = n === 0;
+  $('btn-ghl').disabled = n === 0 || !KOMMO_OK;
+  $('btn-ghl').textContent = `Mandar ${n}`;
+  // Lo que se usa poco, y lo que no se deshace, va en el ⋯.
+  $('selbar-mas').innerHTML = n ? menuMas([
+    ...(n === 1 ? [{ label: 'Ver el detalle', icono: 'ojo',
+      onclick: `showDetail(${[...SELECTED][0]})` }] : []),
+    { label: 'Exportar a Excel', icono: 'exportar', onclick: 'exportarMarcados()' },
+    { label: 'Desmarcar', icono: 'cruz', onclick: 'clearSelection()' },
+    { label: `Borrar ${n === 1 ? 'el marcado' : `los ${n}`}`, icono: 'basura',
+      onclick: 'borrarContactos()', peligro: true },
+  ]) : '';
+  const tiles = document.querySelector('#completar .completar-tiles');
+  if (tiles) tiles.hidden = n === 0;
+  // La página deja abajo el lugar de la barra: nada queda tapado.
+  document.body.classList.toggle('con-selbar', n > 0);
+  requestAnimationFrame(() => {
+    document.documentElement.style.setProperty('--selbar-h', `${$('selbar').offsetHeight}px`);
+  });
   for (const id of ['btn-mobile', 'btn-web', 'btn-ai']) {
     const b = $(id);
     if (b) b.disabled = n === 0;
@@ -733,19 +751,31 @@ function updateSelInfo() {
   updateMailBtn();
 }
 
-/* ======================= enviar al CRM ======================= */
-async function sendToGHL() {
+/* ======================= enviar al CRM =======================
+   La ventana muestra antes de mandar la etiqueta, el embudo y la etapa, que es
+   lo que más cambia entre campañas, y después el resultado ahí mismo. */
+let KOMMO_OK = true;
+
+function ventanaKommo() {
+  if (!SELECTED.size) return;
+  $('kommo-aviso').hidden = KOMMO_OK;
+  $('btn-ghl').hidden = !KOMMO_OK;
+  $('ghl-result').innerHTML = '';
+  updateSelInfo();
+  $('kommo').classList.add('open');
+  if (KOMMO_OK && typeof loadPipelines === 'function') loadPipelines();
+}
+function cerrarKommo() { $('kommo').classList.remove('open'); }
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && $('kommo') && $('kommo').classList.contains('open')) cerrarKommo();
+});
+// El nombre viejo sigue funcionando: hay llamadas desde otras pantallas.
+function sendToGHL() { ventanaKommo(); }
+
+async function enviarAKommo() {
   const ids = [...SELECTED];
   if (!ids.length) return;
-
   const tag = $('ghl-tag').value.trim();
-  const ok = await ask('Enviar al CRM',
-    `<p>Se van a enviar <b>${ids.length} contacto(s)</b> a Kommo.</p>
-     <p class="help">Los que ya estén en el CRM se saltean. Los que no tengan ni
-     email ni teléfono no se pueden enviar.${tag ? ` Etiqueta: <b>${esc(tag)}</b>.` : ''}</p>`,
-    [{ label: 'Cancelar', value: false },
-     { label: 'Enviar', value: true, cls: 'go' }]);
-  if (!ok) return;
 
   $('btn-ghl').disabled = true;
   $('ghl-result').innerHTML = '<div class="alert info"><span class="pulse">●</span> Enviando…</div>';
@@ -3358,6 +3388,10 @@ function ponerInfos() {
     'info-mail': 'Elegí qué mandar, revisalo y programalo. Salen de a poco, a horas '
       + 'irregulares, para no caer en spam.',
     'info-results': 'Quién abrió, quién tocó un enlace y quién contestó, campaña por campaña.',
+    'info-completar': '<b>Leer sus sitios</b> saca emails, teléfonos y WhatsApp de la web de '
+      + 'cada empresa, gratis. <b>Ficha con IA</b> resume qué vende, a quién y quién manda, y '
+      + 'cobra por contacto. <b>Buscar celulares</b> cuesta 10 créditos cada uno, contra 1 de un '
+      + 'email: solo para los que vas a llamar.',
   };
   Object.entries(textos).forEach(([id, t]) => { const el = $(id); if (el) el.innerHTML = info(t); });
 }

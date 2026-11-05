@@ -16,7 +16,7 @@ from app import db  # noqa: E402
 db.DB_PATH = Path(sys.argv[1])
 import app.main as m  # noqa: E402
 
-for clave in ("GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "OPENAI_API_KEY"):
+for clave in ("GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "OPENAI_API_KEY", "GHL_API_TOKEN"):
     os.environ.pop(clave, None)
 os.environ["APP_PASSWORD"] = "prueba"
 os.environ["KOMMO_TOKEN"] = ""

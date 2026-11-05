@@ -125,7 +125,95 @@ def general(pg, donde):
     sin_desborde(pg, donde, "después de recorrer")
 
 
-GRUPOS = {"base": base, "general": general}
+def marcar(pg, n):
+    cajas = pg.locator("#ctbody input[type=checkbox]")
+    for i in range(n):
+        cajas.nth(i).check()
+    pg.wait_for_timeout(300)
+
+
+def contactos(pg, donde):
+    """Task 3: barra de selección, completar datos y ventana de Kommo."""
+    ir(pg, "contacts")
+    pg.evaluate("() => clearSelection()")
+    ver(not pg.locator("#completar .completar-tiles").is_visible(),
+        "sin marcados no se ofrece completar datos (RF 2)", donde)
+    marcar(pg, 3)
+    bar = pg.locator("#selbar")
+    ver("3 marcados" in bar.inner_text(), "la barra dice «3 marcados»", donde)
+    n_ok = pg.evaluate("""() => { const n = document.querySelector('#selbar .n');
+        return n.scrollWidth <= n.clientWidth + 1; }""")
+    ver(n_ok, "«3 marcados» entra entero", donde)
+    ver(pg.locator("#selbar-mail").is_visible() and "Escribirles" in pg.inner_text("#selbar-mail"),
+        "se ve «Escribirles»", donde)
+    ver(pg.locator("#selbar-go").is_visible() and "Kommo" in pg.inner_text("#selbar-go"),
+        "se ve «Mandar a Kommo»", donde)
+    ver(not pg.locator("#selbar .mas-menu button.peligro").is_visible(),
+        "«Borrar» no está a la vista", donde)
+    pg.click("#selbar .mas-btn")
+    ver(pg.locator("#selbar .mas-menu button.peligro").is_visible(), "⋯ muestra Borrar", donde)
+    ver(pg.locator("#selbar .mas-menu button:has-text('detalle')").count() == 0,
+        "con 3 marcados no ofrece «Ver el detalle»", donde)
+    # RF 5: la lista se vuelve a dibujar con el ⋯ abierto.
+    pg.evaluate("() => loadContacts()")
+    pg.wait_for_timeout(700)
+    ver(pg.locator(".mas-menu").count() == 1, "un solo menú ⋯ después de recargar (RF 5)", donde)
+    pg.keyboard.press("Escape")
+    ver(pg.locator("#completar .completar-tiles").is_visible(),
+        "con marcados se ofrece completar datos", donde)
+    ver(pg.locator("#completar .completar-tile").count() == 3,
+        "tres formas de completar, cada una con su costo", donde)
+    # RF 3: nada tapa el último contacto ni la barra de actividad.
+    pg.evaluate("""() => { const t = document.querySelector('.card.list > .tbl-scroll');
+        if (t) t.scrollTop = t.scrollHeight; window.scrollTo(0, document.documentElement.scrollHeight); }""")
+    pg.wait_for_timeout(300)
+    fila = pg.evaluate("""() => { const f = [...document.querySelectorAll('#ctbody tr')].pop();
+        const t = document.querySelector('.card.list > .tbl-scroll');
+        return f ? Math.min(f.getBoundingClientRect().bottom, t.getBoundingClientRect().bottom) : 0; }""")
+    tope = pg.evaluate("() => document.getElementById('selbar').getBoundingClientRect().top")
+    ver(fila <= tope + 1, f"el último contacto queda arriba de la barra (RF 3) {fila:.0f}/{tope:.0f}", donde)
+    pg.evaluate("""() => { const a = document.getElementById('actividad'); a.hidden = false;
+        a.innerHTML = '<div class=act-item><span class=act-titulo>prueba</span></div>'; }""")
+    choque = pg.evaluate("""() => { const a = document.getElementById('actividad').getBoundingClientRect();
+        const s = document.getElementById('selbar').getBoundingClientRect();
+        return !(a.bottom <= s.top || a.top >= s.bottom || a.right <= s.left || a.left >= s.right); }""")
+    ver(not choque, "la barra de actividad no tapa la de selección (RF 3)", donde)
+    pg.evaluate("() => { document.getElementById('actividad').hidden = true; }")
+    # Mandar a Kommo: la ventana con etiqueta, embudo y etapa.
+    pg.click("#selbar-go")
+    pg.wait_for_timeout(500)
+    modal = pg.locator("#kommo")
+    ver(modal.is_visible(), "«Mandar a Kommo» abre su ventana", donde)
+    ver(pg.locator("#kommo #ghl-tag").is_visible(), "la ventana trae la etiqueta", donde)
+    ver(pg.locator("#kommo #kommo-aviso").is_visible(),
+        "sin Kommo configurado, la ventana lo avisa (RF 4)", donde)
+    pg.keyboard.press("Escape")
+    ver(not modal.is_visible(), "la ventana se cierra con Escape", donde)
+    # Con Kommo conectado: manda y muestra el resultado en la misma ventana.
+    pg.route("**/api/ghl/send", lambda r: r.fulfill(json={"sent": 3, "results": [],
+        "failed": 0, "skipped": 0, "already_in_crm": 0, "pipeline_configured": False}))
+    pg.evaluate("() => { KOMMO_OK = true; }")
+    pg.click("#selbar-go"); pg.wait_for_timeout(400)
+    ver("Mandar 3" in pg.inner_text("#btn-ghl"), "el botón dice «Mandar 3»", donde)
+    pg.click("#btn-ghl"); pg.wait_for_timeout(800)
+    ver("3 contacto(s)" in pg.inner_text("#kommo #ghl-result"),
+        "el resultado se ve en la ventana", donde)
+    pg.unroute("**/api/ghl/send")
+    pg.evaluate("() => { KOMMO_OK = false; cerrarKommo(); }")
+    pg.evaluate("() => clearSelection()")
+    marcar(pg, 1)
+    pg.click("#selbar .mas-btn")
+    ver(pg.locator("#selbar .mas-menu button:has-text('detalle')").count() == 1,
+        "con 1 marcado ofrece «Ver el detalle»", donde)
+    pg.keyboard.press("Escape")
+    estados = pg.locator("#ctbody .pill .ic").count()
+    ver(estados > 0, f"los estados llevan ícono ({estados})", donde)
+    ver(not EMOJI.search(pg.inner_text("#panel-contacts")), "Contactos sin emojis", donde)
+    pg.evaluate("() => clearSelection()")
+    sin_desborde(pg, donde, "Contactos con marcados")
+
+
+GRUPOS = {"base": base, "general": general, "contactos": contactos}
 
 
 def main():
