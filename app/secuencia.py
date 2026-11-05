@@ -429,15 +429,15 @@ async def _respondio(s: dict, ev, reabrir: bool = False) -> None:
                      ("Contestó el correo " + str(s["paso"] or 1), s["id"]))
         _cancelar_pendientes(conn, s)
 
-    detalle = ""
-    if texto:
-        detalle = f"\nLo que escribió:\n{texto[:2000]}"
-    if clase["clase"]:
-        detalle += (f"\n\nLa IA lo leyó como: {clase['clase']} "
-                    f"(confianza {clase['confianza']}). {clase['porque'] or ''}")
+    detalle = f"\nLo que escribió:\n{texto[:2000]}" if texto else ""
     await _mover_final(s, "reabrir" if reabrir else "respuesta",
                        "Contestó después de la secuencia" if reabrir
                        else "Contestó el correo de la secuencia", detalle)
+    # Lo que leyó la IA va aparte, en su campo de la pestaña B2K: Pablo no lo
+    # quería mezclado con lo que escribió el cliente.
+    if clase["clase"] and s.get("lead_id") and kommo.configured():
+        await kommo.poner_campo_lead(s["lead_id"], "Lectura de la IA",
+                                     respuestas.lectura(clase))
 
 
 async def _revisar(s: dict, ahora: datetime) -> None:

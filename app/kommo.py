@@ -145,6 +145,8 @@ CAMPOS_LEAD = [
     ("Calificación en Google", "text"),
     ("De dónde salió", "text"),
     ("Ficha en Google Maps", "url"),
+    # Lo llena la secuencia cuando el cliente contesta.
+    ("Lectura de la IA", "textarea"),
 ]
 
 _CAMPOS_LEAD: dict | None = None
@@ -637,6 +639,25 @@ async def actualizar_ficha(client: httpx.AsyncClient, c: dict,
     try:
         r = await _con_reintento(client, "PATCH", f"{base_url()}/leads/{lead_id}",
                                  json={"custom_fields_values": valores})
+        return r.status_code in (200, 201)
+    except Exception:
+        return False
+
+
+async def poner_campo_lead(lead_id: str, nombre: str, texto: str) -> bool:
+    """Escribe un campo de la pestaña B2K de un lead. Vacío no escribe nada:
+    en Kommo, escribir vacío borra."""
+    if not configured() or not lead_id or not (texto or "").strip():
+        return False
+    try:
+        async with httpx.AsyncClient(timeout=TIEMPO, headers=_headers()) as c:
+            fid = (await campos_lead(c)).get(nombre)
+            if not fid:
+                return False
+            r = await _con_reintento(
+                c, "PATCH", f"{base_url()}/leads/{lead_id}",
+                json={"custom_fields_values": [
+                    {"field_id": fid, "values": [{"value": texto[:2000]}]}]})
         return r.status_code in (200, 201)
     except Exception:
         return False

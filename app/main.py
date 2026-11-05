@@ -1735,7 +1735,7 @@ async def api_mail_dns(domain: str = Form("")):
 async def api_mail_inbox_scan(mailbox_id: str = Form("")):
     """Entra a los buzones y anota lo que volvió: respuestas y rebotes.
 
-    Se hace solo cada diez minutos; esto es para no esperar.
+    Se hace solo cada dos minutos; esto es para no esperar.
     """
     mid = int(mailbox_id) if str(mailbox_id).strip().isdigit() else None
     return await mailer.revisar_buzones(mid)

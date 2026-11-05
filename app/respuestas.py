@@ -117,6 +117,27 @@ CLASES = {
 
 CONFIANZAS = ("alta", "media", "baja")
 
+# Cómo se lee cada clase en Kommo. El comercial ve esto en la pestaña B2K, y
+# "no_interesado" es un nombre para el programa, no para una persona.
+ETIQUETAS = {
+    "interesado": "Le interesa",
+    "propone_reunion": "Propone una reunión",
+    "confirma_reunion": "Confirma una reunión",
+    "no_interesado": "No le interesa",
+    "no_escribir": "Pide que no le escriban más",
+    "otra_persona": "No es la persona indicada",
+    "no_entiende": "No se entiende qué quiere",
+}
+
+
+def lectura(clase: dict) -> str:
+    """'No le interesa (confianza alta). Dice que…', para el campo del lead."""
+    nombre = ETIQUETAS.get(clase.get("clase") or "", clase.get("clase") or "")
+    if not nombre:
+        return ""
+    texto = f"{nombre} (confianza {clase.get('confianza') or 'baja'})."
+    return f"{texto} {clase['porque']}".strip() if clase.get("porque") else texto
+
 ESQUEMA = {
     "type": "object",
     "additionalProperties": False,

@@ -1817,9 +1817,11 @@ def en_horario(ahora: datetime | None = None) -> bool:
     return desde <= t.hour < hasta
 
 
-# Cada cuánto se entra al buzón. Diez minutos: una respuesta no es urgente
-# y entrar cada minuto es una forma de que el servidor te corte el acceso.
-_CADA_BUZON = 600
+# Cada cuánto se entra al buzón. Eran diez minutos, y una respuesta tardaba
+# hasta eso en verse en Kommo: Pablo lo notó en la primera prueba. Dos minutos
+# son unas 30 entradas por hora por buzón, lejos de lo que Gmail corta, y la
+# respuesta llega a Kommo en unos tres minutos como mucho.
+_CADA_BUZON = 120
 
 
 async def loop_buzones() -> None:
@@ -1829,7 +1831,7 @@ async def loop_buzones() -> None:
             if correo_activo():
                 await revisar_buzones()
         except Exception:
-            # Que no se caiga el ciclo: el próximo intento es en diez minutos.
+            # Que no se caiga el ciclo: el próximo intento es en la vuelta siguiente.
             pass
         try:
             # Los rebotes que acaba de leer pueden haber dejado un buzón en
