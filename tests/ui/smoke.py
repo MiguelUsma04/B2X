@@ -427,9 +427,66 @@ def dashboard(pg, donde):
     pg.reload(); pg.wait_for_timeout(1200)
 
 
+def borradores(pg, donde):
+    """Con 45 borradores la pantalla no puede ser un scroll de 45 correos."""
+    import json
+    lista = [{"contact_id": 9000 + i, "company_name": f"Empresa {i:02d}",
+              "email": f"x{i}@e{i}.co", "asunto": f"Asunto {i}", "cuerpo": f"Hola {i}\n\nTexto",
+              "cuerpo2": "Dos", "cuerpo3": "Tres", "caracteres": 300, "a_quien": "a Ana",
+              "con_ficha": True, "estado": "pendiente", "error": None} for i in range(45)]
+    lista[3]["estado"] = "aprobado"
+    lista[4]["error"] = "no salió"
+
+    def get(r):
+        r.fulfill(json={"items": lista, "max_caracteres": 450})
+
+    def marcar(r):
+        cid = int(r.request.url.rstrip("/").split("/")[-1])
+        estado = re.search(r'name="estado"\r\n\r\n(\w+)', r.request.post_data or "").group(1)
+        next(b for b in lista if b["contact_id"] == cid)["estado"] = estado
+        r.fulfill(json={"ok": True})
+
+    pg.route("**/api/mail/borradores", get)
+    pg.route(re.compile(r".*/api/mail/borradores/\d+$"), marcar)
+    ir(pg, "mail")
+    pg.click("#seg-ia"); pg.wait_for_timeout(300)
+    pg.evaluate("() => cargarBorradores()"); pg.wait_for_timeout(500)
+
+    filas = pg.locator("#ia-lista .borrador")
+    ver(filas.count() == 20, f"se ven 20 por página, no los 45 ({filas.count()})", donde)
+    ver(pg.locator("#ia-lista .borrador-cuerpo:visible").count() == 1,
+        "solo un correo está abierto a la vez", donde)
+    ver(pg.locator("#ia-lista .borrador.abierto").first.inner_text().startswith("Empresa 00"),
+        "abre el primero sin revisar", donde)
+    pg.locator("#ia-lista .borrador-fila").nth(1).click(); pg.wait_for_timeout(200)
+    ver(pg.locator("#ia-lista .borrador.abierto").count() == 1
+        and "Empresa 01" in pg.locator("#ia-lista .borrador.abierto").inner_text(),
+        "tocar otro renglón lo abre y cierra el anterior", donde)
+    pg.click("#ia-lista .borrador.abierto .btn-aprobar-sig"); pg.wait_for_timeout(600)
+    ver(lista[1]["estado"] == "aprobado", "«Aprobar y seguir» lo aprueba", donde)
+    ver("Empresa 02" in pg.locator("#ia-lista .borrador.abierto").inner_text(),
+        "y abre el siguiente sin revisar", donde)
+
+    pg.click("#ia-filtros [data-filtro=aprobado]"); pg.wait_for_timeout(300)
+    ver(filas.count() == 2, f"el filtro Aprobados deja los 2 ({filas.count()})", donde)
+    pg.click("#ia-filtros [data-filtro=error]"); pg.wait_for_timeout(300)
+    ver(filas.count() == 1, "el filtro No salieron deja 1", donde)
+    pg.click("#ia-filtros [data-filtro=todos]"); pg.wait_for_timeout(300)
+    pg.fill("#ia-busca", "Empresa 33"); pg.wait_for_timeout(400)
+    ver(filas.count() == 1, f"buscar por empresa encuentra 1 ({filas.count()})", donde)
+    pg.fill("#ia-busca", ""); pg.wait_for_timeout(400)
+    pg.click("#ia-pag .pag-sig"); pg.wait_for_timeout(300)
+    ver("Empresa 20" in filas.first.inner_text(), "la página 2 empieza en la 21", donde)
+    ver(not EMOJI.search(pg.inner_text("#ia-lista")), "la lista sin emojis", donde)
+    sin_desborde(pg, donde, "Borradores")
+    pg.unroute("**/api/mail/borradores")
+    pg.unroute(re.compile(r".*/api/mail/borradores/\d+$"))
+    pg.reload(); pg.wait_for_timeout(1200)
+
+
 GRUPOS = {"base": base, "general": general, "contactos": contactos, "correos": correos,
           "ajustes": ajustes, "barras": barras, "kommo_tanda": kommo_tanda,
-          "dashboard": dashboard}
+          "dashboard": dashboard, "borradores": borradores}
 
 
 def main():

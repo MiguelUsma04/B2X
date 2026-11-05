@@ -922,11 +922,38 @@ pre{font-family:var(--mono);font-size:12px;background:var(--surface-2);
 /* ---------------------------------------------------- correos escritos por IA
    Cada borrador es una tarjeta que se lee entera de un vistazo: el punto de
    esta pantalla es que alguien los lea antes de que salgan. */
-.borradores { margin-top: 14px; display: grid; gap: 12px; }
+.borradores { margin-top: 12px; display: grid; gap: 6px; }
 .borrador {
-  border: 1px solid var(--line); border-radius: 12px; padding: 14px;
-  background: var(--card);
+  border: 1px solid var(--line); border-radius: 12px;
+  background: var(--card); overflow: hidden;
 }
+/* El renglón: empresa y asunto a la izquierda, el estado a la derecha. Es
+   todo el botón que abre el correo, con 48px de alto para el dedo. */
+.borrador-fila {
+  display: flex; align-items: center; gap: 10px; width: 100%; min-height: 48px;
+  padding: 8px 14px; background: none; border: 0; color: inherit; text-align: left;
+  font: inherit; cursor: pointer;
+}
+.borrador-fila:hover { background: var(--surface-2, rgba(127, 127, 127, .06)); }
+.borrador-fila:focus-visible { outline: none; box-shadow: var(--ring); }
+.bf-txt { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.bf-txt > * { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@media (min-width: 900px) {
+  .bf-txt { flex-direction: row; align-items: baseline; gap: 12px; }
+  .bf-txt b { flex: 0 0 auto; max-width: 40%; }
+}
+.borrador.abierto .borrador-fila { border-bottom: 1px solid var(--line); }
+.borrador-det { padding: 12px 14px 14px; }
+.ia-barra { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.ia-busca {
+  display: flex; align-items: center; gap: 6px; flex: 1 1 220px; min-height: 36px;
+  padding: 0 12px; border: 1px solid var(--line); border-radius: 999px; background: var(--surface);
+}
+.ia-busca .ic { width: 16px; height: 16px; color: var(--ink-3, var(--ink-2)); }
+.ia-busca input { border: 0; background: none; padding: 6px 0; min-width: 0; flex: 1; box-shadow: none; }
+.pastilla.on { border-color: var(--brand); color: var(--ink); background: var(--surface-2, var(--surface)); }
+.ia-pag { display: flex; align-items: center; justify-content: center; gap: 12px; margin-top: 8px; }
+.ia-pag .ic { width: 18px; height: 18px; }
 .borrador.aprobado { border-color: var(--ok); background: var(--ok-bg, transparent); }
 .borrador.descartado { opacity: .55; }
 .borrador.malo { border-color: var(--warn); }

@@ -2183,8 +2183,8 @@ async function pollMail(seguir) {
         ${d.error ? `<span style="color:var(--danger)"><b>${d.error}</b> fallaron</span>` : ''}
       </div>
       <div class="bar ${vivo ? 'live' : ''}"><i style="width:${pct}%"></i></div>
-      ${d.next_at && vivo ? `<p class="sub">Próximo alrededor de las
-        ${esc(d.next_at.slice(11, 16))} UTC</p>` : ''}
+      ${d.next_at && vivo ? `<p class="sub">El próximo sale a las
+        ${esc(horaColombia(d.next_at))}</p>` : ''}
       ${sq ? lineaSecuencia(sq) : ''}
       ${ultimos ? `<div style="margin-top:10px">${ultimos}</div>` : ''}
       <div class="rowend" style="margin-top:12px">
@@ -2679,6 +2679,16 @@ if (_html) _html.addEventListener('input', verHtmlEnVivo);
    lee y los aprueba. Mientras estemos probando, esa lectura es obligatoria:
    son correos reales a empresas reales. */
 
+/* La cola guarda las horas en UTC ('2026-11-05 19:03:00'); en pantalla van en
+   hora de Colombia, que es UTC-5 todo el año. */
+function horaColombia(utc) {
+  const t = new Date(String(utc).replace(' ', 'T').slice(0, 19) + 'Z');
+  if (isNaN(t)) return '';
+  const co = new Date(t.getTime() - 5 * 3600 * 1000);
+  const h = co.getUTCHours(), m = String(co.getUTCMinutes()).padStart(2, '0');
+  return `${h % 12 || 12}:${m} ${h >= 12 ? 'p. m.' : 'a. m.'}`;
+}
+
 let BORRADORES = [];
 let IA_MAX = 300;
 let IA_TIMER = null;
@@ -2747,6 +2757,29 @@ async function cargarBorradores() {
   updateMailBtn();
 }
 
+/* Con 70 borradores, una tarjeta abierta por correo era un scroll sin fin.
+   Ahora es una lista de renglones (empresa, asunto, estado) con un solo
+   correo abierto a la vez, filtros, búsqueda y páginas de 20. «Aprobar y
+   seguir» abre el siguiente sin revisar, así se revisan de corrido. */
+const IA_POR_PAG = 20;
+// abierto: null = abrir solo el primero sin revisar; 0 = ninguno, a propósito.
+const IA_VISTA = { filtro: 'todos', busca: '', pag: 0, abierto: null };
+
+const IA_FILTROS = [
+  ['todos', 'Todos', () => true],
+  ['pendiente', 'Sin revisar', (b) => !b.error && b.estado === 'pendiente'],
+  ['aprobado', 'Aprobados', (b) => !b.error && b.estado === 'aprobado'],
+  ['descartado', 'Descartados', (b) => !b.error && b.estado === 'descartado'],
+  ['error', 'No salieron', (b) => !!b.error],
+];
+
+function borradoresFiltrados() {
+  const pasa = IA_FILTROS.find((f) => f[0] === IA_VISTA.filtro)[2];
+  const q = IA_VISTA.busca.trim().toLowerCase();
+  return BORRADORES.filter((b) => pasa(b) && (!q || [b.company_name, b.full_name,
+    b.email, b.asunto].some((x) => (x || '').toLowerCase().includes(q))));
+}
+
 function pintarBorradores() {
   const caja = $('ia-lista');
   const res = $('ia-resumen');
@@ -2758,39 +2791,126 @@ function pintarBorradores() {
   }
 
   const pend = BORRADORES.filter((b) => b.estado === 'pendiente' && !b.error).length;
-  const apro = BORRADORES.filter((b) => b.estado === 'aprobado').length;
-  const malos = BORRADORES.filter((b) => b.error).length;
   if (res) {
-    res.innerHTML =
-      `<div class="row" style="align-items:center;gap:10px;flex-wrap:wrap">
-         <b>${apro} aprobado(s)</b>
-         <span class="help">${pend} sin revisar${malos ? ` · ${malos} no salieron` : ''}</span>
-         ${pend ? `<button class="ghost" onclick="aprobarTodos('aprobado')">
+    // La búsqueda se arma una sola vez: rehacerla le quitaría el foco al que escribe.
+    if (!$('ia-busca')) {
+      res.innerHTML =
+        `<div class="ia-barra">
+           <div class="metr" id="ia-filtros" role="tablist"></div>
+           <label class="ia-busca">${icono('buscar')}
+             <input id="ia-busca" type="search" placeholder="Buscar empresa o asunto"
+               aria-label="Buscar empresa o asunto"></label>
+         </div>
+         <div class="row" id="ia-masivo" style="gap:8px;flex-wrap:wrap;margin-top:10px"></div>`;
+      let t = null;
+      $('ia-busca').addEventListener('input', (e) => {
+        clearTimeout(t);
+        t = setTimeout(() => {
+          IA_VISTA.busca = e.target.value; IA_VISTA.pag = 0; IA_VISTA.abierto = null;
+          pintarBorradores();
+        }, 200);
+      });
+    }
+    $('ia-filtros').innerHTML = IA_FILTROS.map(([clave, rotulo, pasa]) => {
+      const n = BORRADORES.filter(pasa).length;
+      if (!n && clave !== 'todos' && clave !== IA_VISTA.filtro) return '';
+      const on = clave === IA_VISTA.filtro;
+      return `<button class="pastilla${on ? ' on' : ''}" data-filtro="${clave}" role="tab"
+        aria-selected="${on}" onclick="filtrarBorradores('${clave}')"><b>${n}</b>${rotulo}</button>`;
+    }).join('');
+    $('ia-masivo').innerHTML = pend
+      ? `<button class="ghost" onclick="aprobarTodos('aprobado')">
            Aprobar los ${pend} sin revisar</button>
-           <button class="ghost" onclick="aprobarTodos('descartado')">
-           Descartar los ${pend}</button>` : ''}
-       </div>`;
+         <button class="ghost" onclick="aprobarTodos('descartado')">
+           Descartar los ${pend}</button>` : '';
   }
 
-  caja.innerHTML = BORRADORES.map((b) => {
-    const quien = esc(b.company_name || b.full_name || b.email);
-    if (b.error) {
-      return `<div class="borrador malo">
-        <div class="borrador-h"><b>${quien}</b>
-          <span class="help">${esc(b.email)}</span></div>
-        <div class="alert err" style="margin:8px 0">${esc(b.error)}</div>
+  const lista = borradoresFiltrados();
+  const paginas = Math.max(1, Math.ceil(lista.length / IA_POR_PAG));
+  // Si hay uno elegido, la página es la suya: «Aprobar y seguir» puede saltar de página.
+  const iAb = lista.findIndex((b) => b.contact_id === IA_VISTA.abierto);
+  if (iAb >= 0) IA_VISTA.pag = Math.floor(iAb / IA_POR_PAG);
+  IA_VISTA.pag = Math.min(IA_VISTA.pag, paginas - 1);
+  const pagina = lista.slice(IA_VISTA.pag * IA_POR_PAG, (IA_VISTA.pag + 1) * IA_POR_PAG);
+  let abierto = IA_VISTA.abierto;
+  if (abierto === null || (abierto && iAb < 0)) {
+    const primero = pagina.find((b) => !b.error && b.estado === 'pendiente');
+    abierto = primero ? primero.contact_id : 0;
+  }
+
+  const desde = IA_VISTA.pag * IA_POR_PAG;
+  const pie = lista.length > IA_POR_PAG
+    ? `<div class="ia-pag" id="ia-pag">
+         <button class="ghost pag-ant" onclick="paginaBorradores(-1)"
+           ${IA_VISTA.pag ? '' : 'disabled'} aria-label="Página anterior">${icono('flecha-izq')}</button>
+         <span class="help">${desde + 1}–${desde + pagina.length} de ${lista.length}</span>
+         <button class="ghost pag-sig" onclick="paginaBorradores(1)"
+           ${IA_VISTA.pag < paginas - 1 ? '' : 'disabled'} aria-label="Página siguiente">${icono('flecha-der')}</button>
+       </div>` : '';
+
+  if (!lista.length) {
+    caja.innerHTML = '<p class="help">Ninguno coincide.</p>';
+    return;
+  }
+  caja.innerHTML = pagina.map((b) => filaBorrador(b, b.contact_id === abierto)).join('') + pie;
+}
+
+const IA_ESTADO = { pendiente: ['pending', 'Sin revisar'], aprobado: ['verified', 'Aprobado'],
+                    descartado: ['pending', 'Descartado'] };
+
+function filaBorrador(b, abierto) {
+  const quien = esc(b.company_name || b.full_name || b.email);
+  const [cls, rot] = b.error ? ['error', 'No salió'] : IA_ESTADO[b.estado] || IA_ESTADO.pendiente;
+  const clase = b.error ? 'malo' : b.estado === 'aprobado' ? 'aprobado'
+              : b.estado === 'descartado' ? 'descartado' : '';
+  return `<div class="borrador ${clase}${abierto ? ' abierto' : ''}" id="borrador-${b.contact_id}">
+    <button class="borrador-fila" onclick="abrirBorrador(${b.contact_id})"
+      aria-expanded="${abierto}">
+      <span class="bf-txt"><b>${quien}</b>
+        <span class="help">${esc(b.error ? b.email : b.asunto || '')}</span></span>
+      <span class="pill ${cls}">${rot}</span>
+    </button>
+    ${abierto ? detalleBorrador(b) : ''}</div>`;
+}
+
+function abrirBorrador(id) {
+  IA_VISTA.abierto = $(`borrador-${id}`)?.classList.contains('abierto') ? 0 : id;
+  pintarBorradores();
+}
+
+function filtrarBorradores(clave) {
+  IA_VISTA.filtro = clave; IA_VISTA.pag = 0; IA_VISTA.abierto = null;
+  pintarBorradores();
+}
+
+function paginaBorradores(d) {
+  IA_VISTA.pag += d; IA_VISTA.abierto = null;
+  pintarBorradores();
+  $('ia-lista').scrollIntoView({ block: 'start', behavior: 'smooth' });
+}
+
+async function aprobarYSeguir(id) {
+  const orden = borradoresFiltrados();
+  const i = orden.findIndex((b) => b.contact_id === id);
+  const sig = orden.slice(i + 1).concat(orden.slice(0, i))
+    .find((b) => !b.error && b.estado === 'pendiente');
+  IA_VISTA.abierto = sig ? sig.contact_id : 0;
+  await marcarBorrador(id, 'aprobado');
+  if (sig) $(`borrador-${sig.contact_id}`)?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  else toast('No quedan correos sin revisar', 'ok');
+}
+
+function detalleBorrador(b) {
+  if (b.error) {
+    return `<div class="borrador-det">
+        <div class="alert err" style="margin:0 0 8px">${esc(b.error)}</div>
         <div class="row">
           <button class="ghost" onclick="rehacerBorrador(${b.contact_id})">
             Volver a intentar</button></div></div>`;
-    }
-    const clase = b.estado === 'aprobado' ? 'aprobado'
-                : b.estado === 'descartado' ? 'descartado' : '';
-    return `<div class="borrador ${clase}">
-      <div class="borrador-h">
-        <b>${quien}</b>
-        <span class="help">${esc(b.email)} · ${b.caracteres} caracteres${
-          b.editado ? ' · corregido a mano' : ''} · ${esc(b.a_quien || '')}</span>
-      </div>
+  }
+  return `<div class="borrador-det">
+      <div class="help">${esc(b.email)} · ${b.caracteres} caracteres${
+          b.editado ? ' · corregido a mano' : ''} · ${esc(b.a_quien || '')}</div>
       ${b.con_ficha ? '' : `<div class="alert warn" style="margin:8px 0">
         No se pudo leer el sitio${b.company_domain ? ` <b>${esc(b.company_domain)}</b>` : ''}:
         este correo sale del nombre y el rubro, no de lo que la empresa cuenta en
@@ -2811,18 +2931,18 @@ function pintarBorradores() {
         ${b.estado === 'aprobado'
           ? `<button class="ghost" onclick="marcarBorrador(${b.contact_id},'pendiente')">
                Sacar la aprobación</button>`
-          : `<button class="go" onclick="marcarBorrador(${b.contact_id},'aprobado')">
-               Aprobar</button>`}
+          : `<button class="go btn-aprobar-sig" onclick="aprobarYSeguir(${b.contact_id})">
+               ${icono('chequeo')} Aprobar y seguir</button>`}
         <button class="ghost" onclick="editarBorrador(${b.contact_id})">Corregir</button>
         <button class="ghost" onclick="probarBorrador(${b.contact_id})">Enviar prueba</button>
         <button class="ghost" onclick="rehacerBorrador(${b.contact_id})">
           Que lo escriba de nuevo</button>
         ${b.estado === 'descartado'
-          ? '<span class="help">descartado</span>'
+          ? `<button class="ghost" onclick="marcarBorrador(${b.contact_id},'pendiente')">
+               Recuperar</button>`
           : `<button class="ghost" onclick="marcarBorrador(${b.contact_id},'descartado')">
                Descartar</button>`}
       </div></div>`;
-  }).join('');
 }
 
 async function marcarBorrador(id, estado) {

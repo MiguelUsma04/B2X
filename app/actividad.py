@@ -15,6 +15,27 @@ Dos fuentes:
 import itertools
 import time
 from contextlib import contextmanager
+from datetime import datetime, timedelta, timezone
+
+# Colombia no tiene horario de verano: UTC-5 todo el año. Fijo, para no
+# depender de que la máquina tenga la base de zonas horarias.
+COLOMBIA = timezone(timedelta(hours=-5))
+
+
+def hora_local(utc_txt: str | None) -> str:
+    """'2026-11-05 19:03:00' (UTC, como lo guarda SQLite) → '2:03 p. m.'.
+
+    La cola guarda las horas en UTC; mostradas tal cual, Pablo veía «19:03»
+    cuando en Colombia eran las 2 de la tarde."""
+    if not utc_txt:
+        return ""
+    try:
+        t = datetime.fromisoformat(str(utc_txt).replace("T", " ")[:19])
+    except ValueError:
+        return ""
+    t = t.replace(tzinfo=timezone.utc).astimezone(COLOMBIA)
+    return f"{t.hour % 12 or 12}:{t.minute:02d} {'p. m.' if t.hour >= 12 else 'a. m.'}"
+
 
 _TAREAS: dict[int, dict] = {}
 _ids = itertools.count(1)
@@ -82,11 +103,11 @@ def ahora() -> list[dict]:
         e = mailer.estado()
         c = e.get("campaign") or {}
         if c.get("status") == "running" and e.get("pending") and mailer.correo_activo():
-            proximo = (e.get("next_at") or "")[11:16]
+            proximo = hora_local(e.get("next_at"))
             espera = "" if mailer.en_horario() else " · esperando el horario de envío"
             salida.append({
                 "id": "campania", "titulo": f"Enviando la campaña «{c.get('name') or 'sin nombre'}»",
-                "paso": (f"próximo cerca de las {proximo} UTC" if proximo else "") + espera,
+                "paso": (f"el próximo sale a las {proximo}" if proximo else "") + espera,
                 "hechos": e.get("sent", 0) + e.get("error", 0),
                 "total": e.get("sent", 0) + e.get("error", 0) + e.get("pending", 0)})
     except Exception:
