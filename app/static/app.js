@@ -3839,3 +3839,6 @@ function dashBuzones(d) {
 window.addEventListener('resize', () => { if (DASH && $('panel-dashboard').classList.contains('active')) dashGrafico(DASH.por_dia); });
 document.body.dataset.panel = (document.querySelector('.step.active') || {}).dataset?.panel || 'dashboard';
 cargarDashboard(30);
+// Todas las campañas son de tres correos: la secuencia viene prendida y con
+// sus textos cargados, sin tener que acordarse en cada campaña.
+if ($('seq-on') && $('seq-on').checked) toggleSecuencia();

@@ -820,21 +820,45 @@ def baja_por_marca(token: str) -> dict:
 
 
 def _pie_de_baja(base: str, token: str, html: bool) -> str:
-    """El pie con quién manda y cómo dejar de recibir."""
-    f = firma_legal()
-    quien = f["empresa"] + (f" · {f['direccion']}" if f["direccion"] else "")
+    """Cómo dejar de recibir. Sin firma: Pablo pidió no poner ninguna por ahora.
+
+    Va escrito como lo diría una persona y con dos salidas: contestar «no» —que
+    no pide tocar ningún enlace, y es lo que más tranquiliza a quien desconfía
+    de un correo que no esperaba— o el enlace. En la versión HTML el enlace es
+    un texto, no la dirección a la vista: una dirección de otro dominio pegada
+    al pie se parece a las de los correos de phishing.
+    """
     url = f"{base}/u/{token}"
     if not html:
-        return (f"\n\n—\n{quien}\n"
-                f"Si no quieres recibir más correos nuestros, entra aquí: {url}")
+        return ("\n\n—\nSi prefieres que no te escriba más, respóndeme «no» "
+                f"o date de baja aquí: {url}")
     return (
-        '<div style="margin-top:28px;padding-top:14px;border-top:1px solid #e0e0e0;'
+        '<p style="margin-top:28px;padding-top:12px;border-top:1px solid #e0e0e0;'
         'font-family:Arial,Helvetica,sans-serif;font-size:12px;color:#888;'
-        'line-height:1.5">'
-        f'{_html.escape(quien)}<br>'
-        f'<a href="{_html.escape(url, quote=True)}" '
-        'style="color:#888;text-decoration:underline">'
-        'No quiero recibir más correos</a></div>')
+        'line-height:1.5">Si prefieres que no te escriba más, respóndeme «no» o '
+        f'<a href="{_html.escape(url, quote=True)}" style="color:#888;'
+        'text-decoration:underline">date de baja aquí</a>.</p>')
+
+
+def texto_a_html(texto: str) -> str:
+    """El mismo correo en HTML sencillo: sus párrafos, y la baja como enlace.
+
+    Solo para que el enlace de baja sea un texto clickeable: no agrega diseño,
+    imágenes ni rastreo. «aquí: <dirección>» pasa a ser «aquí» con el enlace.
+    """
+    partes = []
+    for bloque in re.split(r"\n\s*\n", (texto or "").strip()):
+        b = _html.escape(bloque.strip()).replace("\n", "<br>")
+        b = re.sub(r"aquí:\s*(https?://\S+)",
+                   lambda m: f'<a href="{m.group(1)}" style="color:#888">aquí</a>', b)
+        if b.startswith("—"):
+            b = b[1:].removeprefix("<br>").strip()
+            partes.append('<p style="margin-top:28px;padding-top:12px;border-top:1px '
+                          'solid #e0e0e0;font-size:12px;color:#888">' + b + '</p>')
+        else:
+            partes.append(f"<p>{b}</p>")
+    return ('<div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;'
+            'line-height:1.55;color:#222">' + "".join(partes) + "</div>")
 
 
 # ------------------------------------------------------- leer el buzón
@@ -1122,6 +1146,10 @@ def _enviar_sincrono(cfg: dict, destino: str, asunto: str, cuerpo: str,
     msg.set_content(cuerpo or html_a_texto(cuerpo_html or ""))
     if (cuerpo_html or "").strip():
         msg.add_alternative(cuerpo_html, subtype="html")
+    elif (cuerpo or "").strip():
+        # Sin diseño igual va una versión HTML: es la que muestran Gmail y
+        # Outlook, y la única donde la baja puede ser un texto con enlace.
+        msg.add_alternative(texto_a_html(cuerpo), subtype="html")
 
     contexto = ssl.create_default_context()
     if cfg["security"] == "ssl":

@@ -108,64 +108,41 @@ completamente digitalizadas y automatizadas con IA?
 """.strip()
 
 PLANTILLA_INSTRUCCIONES = """
-Actuás como estratega senior de outbound B2B, copywriter de respuesta directa
-y especialista en venta consultiva de CRM, WhatsApp, automatización comercial
-e inteligencia artificial.
+Actuás como estratega senior de outbound B2B y copywriter de respuesta
+directa. Escribís correos de prospección en frío para gmarketing, dirigidos a
+dueños, gerentes y directores comerciales o de marketing.
 
-Tu única misión es escribir correos de prospección en frío para KOMMO10X,
-dirigidos a dueños, gerentes, directores comerciales y directores de marketing
-de AGENCIAS DE VIAJES.
+=== QUÉ VENDE ESTE CORREO ===
+Lo que vendemos te lo paso abajo, en «LO ÚNICO QUE VENDE ESTE CORREO». Es la
+oferta, entera y la única: el correo habla de ESO, con esas palabras o muy
+cerca, y de nada más. No lo cambies por otra cosa que te parezca mejor, no
+lo amplíes con servicios que no figuran ahí y no lo reemplaces por un
+discurso general sobre ventas, WhatsApp o CRM.
+En el primer correo no se venden funcionalidades: se abre la conversación
+alrededor del problema que eso resuelve para ESTA empresa.
 
-=== QUÉ VENDEMOS ===
-KOMMO10X no vende un CRM. Ayudamos a empresas con equipos comerciales a
-convertir una operación basada en WhatsApp, seguimiento manual y esfuerzo
-individual de cada asesor en un sistema comercial organizado, medible y
-automatizado: Kommo CRM + WhatsApp + automatización + agentes de IA +
-procesos + seguimiento + analítica.
-En el primer correo NO se venden funcionalidades. Se vende la conversación
-alrededor del problema que esa tecnología resuelve.
-
-=== LA REALIDAD DE UNA AGENCIA DE VIAJES ===
-Una agencia invierte plata para generar interesados en destinos, paquetes,
-tiquetes, hoteles, planes familiares o lunas de miel. Casi todos terminan
-hablando con un asesor por WhatsApp. El problema comercial aparece cuando:
-entran más consultas de las que los asesores alcanzan a responder rápido;
-alguien pide una cotización y después nadie hace el seguimiento; los
-interesados quedan repartidos entre varios WhatsApp; el seguimiento depende
-de que cada asesor se acuerde; se paga publicidad para conseguir interesados
-que después se enfrían; el cliente está comparando varias agencias al mismo
-tiempo; hay bases de viajeros anteriores que podrían volver a comprar y no se
-trabajan; el director no sabe cuántos entraron, cuántos se atendieron, se
-cotizaron y se vendieron; se quiere crecer en volumen pero la operación sigue
-dependiendo del trabajo manual.
-
-OJO: eso son dolores POSIBLES del rubro, no hechos sobre esta empresa. Nunca
-afirmes que a esta agencia le pasa, salvo que la ficha lo diga. Se escribe
-"Cuando…", "Muchas agencias…", "Si…", "Uno de los retos al crecer es…".
-Nunca "Vi que ustedes están perdiendo clientes…".
-
-=== LA IDEA CENTRAL ===
-"Vender viajes hoy no es como vender viajes en 2019." Cambió el comprador y
-cambiaron las herramientas. El contraste es entre
-   lead → WhatsApp → asesor → cotización → seguimiento a pulmón
-y
-   lead → CRM → WhatsApp → automatización/IA → asesor → seguimiento
-   estructurado → medición → reactivación.
-La tecnología no reemplaza al vendedor: es la infraestructura para que el
-equipo comercial maneje mejor sus oportunidades.
+=== A QUIÉN LE ESCRIBÍS ===
+El rubro y lo que hace la empresa salen de la ficha: qué vende, a quién, en
+qué ciudad. No supongas otro rubro. Los problemas que plantees tienen que ser
+problemas POSIBLES de ese rubro que lo que vendemos resuelve, no hechos sobre
+esta empresa. Se escribe "Cuando…", "Muchas empresas como…", "Si…". Nunca
+"Vi que ustedes están perdiendo clientes…".
+{contexto_rubro}
+Si por la ficha la empresa YA VENDE lo mismo que ofrecemos —es competencia o
+distribuidor de eso mismo—, no se lo ofrezcas como si fuera un cliente:
+planteá el correo como una conversación entre colegas del rubro (alianza,
+referidos, trabajo en conjunto).
 
 === EL OBJETIVO ===
-No cerrar una implementación, no explicar todo KOMMO10X, ni siquiera sacar
-una reunión. El objetivo es CONSEGUIR UNA RESPUESTA: que el que lee tenga la
-curiosidad suficiente para contestar.
+No cerrar una venta ni explicar todo. El objetivo es CONSEGUIR UNA RESPUESTA:
+que el que lee tenga la curiosidad suficiente para contestar.
 
-=== ESTRUCTURA OBLIGATORIA: PAS + CTA ===
-PROBLEMA. Abrí con una situación que un director de agencia reconozca.
+=== ESTRUCTURA: PAS + CTA ===
+PROBLEMA. Abrí con una situación que alguien de ese rubro reconozca.
 AGITACIÓN. Mostrá la consecuencia. Sin exagerar, sin manipular y sin inventar
    pérdidas de plata.
-SOLUCIÓN. Primero el resultado —organización, velocidad, seguimiento
-   estructurado, reactivación, visibilidad, poder crecer—; la tecnología
-   después y solo si hace falta. Nunca una lista de funcionalidades.
+SOLUCIÓN. Lo que vendemos, contado como el resultado que le da a esta empresa.
+   Nunca una lista de funcionalidades.
 CTA. Una sola pregunta al final, que busque un microcompromiso.
 
 Después, en los campos problema, agitacion y solucion, copiá la frase del
@@ -186,14 +163,13 @@ Reglas que no se rompen:
 
 2. IDIOMA. Escribí en el idioma que te indiquen, entero: asunto y cuerpo.
 
-3. SOLO LO QUE SE SABE, PERO ÚSALO. Si en la ficha viene un DATO PROPIO DE
-   ESTA EMPRESA, el correo tiene que mencionarlo de forma natural: en la
-   primera frase o en el cierre, con las palabras justas. Es lo único que
-   diferencia este correo de una plantilla, y el que lo lee lo nota.
-   Mencionarlo no es adularlos ni describirles su propio negocio: es el punto
-   de apoyo para plantear el problema.
-   Si no viene ningún dato propio, personalizá por el contexto del rubro y la
-   ciudad. NUNCA des a entender que investigaste algo que no sabés, y nunca
+3. LO QUE SE SABE DE ELLOS. Si la ficha trae un DATO PROPIO DE ESTA EMPRESA,
+   usalo SOLO si se conecta con lo que vendemos o con el problema, y siempre
+   como algo de ELLOS ("ustedes…", "en su empresa…"): nunca lo mezcles
+   con nuestra oferta ni lo cuentes como si lo ofreciéramos nosotros. Si no
+   se conecta, no lo uses: mejor un correo sin dato propio que uno que
+   confunde. Ante la duda, no lo uses. Nunca lo uses para decir que algo
+   suyo les va a fallar. NUNCA des a entender que investigaste algo que no sabés, y nunca
    inventes cifras, clientes, casos, premios ni años en el mercado.
 
 4. LARGO. El cuerpo entero —saludo y cierre incluidos— va entre {piso} y
@@ -211,37 +187,62 @@ Reglas que no se rompen:
    "llevá tu empresa al siguiente nivel".
 
 6. NADA DE PROMESAS QUE NO PODÉS SOSTENER: ni porcentajes, ni garantías, ni
-   precios, ni cantidad de casos, salvo que te los pasen explícitamente.
+   precios, ni cantidad de casos, salvo que vengan en lo que vendemos.
 
-7. ESCRIBÍ VOS. Nada de este texto se copia literal en el correo. Todo lo
-   de arriba es para que entiendas el tema y el tono: las frases del correo
-   las escribís vos, con tus palabras. Si una oración tuya aparece igual acá
-   arriba, cambiala.
-   Y el cuerpo va en frases completas y terminadas: nada de arrancar con
-   "Cuando entran más consultas…" y cortar ahí, sin decir qué pasa.
+7. ESCRIBÍ VOS. Nada de este texto se copia literal en el correo. Las frases
+   del correo las escribís vos, con tus palabras. El cuerpo va en frases
+   completas y terminadas.
 
 8. NADA DE MARCADORES. El cuerpo es el correo final, listo para mandar. No
    pongas corchetes, ni [NOMBRE], ni "PROBLEMA:", ni "(insertar aquí)", ni
    nada para completar después.
 
-Antes de entregarlo, preguntate: ¿un director de agencia de viajes leería
-esto y pensaría que entendemos cómo funciona comercialmente su industria? Si
-la respuesta es no, reescribilo.
+Antes de entregarlo, preguntate: ¿alguien de ese rubro leería esto y vería
+claro QUÉ le ofrecemos y por qué le sirve a él? Si la respuesta es no,
+reescribilo.
 
-No firmes el correo: la firma se agrega después.
+No firmes el correo.
 """.strip()
 
-# Los cinco ángulos del brief. Cada correo trabaja uno solo, y se reparten
-# entre los contactos: si todos salieran con el mismo ángulo, una tanda de
-# cien correos sería cien veces el mismo correo con otro nombre.
+# El contexto de agencias de viaje: fue el primer público de B2K y su
+# realidad comercial está bien estudiada. Se usa solo cuando la empresa es de
+# turismo; a cualquier otra, la IA le escribía "terminan comprando en otra
+# agencia" sin que tuviera nada que ver.
+CONTEXTO_TURISMO = """
+Esta empresa es del rubro turismo. Una agencia de viajes invierte para
+generar interesados en destinos, paquetes, tiquetes u hoteles; casi todos
+terminan hablando con un asesor por WhatsApp. Dolores posibles del rubro:
+más consultas de las que los asesores alcanzan a responder rápido,
+cotizaciones sin seguimiento, interesados repartidos entre varios WhatsApp,
+publicidad que trae interesados que se enfrían, viajeros anteriores que nadie
+vuelve a trabajar, y un director que no sabe cuántos entraron, se cotizaron
+y se vendieron. Usalos solo si se conectan con lo que vendemos.
+"""
+
+_TURISMO = ("viaje", "turism", "travel", "tour", "hotel", "agencia de viajes",
+            "operador turístico", "operador turistico")
+
+
+def es_turismo(contacto: dict) -> bool:
+    """Si la empresa es del rubro turismo, por su rubro y por lo que dice su sitio."""
+    perfil = _perfil(contacto)
+    texto = " ".join(str(x or "") for x in (
+        contacto.get("category"), contacto.get("company_name"),
+        perfil.get("resumen"), " ".join(perfil.get("que_vende") or []))).lower()
+    return any(p in texto for p in _TURISMO)
+
+
+# Los ángulos: un tema por correo, para que una tanda de cien no sea cien
+# veces el mismo correo con otro nombre. Son genéricos: el tema concreto lo
+# pone lo que vendemos y el rubro de la empresa.
 # Son etiquetas de TEMA, no frases para copiar: escritas como oraciones, el
 # modelo las pegaba tal cual en el cuerpo del correo.
 ANGULOS = [
-    "cómo cambió la venta de viajes desde 2019",
-    "la publicidad que trae interesados que después se enfrían",
-    "la velocidad de respuesta por WhatsApp y las cotizaciones sin contestar",
-    "lo que el director no ve de su propio embudo",
-    "la automatización y la IA como evolución del equipo comercial",
+    "el problema que resuelve lo que vendemos, visto desde el día a día de su rubro",
+    "lo que le cuesta a la empresa seguir haciéndolo como hasta ahora",
+    "una mejora concreta que trae lo que vendemos, sin cifras inventadas",
+    "lo que el dueño o el gerente no alcanza a ver de su propia operación",
+    "cómo cambió su rubro en los últimos años y qué piden hoy sus clientes",
 ]
 
 
@@ -294,6 +295,7 @@ def largo_minimo() -> int:
 def instrucciones(contacto: dict | None = None) -> str:
     tope, piso = largo_maximo(), largo_minimo()
     return PLANTILLA_INSTRUCCIONES.format(
+        contexto_rubro=CONTEXTO_TURISMO if es_turismo(contacto or {}) else "",
         tope=tope, piso=piso,
         palabras=max(20, int(tope / 6.2)),
         palabras_min=max(12, int(piso / 6.2)),
@@ -399,6 +401,12 @@ _VOSEO_A_TU = {
     "contestame": "contéstame", "llamame": "llámame", "mirá": "mira",
     "fijate": "fíjate", "decís": "dices", "agendá": "agenda",
     "respondé": "responde", "probá": "prueba",
+    "recuperás": "recuperas", "medís": "mides", "ganás": "ganas", "ahorrás": "ahorras",
+    "cerrás": "cierras", "escalás": "escalas", "convertís": "conviertes",
+    "seguís": "sigues", "respondés": "respondes", "atendés": "atiendes",
+    "organizás": "organizas", "automatizás": "automatizas", "aumentás": "aumentas",
+    "lográs": "logras", "llegás": "llegas", "mirás": "miras",
+    "dejás": "dejas", "elegís": "eliges",
     # "escribí" no: también es el pasado de yo ("te escribí hace unos días").
 }
 _RE_VOSEO = None
@@ -417,7 +425,50 @@ def sin_voseo(texto: str) -> str:
     def cambiar(m):
         nuevo = _VOSEO_A_TU[m.group(0).lower()]
         return nuevo[0].upper() + nuevo[1:] if m.group(0)[0].isupper() else nuevo
-    return _RE_VOSEO.sub(cambiar, texto or "")
+    texto = _RE_VOSEO.sub(cambiar, texto or "")
+    # La lista no alcanza: el modelo inventa formas nuevas en cada correo
+    # ("centralizás", "mantenés"). Lo que queda se pasa por regla: -ás → -as,
+    # -és → -es, -ís → -es, salvo palabras que no son verbos y el futuro.
+    return _RE_VOS_GENERAL.sub(_tutear_palabra, texto)
+
+
+# Verbos que cambian la raíz al tutear: la regla general daría "mantenes".
+_IRREGULARES = {
+    "mantenés": "mantienes", "obtenés": "obtienes", "contenés": "contienes",
+    "sostenés": "sostienes", "retenés": "retienes", "entendés": "entiendes",
+    "empezás": "empiezas", "encontrás": "encuentras", "mostrás": "muestras",
+    "volvés": "vuelves", "devolvés": "devuelves", "resolvés": "resuelves",
+    "pedís": "pides", "repetís": "repites", "servís": "sirves", "venís": "vienes",
+    "sentís": "sientes", "recordás": "recuerdas", "comenzás": "comienzas",
+    "movés": "mueves", "ponés": "pones", "salís": "sales", "elegís": "eliges",
+}
+# Palabras con tilde al final que no son verbos en vos, y formas que ya son de
+# tú (el presente de estar, el futuro).
+_NO_TOCAR = {
+    "más", "además", "jamás", "atrás", "demás", "detrás", "quizás", "compás", "estás",
+    "después", "interés", "través", "inglés", "francés", "cortés", "revés", "estrés",
+    "japonés", "portugués", "holandés", "escocés", "irlandés", "danés", "marqués",
+    "exprés", "país", "anís", "parís", "querrás", "tomás", "nicolás", "andrés", "inés",
+}
+_FUTURO = ("arás", "erás", "irás", "drás", "brás")
+_RE_VOS_GENERAL = __import__("re").compile(r"(?<![\wáéíóúñ])([a-záéíóúñ]{3,}[áéí]s)(?![\wáéíóúñ])",
+                                           __import__("re").IGNORECASE)
+
+
+def _tutear_palabra(m) -> str:
+    palabra = m.group(1)
+    bajo = palabra.lower()
+    if bajo in _NO_TOCAR or bajo.endswith(_FUTURO):
+        return palabra
+    if bajo in _IRREGULARES:
+        nuevo = _IRREGULARES[bajo]
+    elif bajo.endswith("ás"):
+        nuevo = bajo[:-2] + "as"
+    elif bajo.endswith("és"):
+        nuevo = bajo[:-2] + "es"
+    else:                                   # -ís
+        nuevo = bajo[:-2] + "es"
+    return nuevo[0].upper() + nuevo[1:] if palabra[0].isupper() else nuevo
 
 
 def tutea(contacto: dict) -> bool:
@@ -739,8 +790,9 @@ def _ficha(contacto: dict, nombre: str, idioma: str) -> str:
         propio = f"{propio} {novedades[0]}".strip() if propio else novedades[0]
     aparte = ""
     if propio:
-        aparte = ("\n\nDATO PROPIO DE ESTA EMPRESA, que el correo TIENE "
-                  f"que mencionar: {propio}")
+        aparte = ("\n\nDATO PROPIO DE ESTA EMPRESA (es de ELLOS, no nuestro; "
+                  "usalo solo si se conecta con lo que vendemos): "
+                  f"{propio}")
 
     return (f"{ficha}{aparte}\n\n"
             f"Idioma del correo: {NOMBRE_IDIOMA.get(idioma, 'español')}")
@@ -805,7 +857,7 @@ def _pedido(contacto: dict, propuesta: str, nombre: str, idioma: str,
                         f"{instrucciones(contacto)}\n\n"
                         f"=== Cómo suenan nuestros correos ===\n{EJEMPLOS}"},
             {"role": "user",
-             "content": (f"=== Qué ofrecemos nosotros ===\n{propuesta.strip()}\n\n"
+             "content": (f"=== LO ÚNICO QUE VENDE ESTE CORREO ===\n{propuesta.strip()}\n\n"
                          f"=== A quién le escribimos ===\n"
                          f"{_ficha(contacto, nombre, idioma)}"
                          + _bloque_indicaciones(indicaciones))},
@@ -1168,7 +1220,10 @@ def _pedido_seguimientos(contacto: dict, propuesta: str, asunto1: str,
                         "cortos y humanos, que no suenan a plantilla."},
             {"role": "user",
              "content": "\n".join(reglas)
-                        + f"\n\n=== Lo que ofrecemos ===\n{propuesta}"
+                        + f"\n\n=== LO ÚNICO QUE VENDE ESTE CORREO ===\n{propuesta}\n"
+                        + "Los correos 2 y 3 hablan de eso mismo, desde otro ángulo; "
+                          "nada de otra oferta. El dato propio de la empresa es de ELLOS: "
+                          "si lo usás, que quede claro que es suyo."
                         + f"\n\n=== Ficha de la empresa ===\n"
                         + _ficha(contacto, nombre, idioma)
                         + f"\n\n=== Correo 1 ===\nAsunto: {asunto1}\n\n{cuerpo1}"

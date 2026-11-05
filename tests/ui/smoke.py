@@ -220,6 +220,7 @@ def correos(pg, donde):
     ir(pg, "mail")
     pasos = pg.locator("#panel-mail .pasos .paso")
     ver(pasos.count() == 4, f"Correos tiene 4 pasos ({pasos.count()})", donde)
+    ver(pg.locator("#seq-on").is_checked(), "la secuencia de tres correos viene prendida", donde)
     ver("marcá contactos" in pg.inner_text("#pie-correos").lower(),
         "sin marcados, el pie pide marcar contactos (RF 2)", donde)
     ver(pg.locator("#btn-mail").is_disabled() or not pg.locator("#btn-mail").is_visible(),
