@@ -380,8 +380,55 @@ def kommo_tanda(pg, donde):
     pg.evaluate("() => { KOMMO_OK = false; cerrarKommo(); clearSelection(); }")
 
 
+def dashboard(pg, donde):
+    """El dashboard: la base, los correos, el embudo, las secuencias y los buzones."""
+    pg.reload(); pg.wait_for_timeout(1500)
+    primero = pg.locator("nav.steps .step").first.get_attribute("data-panel")
+    ver(primero == "dashboard", f"el dashboard es lo primero del menú ({primero})", donde)
+    ver(pg.locator("#panel-dashboard").is_visible(), "la app abre en el dashboard", donde)
+    m = pg.evaluate("async () => (await (await fetch('/api/metrics')).json()).contactable")
+    ver(str(m) in pg.inner_text("#dash-base .hero .v"), f"el número grande es el de contactables ({m})", donde)
+    for sec in ("#dash-base", "#dash-correos", "#dash-embudo", "#dash-seq", "#dash-buzones"):
+        ver(pg.locator(sec).is_visible(), f"se ve {sec}", donde)
+    ver(pg.locator(".periodo button").count() == 3, "tres períodos para elegir", donde)
+    pg.click(".periodo button[data-dias='7']"); pg.wait_for_timeout(800)
+    ver(pg.locator("#dash-chart [data-dia]").count() == 7, "con 7 días, el gráfico tiene 7 días", donde)
+    ver(pg.locator(".periodo button[data-dias='7']").get_attribute("aria-pressed") == "true",
+        "el período elegido queda marcado", donde)
+    ver(pg.locator("#dash-correos .leyenda").count() == 1, "el gráfico tiene leyenda", donde)
+    pg.locator("#dash-chart svg").scroll_into_view_if_needed(); pg.wait_for_timeout(200)
+    caja = pg.locator("#dash-chart svg").bounding_box()
+    pg.mouse.move(caja["x"] + caja["width"] * 0.6, caja["y"] + caja["height"] / 2)
+    pg.wait_for_timeout(300)
+    ver(pg.locator("#dash-tip").is_visible() and "Enviados" in pg.inner_text("#dash-tip"),
+        "al pasar por el gráfico aparece el detalle del día", donde)
+    pg.click("#dash-ver-tabla"); pg.wait_for_timeout(300)
+    ver(pg.locator("#dash-tabla tbody tr").count() == 7, "el gráfico también se ve como tabla", donde)
+    ver(pg.locator("#dash-embudo .emb-fila").count() == 6, "el embudo tiene sus 6 pasos", donde)
+    pg.evaluate("""() => dashBuzones({por_buzon: [{from_email: 'gerencia.comercial@gaptravelcrm.com',
+        enviados: 90, rebotes: 3, active: 1}]})""")
+    corte = pg.evaluate("""() => { const t = document.querySelector('#dash-buzones-cuerpo table');
+        return t ? t.scrollWidth - t.parentElement.clientWidth : 0; }""")
+    ver(corte <= 1, f"la tabla de buzones entra entera ({corte}px de más)", donde)
+    pg.click("#dash-base .tile:has-text('Con email')"); pg.wait_for_timeout(800)
+    ver(pg.locator("#panel-contacts").is_visible() and pg.input_value("#f-reach") == "email",
+        "tocar «Con email» lleva a Contactos filtrado", donde)
+    ir(pg, "dashboard")
+    ver(not EMOJI.search(pg.inner_text("#panel-dashboard")), "el dashboard sin emojis", donde)
+    sin_desborde(pg, donde, "Dashboard")
+    pg.evaluate("""async () => { const f = new FormData(); f.append('correos', '0');
+        await fetch('/api/funciones', {method: 'POST', body: f}); }""")
+    pg.reload(); pg.wait_for_timeout(1500)
+    ver(not pg.locator("#dash-correos").is_visible() and pg.locator("#dash-base").is_visible(),
+        "con los correos apagados quedan la base y el embudo, sin lo de correos", donde)
+    pg.evaluate("""async () => { const f = new FormData(); f.append('correos', '1');
+        await fetch('/api/funciones', {method: 'POST', body: f}); }""")
+    pg.reload(); pg.wait_for_timeout(1200)
+
+
 GRUPOS = {"base": base, "general": general, "contactos": contactos, "correos": correos,
-          "ajustes": ajustes, "barras": barras, "kommo_tanda": kommo_tanda}
+          "ajustes": ajustes, "barras": barras, "kommo_tanda": kommo_tanda,
+          "dashboard": dashboard}
 
 
 def main():

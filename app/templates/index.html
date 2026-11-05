@@ -43,6 +43,10 @@
 
 
   <nav class="steps" aria-label="Secciones">
+    <button class="step active" data-panel="dashboard" aria-current="page">
+      <span class="ico" aria-hidden="true"><svg class="ic"><use href="#i-tablero"/></svg></span><span class="num">·</span>
+      <span><span class="t">Dashboard</span><span class="d">Cómo va todo</span></span>
+    </button>
     <button class="step" data-panel="import">
       <span class="ico" aria-hidden="true"><svg class="ic"><use href="#i-subir"/></svg></span><span class="num">1</span>
       <span><span class="t">Cargar</span><span class="d">De Maps o de un CSV</span></span>
@@ -51,7 +55,7 @@
       <span class="ico" aria-hidden="true"><svg class="ic"><use href="#i-sobre"/></svg></span><span class="num">2</span>
       <span><span class="t">Emails</span><span class="d">Buscá los que faltan</span></span>
     </button>
-    <button class="step active" data-panel="contacts" aria-current="page">
+    <button class="step" data-panel="contacts">
       <span class="ico" aria-hidden="true"><svg class="ic"><use href="#i-rombo"/></svg></span><span class="num">3</span>
       <span><span class="t">Contactos</span><span class="d">Revisá y mandá al CRM</span></span>
     </button>
@@ -71,7 +75,58 @@
   </nav>
 
   <!-- ========================= REVISAR Y ENVIAR ========================= -->
-  <section class="panel active" id="panel-contacts">
+  <!-- ========================= DASHBOARD ========================= -->
+  <section class="panel active" id="panel-dashboard">
+    <div class="pantalla-cab"><h1>Cómo va todo</h1><span id="info-dashboard"></span></div>
+
+    <div class="dash-sec" id="dash-base">
+      <h2 class="dash-t">La base <span id="info-dash-base"></span></h2>
+      <div class="metrics" id="dash-base-cuerpo"></div>
+    </div>
+
+    <div class="periodo" role="group" aria-label="Período de los correos">
+      <span class="sub">Correos de los últimos</span>
+      <button data-dias="7" aria-pressed="false" onclick="cargarDashboard(7)">7 días</button>
+      <button data-dias="30" aria-pressed="true" onclick="cargarDashboard(30)">30 días</button>
+      <button data-dias="90" aria-pressed="false" onclick="cargarDashboard(90)">90 días</button>
+    </div>
+
+    <div class="dash-sec" id="dash-correos">
+      <h2 class="dash-t">Los correos <span id="info-dash-correos"></span></h2>
+      <div class="kpis" id="dash-kpis"></div>
+      <div class="card dash-graf">
+        <div class="dash-graf-h">
+          <div class="leyenda">
+            <span><i style="background:var(--s1)"></i>Enviados</span>
+            <span><i style="background:var(--s2)"></i>Abrieron</span>
+            <span><i style="background:var(--s3)"></i>Contestaron</span>
+          </div>
+          <button class="ghost sm" id="dash-ver-tabla" aria-expanded="false"
+                  onclick="verTablaDash()"><svg class="ic"><use href="#i-lista"/></svg>Ver como tabla</button>
+        </div>
+        <div id="dash-chart"></div>
+        <div id="dash-tabla" hidden></div>
+      </div>
+    </div>
+
+    <div class="dash-dos">
+      <div class="dash-sec" id="dash-embudo">
+        <h2 class="dash-t">El camino de una empresa <span id="info-dash-embudo"></span></h2>
+        <div class="card"><div class="body" id="dash-embudo-cuerpo"></div></div>
+      </div>
+      <div class="dash-sec" id="dash-seq">
+        <h2 class="dash-t">Secuencias <span id="info-dash-seq"></span></h2>
+        <div class="kpis kpis-2" id="dash-seq-cuerpo"></div>
+      </div>
+    </div>
+
+    <div class="dash-sec" id="dash-buzones">
+      <h2 class="dash-t">Buzones <span id="info-dash-buzones"></span></h2>
+      <div class="card"><div class="body" id="dash-buzones-cuerpo"></div></div>
+    </div>
+  </section>
+
+  <section class="panel" id="panel-contacts">
     <div class="pantalla-cab"><h1>Elegí a quién escribirle</h1><span id="info-contacts"></span></div>
     <div class="metrics" id="metrics"></div>
 

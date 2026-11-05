@@ -130,6 +130,7 @@ document.querySelectorAll('.step').forEach((t) => {
     document.body.dataset.panel = t.dataset.panel;
     if (t.dataset.panel === 'mail') irAPaso(PASO_CORREO);
     if (t.dataset.panel === 'contacts') requestAnimationFrame(medirBarras);
+    if (t.dataset.panel === 'dashboard') cargarDashboard(DASH_DIAS);
     if (t.dataset.panel === 'settings') volverAjustes();
     if (t.dataset.panel === 'enrich') refreshPending();
     // Los buzones cambian desde otra pantalla: se releen al entrar para que
@@ -604,6 +605,7 @@ function aplicarFunciones() {
   // Los pasos 4 y 5 del menú, la pestaña de buzones y la de salud del envío,
   // y el atajo a Correo de la barra de selección.
   const fuera = ['step-mail', 'step-results', 'aj-t-buzones', 'aj-t-salud', 'aj-t-horario',
+                 'dash-correos', 'dash-seq', 'dash-buzones', 'dash-periodo',
                  'selbar-mail', 'card-horario', 'card-secuencia'];
   for (const id of fuera) {
     const el = $(id);
@@ -3489,7 +3491,7 @@ async function refrescarActividad(pronto) {
   if (pronto) { ACT_TIMER = setTimeout(() => refrescarActividad(), 400); return; }
   let tareas = [];
   try {
-    tareas = (await (await fetch('/api/actividad')).json()).tareas || [];
+    tareas = (await (await fetch('/api/en-curso')).json()).tareas || [];
   } catch (e) { tareas = []; }
   const caja = $('actividad');
   if (caja) {
@@ -3529,6 +3531,18 @@ function ponerInfos() {
     'info-mail': 'Elegí qué mandar, revisalo y programalo. Salen de a poco, a horas '
       + 'irregulares, para no caer en spam.',
     'info-results': 'Quién abrió, quién tocó un enlace y quién contestó, campaña por campaña.',
+    'info-dashboard': 'Todo B2K de un vistazo. Tocá un número para ir a esa lista; pasá el '
+      + 'dedo o el mouse por el gráfico para ver cada día.',
+    'info-dash-base': 'Las empresas cargadas y cómo llegarles. Tocá una tarjeta y te lleva a '
+      + 'Contactos con ese filtro puesto.',
+    'info-dash-correos': 'Lo que salió en el período y qué pasó con esos correos. Cada empresa '
+      + 'cuenta una vez aunque abra cinco veces, y las aperturas de antivirus no cuentan. '
+      + 'Más del 5% de rebotes hace que Gmail empiece a desconfiar del dominio.',
+    'info-dash-embudo': 'Cuántas empresas llegan a cada paso, desde que se cargan hasta que '
+      + 'contestan. Es de siempre, no del período. Al lado, qué parte del paso anterior llegó.',
+    'info-dash-seq': 'Las secuencias de tres correos: cuántas siguen en curso y cómo terminaron '
+      + 'las demás.',
+    'info-dash-buzones': 'Cuánto mandó cada buzón en el período y cuántos le rebotaron.',
     'info-embudo': 'A dónde entran en Kommo las empresas que mandes. Es el valor de fábrica: '
       + 'en la ventana de «Mandar a Kommo» se puede cambiar para una tanda.',
     'info-correo': 'A quien ya se le escribió antes queda afuera. Las {{variables}} se '
@@ -3609,3 +3623,219 @@ function medirBarras() {
   const enTelefono = matchMedia('(max-width: 899px)').matches;
   raiz.setProperty('--act-h', act && !act.hidden && enTelefono ? `${act.offsetHeight + 8}px` : '0px');
 }
+
+/* ======================= Dashboard =======================
+   Todo B2K de un vistazo: la base (de siempre), los correos (del período), el
+   camino de una empresa, las secuencias y los buzones. Los gráficos son SVG
+   dibujados acá: tres series con colores validados contra el fondo oscuro. */
+let DASH_DIAS = 30;
+let DASH = null;
+
+async function cargarDashboard(dias) {
+  DASH_DIAS = [7, 30, 90].includes(+dias) ? +dias : 30;
+  document.querySelectorAll('.periodo button').forEach((b) =>
+    b.setAttribute('aria-pressed', String(+b.dataset.dias === DASH_DIAS)));
+  const [m, d] = await Promise.all([
+    fetch('/api/metrics').then((r) => r.json()),
+    fetch(`/api/dashboard?dias=${DASH_DIAS}`).then((r) => r.json())]);
+  DASH = d;
+  dashBase(m);
+  dashKpis(d);
+  dashGrafico(d.por_dia);
+  if (!$('dash-tabla').hidden) dashTabla(d.por_dia);
+  dashEmbudo(d.embudo);
+  dashSecuencias(d);
+  dashBuzones(d);
+}
+
+function dashBase(m) {
+  const total = m.total || 0;
+  const soloEmail = m.with_email - m.with_both;
+  const soloTel = m.with_phone - m.with_both;
+  const soloSw = m.only_switchboard || 0;
+  const sinDato = total - m.contactable;
+  const pct = (n) => (total ? (n / total) * 100 : 0).toFixed(2);
+  const leg = (cls, label, n, reach) => `<button onclick="applyReach('${reach}')">
+      <i class="sw ${cls}"></i>${label} <b>${n}</b></button>`;
+  const src = m.by_source || {};
+  const srcDefs = [['apollo', 'Archivo'], ['web', 'Sitio web'], ['prospeo', 'Prospeo'],
+                   ['hunter', 'Hunter']];
+  const srcTotal = srcDefs.reduce((a, [k]) => a + (src[k] || 0), 0);
+  $('dash-base-cuerpo').innerHTML = `
+    <div class="hero">
+      <div class="k">Contactables</div>
+      <div class="v">${m.contactable}</div>
+      <div class="n">${m.pct_contactable}% de ${total} tienen email o teléfono</div>
+      <div class="segbar" role="img" aria-label="${m.with_both} con email y celular, ${soloEmail}
+           solo email, ${soloTel} solo celular, ${soloSw} solo teléfono no directo, ${sinDato} sin dato">
+        <i class="seg-both" style="width:${pct(m.with_both)}%"></i>
+        <i class="seg-mail" style="width:${pct(soloEmail)}%"></i>
+        <i class="seg-tel" style="width:${pct(soloTel)}%"></i>
+        <i class="seg-sw" style="width:${pct(soloSw)}%"></i>
+      </div>
+      <div class="leg">
+        ${leg('seg-both', 'Email y celular', m.with_both, 'both')}
+        ${leg('seg-mail', 'Solo email', soloEmail, 'email')}
+        ${leg('seg-tel', 'Solo celular', soloTel, 'phone')}
+        ${soloSw ? leg('seg-sw', 'No directo', soloSw, 'switchboard') : ''}
+        ${sinDato ? leg('', 'Sin dato', sinDato, 'none') : ''}
+      </div>
+    </div>
+    <div class="tiles">
+      <button class="tile" onclick="applyReach('email')"><span class="k">Con email</span>
+        <span class="v">${m.with_email}</span><span class="n">${m.pct_with_email}% del total</span></button>
+      <button class="tile" onclick="applyReach('phone')"><span class="k">Con celular</span>
+        <span class="v">${m.with_phone}</span><span class="n">número directo</span></button>
+      <button class="tile" onclick="applyReach('whatsapp')"><span class="k">Con WhatsApp</span>
+        <span class="v">${m.with_whatsapp || 0}</span><span class="n">se les escribe directo</span></button>
+      <button class="tile" onclick="applyGhl('sent')"><span class="k">En Kommo</span>
+        <span class="v">${m.by_ghl.sent || 0}</span><span class="n">${(m.by_ghl.error || 0)
+          ? `${m.by_ghl.error} fallaron` : 'sin errores'}</span></button>
+      <button class="tile" onclick="applyStatus('pending')"><span class="k">Falta buscar</span>
+        <span class="v">${m.by_status.pending || 0}</span><span class="n">sin email todavía</span></button>
+      <div class="tile src"><span class="k" style="margin-bottom:9px">Quién encontró cada email</span>
+        ${srcTotal ? `<div class="srcbar">${srcDefs.map(([k]) => `<i class="src-${k}"
+          style="width:${(((src[k] || 0) / srcTotal) * 100).toFixed(2)}%"></i>`).join('')}</div>
+        <div class="srcleg">${srcDefs.map(([k, label]) =>
+          `<span><i class="sw dot src-${k}"></i>${label} <b>${src[k] || 0}</b></span>`).join('')}</div>`
+        : '<span class="n">Todavía no se buscó ningún email.</span>'}</div>
+    </div>`;
+}
+
+const tasa = (n, de) => (de ? `${Math.round((n / de) * 1000) / 10}%` : '—');
+
+function dashKpis(d) {
+  const c = d.correos;
+  const reb = c.enviados ? (c.rebotaron / c.enviados) * 100 : 0;
+  const estado = reb > 5 ? ['mal', 'alerta', 'Alto'] : reb > 2 ? ['ojo', 'alerta', 'Ojo'] : ['ok', 'chequeo', 'Bien'];
+  const kpi = (k, v, n, extra = '') => `<div class="kpi">
+      <span class="k">${k}</span><span class="v">${v}</span><span class="n">${n}${extra}</span></div>`;
+  $('dash-kpis').innerHTML =
+    kpi('Enviados', c.enviados, `${d.en_cola} en cola`)
+    + kpi('Abrieron', tasa(c.abrieron, c.enviados), `${c.abrieron} empresas`)
+    + kpi('Contestaron', tasa(c.respondieron, c.enviados), `${c.respondieron} empresas`)
+    + kpi('Rebotaron', tasa(c.rebotaron, c.enviados), `${c.rebotaron} correos`,
+          ` <span class="estado ${estado[0]}">${icono(estado[1])}${estado[2]}</span>`)
+    + kpi('Se dieron de baja', c.bajas, 'en el período');
+}
+
+const SERIES = [['enviados', 'Enviados', 'var(--s1)'], ['abrieron', 'Abrieron', 'var(--s2)'],
+                ['respondieron', 'Contestaron', 'var(--s3)']];
+const fechaCorta = (iso) => `${iso.slice(8, 10)}/${iso.slice(5, 7)}`;
+
+function dashGrafico(dias) {
+  const caja = $('dash-chart');
+  const W = Math.max(280, caja.clientWidth || 600);
+  const H = 220, izq = 34, der = 12, arr = 14, abj = 26;
+  const ancho = W - izq - der, alto = H - arr - abj;
+  // El tope se redondea a par para que la marca del medio sea un número entero.
+  const max = Math.ceil(Math.max(4, ...dias.flatMap((d) => SERIES.map(([k]) => d[k]))) / 2) * 2;
+  const paso = ancho / Math.max(1, dias.length - 1);
+  const x = (i) => izq + (dias.length === 1 ? ancho / 2 : i * paso);
+  const y = (v) => arr + alto - (v / max) * alto;
+  const marcas = [0, Math.round(max / 2), max];
+  const linea = (k) => dias.map((d, i) => `${i ? 'L' : 'M'}${x(i).toFixed(1)},${y(d[k]).toFixed(1)}`).join('');
+  const etiquetas = [0, Math.floor((dias.length - 1) / 2), dias.length - 1]
+    .filter((v, i, a) => a.indexOf(v) === i);
+  caja.innerHTML = `<svg viewBox="0 0 ${W} ${H}" width="100%" height="${H}" role="img"
+      aria-label="Correos por día: enviados, abrieron y contestaron">
+    ${marcas.map((v) => `<line x1="${izq}" x2="${W - der}" y1="${y(v)}" y2="${y(v)}" class="g-grid"/>
+      <text x="${izq - 6}" y="${y(v) + 4}" class="g-eje" text-anchor="end">${v}</text>`).join('')}
+    ${etiquetas.map((i) => `<text x="${x(i)}" y="${H - 6}" class="g-eje"
+      text-anchor="${i === 0 ? 'start' : i === dias.length - 1 ? 'end' : 'middle'}">${fechaCorta(dias[i].dia)}</text>`).join('')}
+    ${SERIES.map(([k, , col]) => `<path d="${linea(k)}" fill="none" stroke="${col}" stroke-width="2"
+      stroke-linejoin="round" stroke-linecap="round"/>`).join('')}
+    <line id="dash-cruz" class="g-cruz" y1="${arr}" y2="${arr + alto}" x1="-10" x2="-10"/>
+    ${SERIES.map(([k, , col]) => `<circle class="g-punto" data-s="${k}" r="4.5" cx="-10" cy="-10"
+      fill="${col}" stroke="var(--surface)" stroke-width="2"/>`).join('')}
+    ${dias.map((d, i) => `<rect data-dia="${i}" x="${x(i) - paso / 2}" y="${arr}" width="${Math.max(paso, 8)}"
+      height="${alto}" fill="transparent"/>`).join('')}
+  </svg><div class="g-tip" id="dash-tip" hidden></div>`;
+  const svg = caja.querySelector('svg');
+  const tip = $('dash-tip');
+  const mostrar = (i) => {
+    const d = dias[i];
+    const cx = x(i);
+    svg.querySelector('#dash-cruz').setAttribute('x1', cx);
+    svg.querySelector('#dash-cruz').setAttribute('x2', cx);
+    SERIES.forEach(([k]) => {
+      const p = svg.querySelector(`.g-punto[data-s="${k}"]`);
+      p.setAttribute('cx', cx); p.setAttribute('cy', y(d[k]));
+    });
+    tip.innerHTML = `<b>${fechaCorta(d.dia)}</b>${SERIES.map(([k, label, col]) =>
+      `<span><i style="background:${col}"></i>${label}<b>${d[k]}</b></span>`).join('')}`;
+    tip.hidden = false;
+    const escala = svg.getBoundingClientRect().width / W;
+    const izqTip = Math.min(Math.max(0, cx * escala - tip.offsetWidth / 2),
+                            svg.getBoundingClientRect().width - tip.offsetWidth);
+    tip.style.left = `${izqTip}px`;
+  };
+  svg.querySelectorAll('rect[data-dia]').forEach((r) => {
+    r.addEventListener('mouseenter', () => mostrar(+r.dataset.dia));
+    r.addEventListener('touchstart', () => mostrar(+r.dataset.dia), { passive: true });
+  });
+  svg.addEventListener('mouseleave', () => {
+    tip.hidden = true;
+    svg.querySelector('#dash-cruz').setAttribute('x1', -10);
+    svg.querySelector('#dash-cruz').setAttribute('x2', -10);
+    svg.querySelectorAll('.g-punto').forEach((p) => { p.setAttribute('cx', -10); });
+  });
+}
+
+function verTablaDash() {
+  const abierta = $('dash-tabla').hidden;
+  $('dash-tabla').hidden = !abierta;
+  $('dash-ver-tabla').setAttribute('aria-expanded', String(abierta));
+  if (abierta && DASH) dashTabla(DASH.por_dia);
+}
+
+function dashTabla(dias) {
+  $('dash-tabla').innerHTML = `<div class="tbl-scroll"><table>
+    <thead><tr><th>Día</th>${SERIES.map(([, l]) => `<th>${l}</th>`).join('')}</tr></thead>
+    <tbody>${dias.slice().reverse().map((d) => `<tr><td>${fechaCorta(d.dia)}</td>${
+      SERIES.map(([k]) => `<td>${d[k]}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
+}
+
+function dashEmbudo(pasos) {
+  const ir = { con_email: "applyReach('email')", en_kommo: "applyGhl('sent')",
+               contactos: "applyReach('')" };
+  const max = Math.max(1, ...pasos.map((p) => p.n));
+  const visibles = CORREOS ? pasos : pasos.filter((p) => ['contactos', 'con_email', 'en_kommo'].includes(p.clave));
+  $('dash-embudo-cuerpo').innerHTML = visibles.map((p, i) => {
+    const previo = i ? visibles[i - 1].n : null;
+    const cuerpo = `<span class="emb-l">${p.nombre}</span>
+      <span class="emb-barra"><i style="width:${Math.max(p.n ? 2 : 0, (p.n / max) * 100)}%"></i></span>
+      <span class="emb-v"><b>${p.n}</b>${previo !== null ? `<small>${tasa(p.n, previo)}</small>` : ''}</span>`;
+    return ir[p.clave]
+      ? `<button class="emb-fila" onclick="${ir[p.clave]}">${cuerpo}</button>`
+      : `<div class="emb-fila">${cuerpo}</div>`;
+  }).join('');
+}
+
+function dashSecuencias(d) {
+  const s = d.secuencias, p = d.en_paso || {};
+  const kpi = (k, v, n) => `<div class="kpi"><span class="k">${k}</span><span class="v">${v}</span>
+    <span class="n">${n}</span></div>`;
+  $('dash-seq-cuerpo').innerHTML =
+    kpi('En curso', s.activa || 0, `${p[1] || 0} esperan el 2 · ${p[2] || 0} el 3`)
+    + kpi('Contestaron', s.respondio || 0, 'pasaron a IA conversando')
+    + kpi('Sin respuesta', s.sin_respuesta || 0, 'pasaron a No interesado')
+    + kpi('Cortadas', s.cortada || 0, 'rebote, baja o el equipo');
+}
+
+function dashBuzones(d) {
+  const filas = d.por_buzon || [];
+  $('dash-buzones-cuerpo').innerHTML = filas.length ? `<div class="dash-buz"><table>
+    <thead><tr><th>Buzón</th><th>Enviados</th><th>Rebotes</th></tr></thead>
+    <tbody>${filas.map((b) => {
+      const r = b.enviados ? (b.rebotes / b.enviados) * 100 : 0;
+      const e = !b.active ? ['', 'cruz', 'pausado'] : r > 5 ? ['mal', 'alerta', tasa(b.rebotes, b.enviados)]
+        : r > 2 ? ['ojo', 'alerta', tasa(b.rebotes, b.enviados)] : ['ok', 'chequeo', tasa(b.rebotes, b.enviados)];
+      return `<tr><td>${esc(b.from_email || b.nombre)}</td><td>${b.enviados}</td>
+        <td><span class="estado ${e[0]}">${icono(e[1])}${e[2]}</span></td></tr>`;
+    }).join('')}</tbody></table></div>` : '<p class="sub">Todavía no hay buzones.</p>';
+}
+
+window.addEventListener('resize', () => { if (DASH && $('panel-dashboard').classList.contains('active')) dashGrafico(DASH.por_dia); });
+document.body.dataset.panel = (document.querySelector('.step.active') || {}).dataset?.panel || 'dashboard';
+cargarDashboard(30);

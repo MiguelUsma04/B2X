@@ -1228,3 +1228,60 @@ body[data-panel]:not([data-panel="contacts"]) .selbar{display:none}
 .zona-cuidado[open]{padding-bottom:14px}
 .zona-cuidado .card{margin-top:10px}
 .aj-fila .aj{justify-content:start;align-content:start}
+
+/* ======================= Dashboard =======================
+   Tres series validadas contra el fondo oscuro (azul, naranja, aqua de la
+   paleta de referencia): pasan banda de luz, croma, daltonismo y contraste. */
+:root{--s1:#3987e5;--s2:#d95926;--s3:#199e70}
+.dash-sec{margin-bottom:22px}
+.dash-t{display:flex;align-items:center;gap:4px;margin:0 0 10px;font-size:16px;font-weight:700}
+.periodo{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin:4px 0 14px}
+.periodo button{min-height:36px;padding:6px 14px;border-radius:999px;border:1px solid var(--line);
+  background:var(--surface);color:var(--ink-2);font:600 13px var(--sans);cursor:pointer}
+.periodo button[aria-pressed="true"]{border-color:var(--brand);color:var(--ink);background:var(--brand-soft)}
+.periodo button:focus-visible{outline:none;box-shadow:var(--ring)}
+.kpis{display:grid;gap:10px;grid-template-columns:repeat(2,minmax(0,1fr));margin-bottom:12px}
+@media (min-width:900px){.kpis{grid-template-columns:repeat(5,minmax(0,1fr))}.kpis-2{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.kpi{display:grid;gap:2px;padding:14px;border-radius:var(--r);background:var(--surface);border:1px solid var(--line)}
+.kpi .k{font-size:12px;font-weight:600;color:var(--ink-3)}
+.kpi .v{font-size:26px;font-weight:700;letter-spacing:-.02em;color:var(--ink);font-variant-numeric:tabular-nums}
+.kpi .n{font-size:12.5px;color:var(--ink-3);display:flex;flex-wrap:wrap;align-items:center;gap:6px}
+.estado{display:inline-flex;align-items:center;gap:4px;font-size:12px;font-weight:600;color:var(--ink-2)}
+.estado .ic{width:13px;height:13px}
+.estado.ok .ic{color:var(--ok)} .estado.ojo .ic{color:var(--warn)} .estado.mal .ic{color:var(--danger)}
+.dash-graf{padding:14px;position:relative}
+.dash-graf-h{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px}
+.leyenda{display:flex;flex-wrap:wrap;gap:12px;font-size:12.5px;color:var(--ink-2)}
+.leyenda i,.g-tip i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:6px;vertical-align:-1px}
+#dash-ver-tabla .ic{width:15px;height:15px;margin-right:6px;vertical-align:-3px}
+#dash-chart{position:relative}
+#dash-chart svg{display:block;overflow:visible}
+.g-grid{stroke:var(--line);stroke-width:1}
+.g-eje{fill:var(--ink-3);font:500 11px var(--sans)}
+.g-cruz{stroke:var(--line-strong);stroke-width:1}
+.g-tip{position:absolute;top:0;z-index:5;display:grid;gap:4px;min-width:150px;padding:9px 11px;
+  border-radius:var(--r-sm);background:var(--surface-3);border:1px solid var(--line-strong);
+  box-shadow:var(--shadow-lg);font-size:12.5px;color:var(--ink-2);pointer-events:none}
+.g-tip span{display:flex;align-items:center}
+.g-tip span b{margin-left:auto;padding-left:12px;color:var(--ink)}
+#dash-tabla table{width:100%}
+.dash-dos{display:grid;gap:0 18px}
+@media (min-width:1100px){.dash-dos{grid-template-columns:1.3fr 1fr}}
+.emb-fila{display:grid;grid-template-columns:minmax(110px,1fr) minmax(80px,2fr) auto;align-items:center;
+  gap:10px;width:100%;min-height:40px;padding:4px 6px;border:0;border-radius:var(--r-xs);background:none;
+  color:var(--ink);font:500 13.5px var(--sans);text-align:left}
+button.emb-fila{cursor:pointer}
+button.emb-fila:hover{background:var(--surface-2)}
+.emb-barra{height:12px;border-radius:4px;background:var(--surface-3);overflow:hidden}
+.emb-barra i{display:block;height:100%;border-radius:4px;background:var(--s1)}
+.emb-v{display:flex;align-items:baseline;gap:6px;min-width:70px;justify-content:flex-end}
+.emb-v small{color:var(--ink-3);font-size:11.5px}
+@media (max-width:560px){.emb-fila{grid-template-columns:1fr auto}.emb-barra{grid-column:1/-1;order:3}}
+/* Los buzones del dashboard: tabla chica que entra en el teléfono, con la
+   dirección partida si hace falta. */
+.dash-buz table{width:100%;table-layout:fixed;border-collapse:collapse;font-size:13.5px}
+.dash-buz th,.dash-buz td{padding:9px 6px;text-align:left;border-bottom:1px solid var(--line)}
+.dash-buz th{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-3)}
+.dash-buz th:nth-child(2),.dash-buz td:nth-child(2){width:78px;text-align:right}
+.dash-buz th:nth-child(3),.dash-buz td:nth-child(3){width:92px}
+.dash-buz td:first-child{overflow-wrap:anywhere}

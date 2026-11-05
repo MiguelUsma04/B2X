@@ -47,6 +47,7 @@ from . import (ai, auth, dnscheck, duplicados, enrichment, exportar,  # noqa: E4
                ghl, kommo, mailer, places, redactor, respaldo)
 from . import secuencia as secuencia_mod  # noqa: E402
 from . import actividad                  # noqa: E402
+from . import tablero                    # noqa: E402
 from .providers import build_chain       # noqa: E402
 
 app = FastAPI(title="B2K", docs_url="/api/docs")
@@ -1173,9 +1174,19 @@ async def api_mail_borrador_probar(request: Request, contact_id: int,
     return {**r, "to": destino}
 
 
-@app.get("/api/actividad")
-def api_actividad():
-    """Lo que está corriendo en segundo plano, para la barra de actividad."""
+@app.get("/api/dashboard")
+def api_dashboard(dias: str = "30"):
+    """Cómo va toda la app en el período: correos, embudo, secuencias, buzones."""
+    return tablero.datos(dias)
+
+
+@app.get("/api/en-curso")
+def api_en_curso():
+    """Lo que está corriendo en segundo plano, para la barra de actividad.
+
+    No es /api/actividad: esa es el «Quién hizo qué» de Ajustes → Historial, y
+    una ruta repetida tapa a la otra sin avisar.
+    """
     return {"tareas": actividad.ahora()}
 
 
