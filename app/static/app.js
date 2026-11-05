@@ -316,17 +316,19 @@ async function cargarMetricas(cual) {
       ${esc(c.subject || c.name || 'Envío ' + c.id)} · ${cuando(c.created_at)}
     </option>`).join('');
 
-  // Sin diseño HTML no hay pixel ni enlaces que desviar, y sin dirección
-  // pública los enlaces del correo no llevarían a ningún lado.
+  // Hoy se miden todos los correos, también los de la IA y los de texto. Un
+  // envío sin medir es uno viejo, de antes de eso, o uno sin dirección
+  // pública: sin ella los enlaces del correo no llevarían a ningún lado.
   $('res-aviso').innerHTML = m.medible
     ? `<p class="help">Las aperturas son una estimación: quien lee con las
        imágenes apagadas no aparece, y algunos programas las cuentan solas.
-       <b>El clic sí es un hecho.</b></p>`
+       <b>El clic sí es un hecho.</b> Las respuestas se cuentan siempre.</p>`
     : `<div class="alert warn">Este envío no se midió.
        ${!d.base ? 'B2K necesita una dirección pública de internet para servir el '
                  + 'rastreo; en esta máquina no la tiene.'
-                 : 'Se mandó en texto plano: para medir aperturas y clics el '
-                 + 'correo tiene que ir en <b>Diseño HTML</b>.'}</div>`;
+                 : 'Salió antes de que B2K midiera los correos de texto y de la IA. '
+                 + 'Los envíos de ahora en adelante se miden todos. Las respuestas '
+                 + 'sí se cuentan.'}</div>`;
 
   const t = (k, v, n, cls) => `
     <div class="tile ${cls || ''}"><span class="k">${k}</span>

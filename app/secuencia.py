@@ -566,18 +566,22 @@ def _encolar(s: dict, n: int, raiz, cfg: dict, ahora: datetime, mailer) -> None:
         cuerpo = mailer.render(s.get(f"cuerpo{n}") or cfg.get(f"cuerpo{n}") or "",
                                contacto)
         marca = secrets.token_urlsafe(16)
+        cuerpo_html = None
         if raiz["track_base"]:
             cuerpo += mailer._pie_de_baja(raiz["track_base"], marca, html=False)
+            # Como el correo 1: su versión HTML lleva el pixel, para medirlo.
+            cuerpo_html = mailer.marcar_html(mailer.texto_a_html(cuerpo),
+                                             raiz["track_base"], marca)
         asunto = s["asunto"] or raiz["subject"] or ""
         if not asunto.lower().startswith(("re:", "re :")):
             asunto = "Re: " + asunto
         conn.execute(
             """INSERT OR IGNORE INTO email_queue
-                 (campaign_id, contact_id, email, subject, body, token,
+                 (campaign_id, contact_id, email, subject, body, body_html, token,
                   send_after, buzon_fijo, responde_a)
-               VALUES (?,?,?,?,?,?,?,?,?)""",
-            (hija_id, s["contact_id"], contacto["email"], asunto, cuerpo, marca,
-             _iso(ahora), s["buzon"], s["hilo"]))
+               VALUES (?,?,?,?,?,?,?,?,?,?)""",
+            (hija_id, s["contact_id"], contacto["email"], asunto, cuerpo, cuerpo_html,
+             marca, _iso(ahora), s["buzon"], s["hilo"]))
         conn.execute("UPDATE secuencias SET motivo=NULL WHERE id=?", (s["id"],))
 
 

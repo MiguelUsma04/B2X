@@ -843,14 +843,17 @@ def _pie_de_baja(base: str, token: str, html: bool) -> str:
 def texto_a_html(texto: str) -> str:
     """El mismo correo en HTML sencillo: sus párrafos, y la baja como enlace.
 
-    Solo para que el enlace de baja sea un texto clickeable: no agrega diseño,
-    imágenes ni rastreo. «aquí: <dirección>» pasa a ser «aquí» con el enlace.
+    No agrega diseño ni imágenes. «aquí: <dirección>» pasa a ser «aquí» con el
+    enlace, y cualquier otra dirección escrita queda como enlace: así, al
+    pasar por marcar_html, el clic se puede contar.
     """
     partes = []
     for bloque in re.split(r"\n\s*\n", (texto or "").strip()):
         b = _html.escape(bloque.strip()).replace("\n", "<br>")
         b = re.sub(r"aquí:\s*(https?://\S+)",
                    lambda m: f'<a href="{m.group(1)}" style="color:#888">aquí</a>', b)
+        b = re.sub(r'(?<!href=")https?://[^\s<]*[^\s<.,;:!?)»]',
+                   lambda m: f'<a href="{m.group(0)}">{m.group(0)}</a>', b)
         if b.startswith("—"):
             b = b[1:].removeprefix("<br>").strip()
             partes.append('<p style="margin-top:28px;padding-top:12px;border-top:1px '
@@ -1361,6 +1364,11 @@ def crear_campania(nombre: str, asunto: str, cuerpo: str, contactos: list[dict],
                 texto += _pie_de_baja(base_rastreo, marca, html=False)
                 if html_armado:
                     html_armado += _pie_de_baja(base_rastreo, marca, html=True)
+                else:
+                    # Sin diseño (la IA, el texto): igual se arma su versión
+                    # HTML, que es donde viven el pixel y los enlaces medibles.
+                    # El texto plano queda como está.
+                    html_armado = texto_a_html(texto)
             if html_armado and base_rastreo:
                 html_armado = marcar_html(html_armado, base_rastreo, marca)
             filas.append((campania, c["id"], c["email"], render(asunto_suyo, c),
