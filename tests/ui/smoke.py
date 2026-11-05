@@ -51,11 +51,11 @@ def base(pg, donde):
     texto_menu = pg.inner_text("nav.steps")
     ver(not EMOJI.search(texto_menu), "el menú no tiene emojis", donde)
     pasos = pg.locator("nav.steps .step")
-    con_icono = pg.locator("nav.steps .step svg.ic").count()
+    con_icono = pg.locator("nav.steps .step .ico svg.ic").count()
     ver(pasos.count() > 0 and con_icono == pasos.count(),
         f"cada sección del menú tiene su ícono ({con_icono}/{pasos.count()})", donde)
 
-    info = pg.locator(".info:visible").first
+    info = pg.locator(".info-btn:visible").first
     ver(info.count() == 1, "hay al menos un ⓘ en la pantalla", donde)
     if info.count():
         info.click()
@@ -69,7 +69,63 @@ def base(pg, donde):
     sin_desborde(pg, donde, "Contactos")
 
 
-GRUPOS = {"base": base}
+def ir(pg, panel):
+    pg.click(f".step[data-panel={panel}]")
+    pg.wait_for_timeout(500)
+
+
+def general(pg, donde):
+    """Task 2: títulos que dicen qué hacer, métricas solo en Contactos, ✓."""
+    ir(pg, "contacts")
+    ver(pg.locator("#metrics").is_visible(), "métricas visibles en Contactos", donde)
+    ver(pg.locator("#metrics .metr").count() == 1, "métricas como una fila de pastillas", donde)
+    for panel in ("mail", "results", "settings"):
+        ir(pg, panel)
+        ver(not pg.locator("#metrics").is_visible(), f"sin métricas en {panel}", donde)
+    for panel in ("import", "enrich", "contacts", "mail", "results", "settings"):
+        ir(pg, panel)
+        cab = pg.locator(f"#panel-{panel} .pantalla-cab").first
+        ver(cab.count() == 1 and cab.locator("h1").is_visible(),
+            f"{panel}: abre con un título", donde)
+        if panel != "settings":
+            ver(cab.locator(".info-btn").count() == 1, f"{panel}: el título tiene su ⓘ", donde)
+    for panel in ("import", "enrich", "results"):
+        ir(pg, panel)
+        largos = pg.evaluate(f"""() => [...document.querySelectorAll(
+            '#panel-{panel} .lede, #panel-{panel} p.help')].filter(p =>
+            p.offsetParent && !p.closest('.pop') && p.textContent.trim().length > 140).length""")
+        ver(largos == 0, f"{panel}: sin párrafos largos a la vista ({largos})", donde)
+    ir(pg, "enrich")
+    angostos = pg.evaluate("""() => [...document.querySelectorAll('.alert')].filter(a =>
+        a.offsetParent && a.getBoundingClientRect().width < 120).length""")
+    ver(angostos == 0, f"ningún aviso queda encogido ({angostos})", donde)
+    ir(pg, "contacts")
+    cab = pg.locator("#panel-contacts .pantalla-cab").bounding_box()
+    met = pg.locator("#metrics").bounding_box()
+    ver(cab and met and met["y"] > cab["y"], "las pastillas van debajo del título", donde)
+    ir(pg, "mail")
+    primero = pg.locator("#panel-mail .pasos, #mail-subject").first.bounding_box()
+    ver(primero is not None and primero["y"] < TAMANOS[donde]["height"],
+        "Correos: lo primero que se hace está en la primera pantalla", donde)
+    ir(pg, "import")
+    ver(pg.locator(".step[data-panel=import] .hecho").count() == 1,
+        "Cargar lleva ✓ (hay contactos)", donde)
+    ver(pg.locator(".step[data-panel=results] .hecho").count() == 0,
+        "Resultados nunca lleva ✓", donde)
+    # RF 1: con los correos apagados no queda nada que lleve a Correos.
+    pg.evaluate("""async () => { const f = new FormData(); f.append('correos', '0');
+        await fetch('/api/funciones', {method: 'POST', body: f}); }""")
+    pg.reload(); pg.wait_for_timeout(1200)
+    for panel in ("mail", "results"):
+        ver(not pg.locator(f".step[data-panel={panel}]").is_visible(),
+            f"correos apagados: no se ve el paso {panel}", donde)
+    pg.evaluate("""async () => { const f = new FormData(); f.append('correos', '1');
+        await fetch('/api/funciones', {method: 'POST', body: f}); }""")
+    pg.reload(); pg.wait_for_timeout(1200)
+    sin_desborde(pg, donde, "después de recorrer")
+
+
+GRUPOS = {"base": base, "general": general}
 
 
 def main():

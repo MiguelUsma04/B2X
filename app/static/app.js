@@ -118,6 +118,9 @@ document.querySelectorAll('.step').forEach((t) => {
     t.classList.add('active');
     t.setAttribute('aria-current', 'page');
     $('panel-' + t.dataset.panel).classList.add('active');
+    // Los números grandes son de la lista: en las otras pantallas empujaban
+    // la tarea hacia abajo, y en el teléfono la sacaban de la vista.
+    $('metrics').hidden = t.dataset.panel !== 'contacts';
     if (t.dataset.panel === 'enrich') refreshPending();
     // Los buzones cambian desde otra pantalla: se releen al entrar para que
     // el estimado y el botón de enviar reflejen lo que hay ahora.
@@ -387,68 +390,24 @@ async function loadMetrics() {
                    ['hunter', 'Hunter']];
   const srcTotal = srcDefs.reduce((a, [k]) => a + (src[k] || 0), 0);
 
-  $('metrics').innerHTML = `
-    <div class="hero">
-      <div class="k">Contactables</div>
-      <div class="v" data-count="${m.contactable}" data-key="contactable">0</div>
-      <div class="n">${m.pct_contactable}% de ${total} tienen email o teléfono</div>
-      <div class="segbar" role="img"
-           aria-label="${m.with_both} con email y celular, ${soloEmail} solo email,
-                       ${soloTel} solo celular, ${soloSw} solo teléfono no directo,
-                       ${sinDato} sin ningún dato">
-        <i class="seg-both" style="width:${pct(m.with_both)}%"></i>
-        <i class="seg-mail" style="width:${pct(soloEmail)}%"></i>
-        <i class="seg-tel"  style="width:${pct(soloTel)}%"></i>
-        <i class="seg-sw"   style="width:${pct(soloSw)}%"></i>
-      </div>
-      <div class="leg">
-        ${leg('seg-both', 'Email y celular', m.with_both, 'both')}
-        ${leg('seg-mail', 'Solo email', soloEmail, 'email')}
-        ${leg('seg-tel', 'Solo celular', soloTel, 'phone')}
-        ${soloSw ? leg('seg-sw', 'No directo', soloSw, 'switchboard') : ''}
-        ${sinDato ? leg('', 'Sin dato', sinDato, 'none') : ''}
-      </div>
-    </div>
-
-    <div class="tiles">
-        <button class="tile" onclick="applyReach('email')">
-          <span class="k">Con email</span>
-          <span class="v" data-count="${m.with_email}" data-key="email">0</span>
-          <span class="n">${m.pct_with_email}% del total</span>
-        </button>
-        <button class="tile" onclick="applyReach('phone')">
-          <span class="k">Con celular</span>
-          <span class="v" data-count="${m.with_phone}" data-key="phone">0</span>
-          <span class="n">${m.mobile_available
-            ? `${m.mobile_available} más por desbloquear` : 'número directo'}</span>
-        </button>
-        <button class="tile" onclick="applyReach('whatsapp')">
-          <span class="k">Con WhatsApp</span>
-          <span class="v" data-count="${m.with_whatsapp || 0}"
-                data-key="wa">0</span>
-          <span class="n">se les escribe directo</span></button>
-        <button class="tile" onclick="applyGhl('sent')">
-          <span class="k">En el CRM</span>
-          <span class="v" data-count="${m.by_ghl.sent || 0}" data-key="crm">0</span>
-          <span class="n">${(m.by_ghl.error || 0)
-            ? `${m.by_ghl.error} fallaron` : 'sin errores'}</span>
-        </button>
-        <button class="tile" onclick="applyStatus('pending')">
-          <span class="k">Falta buscar</span>
-          <span class="v" data-count="${m.by_status.pending || 0}" data-key="pend">0</span>
-          <span class="n">sin email todavía</span>
-        </button>
-      <div class="tile src">
-        <span class="k" style="margin-bottom:9px">Quién encontró cada email</span>
-        ${srcTotal ? `<div class="srcbar">
-          ${srcDefs.map(([k]) => `<i class="src-${k}"
-            style="width:${(((src[k] || 0) / srcTotal) * 100).toFixed(2)}%"></i>`).join('')}
-        </div>
-        <div class="srcleg">${srcDefs.map(([k, label]) =>
-          `<span><i class="sw dot src-${k}"></i>${label} <b>${src[k] || 0}</b></span>`).join('')}
-        </div>` : '<span class="n">Todavía no se buscó ningún email.</span>'}
-      </div>
-    </div>`;
+  const pastilla = (n, label, accion) =>
+    `<button class="pastilla" onclick="${accion}"><b>${n}</b>${label}</button>`;
+  const desglose = `<b>${m.contactable}</b> de ${total} tienen email o teléfono:
+    ${m.with_both} con los dos, ${soloEmail} solo email, ${soloTel} solo celular${
+    soloSw ? `, ${soloSw} solo un teléfono no directo` : ''}${sinDato ? `, ${sinDato} sin ningún dato` : ''}.
+    ${srcTotal ? `<br><br>Quién encontró cada email: ${srcDefs.map(([k, label]) =>
+      `${label} ${src[k] || 0}`).join(' · ')}.` : ''}
+    <br><br>Tocá una pastilla para ver solo esos.`;
+  $('metrics').innerHTML = `<div class="metr">
+    ${pastilla(m.contactable, 'contactables', "applyReach('')")}
+    ${pastilla(m.with_email, 'con email', "applyReach('email')")}
+    ${pastilla(m.with_phone, 'con celular', "applyReach('phone')")}
+    ${pastilla(m.with_whatsapp || 0, 'con WhatsApp', "applyReach('whatsapp')")}
+    ${pastilla(m.by_ghl.sent || 0, 'en Kommo', "applyGhl('sent')")}
+    ${(m.by_ghl.error || 0) ? pastilla(m.by_ghl.error, 'fallaron en Kommo', "applyGhl('error')") : ''}
+    ${(m.by_status.pending || 0) ? pastilla(m.by_status.pending, 'falta buscar', "applyStatus('pending')") : ''}
+    ${info(desglose)}</div>`;
+  marcarPasosHechos(m, srcTotal);
   animateCounts($('metrics'));
 
   const opts = '<option value="">Todas</option>' + m.batches.map((b) =>
@@ -3390,7 +3349,63 @@ function ponerInfos() {
   const textos = {
     'info-contactos': 'Marcá las empresas con la casilla. Con los marcados elegís abajo: '
       + '<b>Escribirles</b> o <b>Mandar a Kommo</b>.',
+    'info-import': 'Buscá negocios en Google Maps por rubro y ciudad, o subí un CSV. '
+      + 'Los repetidos se descartan solos.',
+    'info-enrich': 'B2K busca el email de las empresas que no lo tienen: primero en su '
+      + 'sitio, que es gratis, y después en los proveedores, que cobran por cada uno.',
+    'info-contacts': 'Acá están todas las empresas. Marcá las que quieras y elegí qué '
+      + 'hacer con ellas en la barra de abajo. Las pastillas filtran la lista.',
+    'info-mail': 'Elegí qué mandar, revisalo y programalo. Salen de a poco, a horas '
+      + 'irregulares, para no caer en spam.',
+    'info-results': 'Quién abrió, quién tocó un enlace y quién contestó, campaña por campaña.',
   };
   Object.entries(textos).forEach(([id, t]) => { const el = $(id); if (el) el.innerHTML = info(t); });
 }
 ponerInfos();
+parrafosAInfo(['import', 'enrich', 'results']);
+
+/* El ✓ del menú: qué pasos ya se hicieron. Resultados y Ajustes no son
+   pasos que se terminan, así que nunca lo llevan. */
+async function marcarPasosHechos(m, encontrados) {
+  const hechos = {
+    import: (m.total || 0) > 0,
+    enrich: (m.total || 0) > 0 && ((m.by_status.pending || 0) === 0 || encontrados > 0),
+    contacts: (m.by_ghl.sent || 0) > 0,
+    mail: false,
+  };
+  if (CORREOS) {
+    try {
+      const d = await (await fetch('/api/mail/status')).json();
+      hechos.mail = !!d.campaign;
+    } catch (e) { hechos.mail = false; }
+  }
+  document.querySelectorAll('nav.steps .step').forEach((paso) => {
+    const viejo = paso.querySelector('.hecho');
+    if (viejo) viejo.remove();
+    if (hechos[paso.dataset.panel]) {
+      paso.insertAdjacentHTML('beforeend',
+        `<span class="hecho" aria-label="hecho">${icono('chequeo')}</span>`);
+    }
+  });
+}
+
+/* Los párrafos que explicaban cada tarjeta pasan a su ⓘ: la pantalla dice
+   qué hacer, y el porqué queda a un toque. Los que tienen id los llena el
+   código con datos vivos, y esos se quedan a la vista. */
+function parrafosAInfo(paneles) {
+  paneles.forEach((panel) => {
+    document.querySelectorAll(`#panel-${panel} .card`).forEach((card) => {
+      const h2 = card.querySelector('h2');
+      if (!h2) return;
+      const largos = [...card.querySelectorAll('.lede, p.help')].filter((p) =>
+        !p.id && !p.closest('.pop') && p.textContent.trim().length > 140);
+      if (!largos.length) return;
+      const texto = largos.map((p) => p.innerHTML.trim()).join('<br><br>');
+      largos.forEach((p) => p.remove());
+      const hint = h2.querySelector('.hint');
+      const lugar = document.createElement('span');
+      lugar.innerHTML = info(texto);
+      (hint || h2.firstChild).after(lugar.firstElementChild);
+    });
+  });
+}

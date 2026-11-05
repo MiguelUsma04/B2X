@@ -61,7 +61,7 @@ function icono(nombre, clase = '') {
 /* ⓘ: la explicación que no hace falta leer para usar la pantalla. Se abre
    al tocarlo y se cierra con Escape o tocando afuera. */
 function info(textoHtml) {
-  return `<button type="button" class="info" aria-expanded="false"
+  return `<button type="button" class="info-btn" aria-expanded="false"
     aria-label="Más información">${icono('info')}<span class="pop" role="tooltip">${textoHtml}</span></button>`;
 }
 
@@ -76,14 +76,14 @@ function menuMas(items) {
 }
 
 function cerrarDesplegables(salvo) {
-  document.querySelectorAll('.info[aria-expanded="true"], .mas-btn[aria-expanded="true"]')
+  document.querySelectorAll('.info-btn[aria-expanded="true"], .mas-btn[aria-expanded="true"]')
     .forEach((b) => { if (b !== salvo) b.setAttribute('aria-expanded', 'false'); });
 }
 
 /* Un solo manejador para toda la página: sirve también para los ⓘ y ⋯ que
    se dibujan después, cuando la lista o la actividad se vuelven a pintar. */
 document.addEventListener('click', (e) => {
-  const boton = e.target.closest('.info, .mas-btn');
+  const boton = e.target.closest('.info-btn, .mas-btn');
   if (boton && !e.target.closest('.pop')) {
     e.preventDefault();
     e.stopPropagation();

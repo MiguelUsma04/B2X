@@ -1031,20 +1031,20 @@ pre{font-family:var(--mono);font-size:12px;background:var(--surface-2);
    falta para usar la pantalla; el ⋯, lo que se usa poco y lo peligroso. */
 .ic{width:18px;height:18px;flex:none;vertical-align:-3px}
 .step .ico .ic{width:18px;height:18px}
-.info{position:relative;display:inline-grid;place-items:center;width:28px;height:28px;
+.info-btn{position:relative;display:inline-grid;place-items:center;width:28px;height:28px;
   margin:-4px 0;padding:0;border:0;border-radius:50%;background:none;color:var(--ink-3);
   cursor:pointer;vertical-align:middle;flex:none}
-.info::before{content:"";position:absolute;inset:-8px}           /* 44 px para tocar */
-.info:hover,.info[aria-expanded="true"]{color:var(--ink);background:var(--surface-3)}
-.info:focus-visible,.mas-btn:focus-visible{outline:none;box-shadow:var(--ring)}
-.info .ic{width:17px;height:17px}
-.info .pop{display:none;position:absolute;z-index:80;top:calc(100% + 8px);left:-8px;
+.info-btn::before{content:"";position:absolute;inset:-8px}           /* 44 px para tocar */
+.info-btn:hover,.info-btn[aria-expanded="true"]{color:var(--ink);background:var(--surface-3)}
+.info-btn:focus-visible,.mas-btn:focus-visible{outline:none;box-shadow:var(--ring)}
+.info-btn .ic{width:17px;height:17px}
+.info-btn .pop{display:none;position:absolute;z-index:80;top:calc(100% + 8px);left:-8px;
   width:max-content;max-width:min(280px, calc(100vw - 32px));padding:11px 13px;
   border-radius:var(--r-sm);background:var(--surface-3);border:1px solid var(--line-strong);
   box-shadow:var(--shadow-lg);color:var(--ink-2);font:400 13px/1.5 var(--sans);
   text-align:left;letter-spacing:0;text-transform:none;white-space:normal;cursor:default}
-.info[aria-expanded="true"] .pop{display:block}
-.info .pop b{color:var(--ink)}
+.info-btn[aria-expanded="true"] .pop{display:block}
+.info-btn .pop b{color:var(--ink)}
 .mas-wrap{position:relative;display:inline-flex}
 .mas-btn{display:inline-grid;place-items:center;min-width:44px;min-height:40px;
   border-radius:var(--r-sm);border:1px solid var(--line-strong);background:var(--surface);
@@ -1058,3 +1058,28 @@ pre{font-family:var(--mono);font-size:12px;background:var(--surface-2);
   text-align:left;cursor:pointer}
 .mas-menu button:hover{background:var(--surface-2);color:var(--ink)}
 .mas-menu button.peligro{color:var(--danger)}
+
+/* ======================= el encabezado de cada pantalla =======================
+   Un título que es una orden corta y, al lado, el ⓘ con el porqué. */
+.pantalla-cab{display:flex;align-items:center;gap:6px;margin:4px 0 14px}
+.pantalla-cab h1{margin:0;font-size:22px;font-weight:700;letter-spacing:-.02em;line-height:1.2}
+@media (min-width:900px){.pantalla-cab h1{font-size:24px}}
+
+/* Las métricas, en una fila de pastillas que además filtran. */
+.metr{display:flex;flex-wrap:wrap;align-items:center;gap:6px}
+.pastilla{display:inline-flex;align-items:baseline;gap:5px;min-height:36px;padding:6px 12px;
+  border-radius:999px;border:1px solid var(--line);background:var(--surface);color:var(--ink-2);
+  font:500 13px var(--sans);cursor:pointer}
+.pastilla b{color:var(--ink);font-size:14px}
+.pastilla:hover{border-color:var(--line-strong);color:var(--ink)}
+.pastilla:focus-visible{outline:none;box-shadow:var(--ring)}
+.metrics:has(.metr){display:block;margin-bottom:14px}
+
+/* El ✓ de los pasos hechos. */
+.step .hecho{margin-left:auto;color:var(--brand);display:inline-grid}
+.step .hecho .ic{width:16px;height:16px}
+@media (max-width:899px){
+  .step{position:relative}
+  .step .hecho{position:absolute;top:4px;right:calc(50% - 20px);margin:0}
+  .step .hecho .ic{width:12px;height:12px}
+}
