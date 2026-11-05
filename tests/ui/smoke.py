@@ -272,7 +272,57 @@ def correos(pg, donde):
     pg.reload(); pg.wait_for_timeout(1200)
 
 
-GRUPOS = {"base": base, "general": general, "contactos": contactos, "correos": correos}
+CLAVES_AJUSTES = ("buzones", "horario", "salud", "embudo", "etapas", "repetidos",
+                  "historial", "base", "ayuda")
+
+
+def ajustes(pg, donde):
+    """Task 5: Ajustes en tarjetas que dicen cómo está cada cosa."""
+    ir(pg, "settings")
+    pg.wait_for_timeout(1500)
+    tarjetas = pg.locator("#ajustes-grilla .aj")
+    ver(tarjetas.count() == 9, f"9 tarjetas ({tarjetas.count()})", donde)
+    ver(pg.locator("#ajustes-grilla .aj-grupo").count() == 3, "en 3 grupos", donde)
+    ver(pg.locator("#ajustes-grilla .aj svg.ic").count() == 9, "cada tarjeta con su ícono", donde)
+    vacias = pg.evaluate("""() => [...document.querySelectorAll('#ajustes-grilla .aj .est')]
+        .filter(e => !e.textContent.trim()).length""")
+    ver(vacias == 0, f"cada tarjeta dice cómo está ({vacias} vacías)", donde)
+    ver("1 de 1" in pg.inner_text(".aj[data-aj='buzones'] .est"),
+        "Buzones cuenta el buzón que hay", donde)
+    izq = pg.evaluate("""() => { const t = document.querySelector('.aj[data-aj=buzones]');
+        return t.querySelector('b').getBoundingClientRect().left - t.getBoundingClientRect().left; }""")
+    ver(izq < 30, f"el contenido de la tarjeta va alineado a la izquierda ({izq:.0f}px)", donde)
+    ver(pg.locator("#panel-settings .segmented").count() == 0, "ya no hay pestañas", donde)
+    ver(not pg.locator("#f-correos").is_visible(), "la Zona de cuidado empieza cerrada", donde)
+    for clave in CLAVES_AJUSTES:
+        pg.click(f".aj[data-aj='{clave}']"); pg.wait_for_timeout(500)
+        abierta = pg.locator(f"[data-vista='{clave}']").first
+        ver(abierta.is_visible() and not pg.locator("#ajustes-grilla").is_visible()
+            and pg.locator("#aj-volver").is_visible(), f"«{clave}» se abre con «← Ajustes»", donde)
+        pg.click("#aj-volver"); pg.wait_for_timeout(300)
+    ver(pg.locator("#ajustes-grilla").is_visible(), "«← Ajustes» vuelve a la grilla", donde)
+    pg.click(".aj[data-aj='horario']"); pg.wait_for_timeout(400)
+    ver(pg.locator("#v-desde").is_visible(), "Horario muestra sus campos", donde)
+    pg.click("#aj-volver")
+    pg.click("#zona-cuidado summary"); pg.wait_for_timeout(300)
+    ver(pg.locator("#f-correos").is_visible()
+        and pg.locator("text=Olvidar lo enviado al CRM").is_visible(), "la Zona de cuidado se abre", donde)
+    # RF 1: apagar pide confirmar y esconde todo lo de correos; prender no pregunta.
+    pg.click("#f-correos"); pg.wait_for_timeout(400)
+    ver(pg.locator("#ask.open").count() == 1, "apagar los correos pide confirmar", donde)
+    pg.click("#ask-foot button.danger, #ask-foot button.primary"); pg.wait_for_timeout(800)
+    ver(not pg.locator(".step[data-panel=mail]").is_visible()
+        and not pg.locator(".aj[data-aj='buzones']").is_visible(),
+        "apagados: sin Correos ni tarjetas de envío (RF 1)", donde)
+    pg.click("#f-correos"); pg.wait_for_timeout(600)
+    ver(pg.locator("#ask.open").count() == 0 and pg.locator(".step[data-panel=mail]").is_visible(),
+        "prenderlos no pregunta y vuelve Correos", donde)
+    ver(not EMOJI.search(pg.inner_text("#panel-settings")), "Ajustes sin emojis", donde)
+    sin_desborde(pg, donde, "Ajustes")
+
+
+GRUPOS = {"base": base, "general": general, "contactos": contactos, "correos": correos,
+          "ajustes": ajustes}
 
 
 def main():

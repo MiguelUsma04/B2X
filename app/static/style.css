@@ -1192,3 +1192,33 @@ body[data-panel]:not([data-panel="contacts"]).con-selbar .wrap{padding-bottom:0}
   .paso.ahora{flex:3 1 0}
   .paso .t{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 }
+
+/* ======================= Ajustes en tarjetas ======================= */
+.aj-grupo{margin:18px 0 8px;font-size:11.5px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;
+  color:var(--ink-3)}
+.aj-grupo:first-child{margin-top:0}
+.aj-fila{display:grid;gap:10px;grid-template-columns:repeat(2,minmax(0,1fr))}
+@media (min-width:900px){.aj-fila{grid-template-columns:repeat(3,minmax(0,1fr))}}
+.aj{display:grid;justify-items:start;gap:4px;min-height:104px;padding:14px;border-radius:var(--r);
+  border:1px solid var(--line);background:var(--surface);color:var(--ink);text-align:left;cursor:pointer;
+  font-family:var(--sans)}
+.aj:hover{border-color:var(--line-strong)}
+.aj:focus-visible{outline:none;box-shadow:var(--ring)}
+.aj .ic{width:22px;height:22px;color:var(--brand);margin-bottom:4px}
+.aj b{font-size:15px}
+.aj .est{display:flex;align-items:center;gap:6px;font-size:12.5px;color:var(--ink-3);min-width:0}
+.aj .est i{width:8px;height:8px;border-radius:50%;background:var(--line-strong);flex:none}
+.aj .est i.ok{background:var(--ok)}
+.aj .est i.ojo{background:var(--warn)}
+.aj .est i.mal{background:var(--danger)}
+#aj-volver{margin-bottom:12px}
+#aj-volver .ic{width:16px;height:16px;margin-right:6px;vertical-align:-3px}
+.zona-cuidado{margin-top:20px;border:1px dashed var(--danger-line);border-radius:var(--r);padding:0 14px}
+.zona-cuidado summary{display:flex;flex-wrap:wrap;align-items:center;gap:8px;min-height:52px;cursor:pointer;
+  color:var(--danger);font-weight:600;list-style:none}
+.zona-cuidado summary::-webkit-details-marker{display:none}
+.zona-cuidado summary span{font-weight:400;font-size:13px;color:var(--ink-3)}
+.zona-cuidado summary .ic{width:18px;height:18px}
+.zona-cuidado[open]{padding-bottom:14px}
+.zona-cuidado .card{margin-top:10px}
+.aj-fila .aj{justify-content:start;align-content:start}

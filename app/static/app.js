@@ -129,6 +129,7 @@ document.querySelectorAll('.step').forEach((t) => {
     $('metrics').hidden = t.dataset.panel !== 'contacts';
     document.body.dataset.panel = t.dataset.panel;
     if (t.dataset.panel === 'mail') irAPaso(PASO_CORREO);
+    if (t.dataset.panel === 'settings') volverAjustes();
     if (t.dataset.panel === 'enrich') refreshPending();
     // Los buzones cambian desde otra pantalla: se releen al entrar para que
     // el estimado y el botón de enviar reflejen lo que hay ahora.
@@ -593,7 +594,7 @@ function telNota(c) {
 
 /* ======================= qué funciones están prendidas =======================
    B2K puede usarse de dos maneras: buscando empresas y mandándolas al CRM, o
-   eso más escribirles desde la app. Lo segundo se apaga en Ajustes → Sistema.
+   eso más escribirles desde la app. Lo segundo se apaga en Ajustes → Zona de cuidado.
    Lo que sigue es solo la pantalla: lo que de verdad frena el goteo está en el
    servidor (mailer.correo_activo), porque esconder botones no detiene a nadie. */
 let CORREOS = true;
@@ -601,7 +602,7 @@ let CORREOS = true;
 function aplicarFunciones() {
   // Los pasos 4 y 5 del menú, la pestaña de buzones y la de salud del envío,
   // y el atajo a Correo de la barra de selección.
-  const fuera = ['step-mail', 'step-results', 'seg-buzones', 'seg-salud',
+  const fuera = ['step-mail', 'step-results', 'aj-t-buzones', 'aj-t-salud', 'aj-t-horario',
                  'selbar-mail', 'card-horario', 'card-secuencia'];
   for (const id of fuera) {
     const el = $(id);
@@ -629,6 +630,12 @@ function aplicarFunciones() {
 
 async function guardarFuncionCorreos() {
   const on = $('f-correos').checked;
+  if (!on) {
+    const ok = await ask('Apagar los correos',
+      '<p>Desaparecen Correos y Resultados, y el goteo queda en pausa. No se borra nada.</p>',
+      [{ label: 'Cancelar', value: false }, { label: 'Apagar', value: true, cls: 'danger' }]);
+    if (!ok) { $('f-correos').checked = true; return; }
+  }
   const fd = new FormData();
   fd.append('correos', on ? '1' : '0');
   const d = await (await fetch('/api/funciones', { method: 'POST', body: fd })).json();
@@ -760,6 +767,8 @@ let KOMMO_OK = true;
 
 function ventanaKommo() {
   if (!SELECTED.size) return;
+  const caja = $('pipeline-box');
+  if (caja && caja.parentElement.id !== 'kommo-sel') $('kommo-sel').appendChild(caja);
   $('kommo-aviso').hidden = KOMMO_OK;
   $('btn-ghl').hidden = !KOMMO_OK;
   $('ghl-result').innerHTML = '';
@@ -1361,25 +1370,85 @@ async function pollWebsite() {
 }
 
 /* ======================= configuración ======================= */
+/* ======================= Ajustes en tarjetas =======================
+   Una grilla agrupada por lo que se usa. Cada tarjeta dice cómo está y abre lo
+   suyo; lo que no se deshace queda aparte, en la Zona de cuidado. */
+const CARGAR_AJUSTE = {
+  buzones: () => loadSmtp(),
+  horario: () => cargarVentana(),
+  salud: () => { cargarSalud(); cargarErrores(); },
+  embudo: () => { traerSelectorEmbudo($('aj-embudo-body')); loadPipelines(); },
+  etapas: () => { cargarEtapas(); cargarEstadoCRM(); },
+  repetidos: () => cargarDuplicados(),
+  historial: () => cargarActividad(),
+  base: () => cargarBase(),
+  ayuda: () => { const m = $('manual-frame'); if (m && !m.src) m.src = '/manual'; },
+};
+
+function abrirAjuste(clave) {
+  document.querySelectorAll('#panel-settings [id^="set-"], #aj-embudo').forEach((x) => { x.hidden = true; });
+  document.querySelectorAll('#panel-settings [data-vista]').forEach((x) => { x.hidden = true; });
+  const vista = document.querySelector(`#panel-settings [data-vista="${clave}"]`);
+  if (!vista) return;
+  vista.hidden = false;
+  const caja = vista.parentElement.closest('[id^="set-"]');
+  if (caja) caja.hidden = false;
+  $('ajustes-grilla').hidden = true;
+  $('aj-volver').hidden = false;
+  if (CARGAR_AJUSTE[clave]) CARGAR_AJUSTE[clave]();
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+function volverAjustes() {
+  document.querySelectorAll('#panel-settings [id^="set-"], #aj-embudo').forEach((x) => { x.hidden = true; });
+  $('ajustes-grilla').hidden = false;
+  $('aj-volver').hidden = true;
+  estadoAjustes();
+}
+
+// Los nombres viejos de las pestañas siguen andando: hay enlaces que los usan.
 function switchAjustes(cual) {
-  const partes = ['buzones', 'historial', 'salud', 'sistema', 'ayuda'];
-  const elegida = partes.includes(cual) ? cual : 'buzones';
-  for (const p of partes) {
-    const on = p === elegida;
-    $('set-' + p).hidden = !on;
-    $('seg-' + p).classList.toggle('active', on);
-    $('seg-' + p).setAttribute('aria-selected', String(on));
-  }
-  // El manual se trae recién cuando alguien lo abre: es una página entera y
-  // no tiene por qué pesar en cada carga de la app.
-  const marco = $('manual-frame');
-  if (elegida === 'ayuda' && marco && !marco.src) marco.src = '/manual';
-  if (elegida === 'salud') { cargarSalud(); cargarErrores(); }
-  if (elegida === 'historial') cargarActividad();
-  if (elegida === 'sistema') {
-    cargarVentana(); cargarBase(); cargarEtapas();
-    cargarDuplicados(); cargarEstadoCRM();
-  }
+  const viejo = { sistema: null, buzones: 'buzones', historial: 'historial',
+                  salud: 'salud', ayuda: 'ayuda' };
+  if (viejo[cual]) abrirAjuste(viejo[cual]); else volverAjustes();
+}
+
+/* El selector de embudo y etapa es uno solo: vive en la ventana de Kommo y se
+   presta a Ajustes mientras está abierta esa tarjeta. */
+function traerSelectorEmbudo(destino) {
+  const caja = $('pipeline-box');
+  if (caja && destino && caja.parentElement !== destino) destino.appendChild(caja);
+}
+
+function ponerEstado(clave, texto, tono) {
+  const est = document.querySelector(`.aj[data-aj="${clave}"] .est`);
+  if (est) est.innerHTML = `<i class="${tono || ''}"></i>${esc(texto)}`;
+}
+
+async function estadoAjustes() {
+  const leer = async (url) => { try { return await (await fetch(url)).json(); } catch (e) { return null; } };
+  // Los buzones se leen antes de contarlos: si no, la primera vez dice «ninguno».
+  if (!MAILBOXES.length) { try { await loadSmtp(); } catch (e) { /* queda en cero */ } }
+  const activos = MAILBOXES.filter((m) => m.active && m.configured).length;
+  ponerEstado('buzones', MAILBOXES.length ? `${activos} de ${MAILBOXES.length} activos` : 'ninguno todavía',
+              activos ? 'ok' : 'ojo');
+  ponerEstado('historial', 'quién hizo qué');
+  ponerEstado('ayuda', 'el manual');
+  const [v, h, e, d, b, g] = await Promise.all([leer('/api/mail/ventana'), leer('/api/mail/health'),
+    leer('/api/crm/etapas'), leer('/api/duplicados'), leer('/api/base'), leer('/api/ghl/settings')]);
+  if (v) ponerEstado('horario', `${v.desde} a ${v.hasta}${v.fines_de_semana ? ', todos los días' : ', lun a vie'}`, 'ok');
+  else ponerEstado('horario', 'sin datos');
+  const tonoSalud = { bien: 'ok', ojo: 'ojo', mal: 'mal' };
+  ponerEstado('salud', h && h.estado ? ({ bien: 'todo bien', ojo: 'revisar', mal: 'con problemas' }[h.estado]
+    || h.estado) : 'sin datos', h && tonoSalud[h.estado]);
+  const reglas = e && e.mapa ? Object.keys(e.mapa).length : 0;
+  ponerEstado('etapas', reglas ? `${reglas} ${reglas === 1 ? 'regla' : 'reglas'}` : 'ninguna', reglas ? 'ok' : '');
+  const grupos = d && d.grupos ? d.grupos.length : 0;
+  ponerEstado('repetidos', grupos ? `${grupos} para revisar` : 'ninguno', grupos ? 'ojo' : 'ok');
+  ponerEstado('base', b && b.ultimo_respaldo ? `copia ${String(b.ultimo_respaldo).slice(0, 16)}`
+    : 'sin copia todavía', b && b.ultimo_respaldo ? 'ok' : 'ojo');
+  ponerEstado('embudo', g && g.pipeline_id ? (g.stage_id ? 'embudo y etapa elegidos' : 'falta la etapa')
+    : 'sin elegir', g && g.pipeline_id && g.stage_id ? 'ok' : 'ojo');
 }
 
 /* ======================= correos ======================= */
@@ -3457,6 +3526,8 @@ function ponerInfos() {
     'info-mail': 'Elegí qué mandar, revisalo y programalo. Salen de a poco, a horas '
       + 'irregulares, para no caer en spam.',
     'info-results': 'Quién abrió, quién tocó un enlace y quién contestó, campaña por campaña.',
+    'info-embudo': 'A dónde entran en Kommo las empresas que mandes. Es el valor de fábrica: '
+      + 'en la ventana de «Mandar a Kommo» se puede cambiar para una tanda.',
     'info-correo': 'A quien ya se le escribió antes queda afuera. Las {{variables}} se '
       + 'reemplazan con los datos de cada empresa; si falta uno, queda vacío.',
     'info-seq': 'B2K manda el correo 2 y el 3 <b>solo a quien no contestó</b>, del mismo '
