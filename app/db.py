@@ -485,7 +485,10 @@ def _secuencia(conn) -> None:
     # El movimiento final en Kommo (IA CONVERSANDO o NO INTERESADO) que falta
     # hacer: si Kommo no contestó, se reintenta hasta que quede.
     for col, ddl in (("crm_destino", "TEXT"), ("crm_detalle", "TEXT"),
-                     ("crm_pendiente", "INTEGER NOT NULL DEFAULT 0")):
+                     ("crm_pendiente", "INTEGER NOT NULL DEFAULT 0"),
+                     # La última respuesta del cliente que ya se leyó. Las que
+                     # lleguen después se leen también (06/11/2026).
+                     ("ultima_respuesta", "INTEGER")):
         if col not in cols:
             conn.execute(f"ALTER TABLE secuencias ADD COLUMN {col} {ddl}")
 

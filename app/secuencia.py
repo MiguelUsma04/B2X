@@ -396,8 +396,9 @@ async def al_enviar(fila: dict, message_id: str, buzon: int | None) -> None:
         _cortar(s, r["cortar"])
 
 # ------------------------------------------------------------- el vigilante
-async def _respondio(s: dict, ev, reabrir: bool = False) -> None:
-    """Contestó: se corta la secuencia y el lead pasa a IA CONVERSANDO."""
+async def _leer(s: dict, ev) -> dict:
+    """Lo que dice una respuesta: la IA la clasifica si todavía no lo hizo, y
+    si pide que no le escriban más, la dirección sale de la lista."""
     from . import mailer
     texto = (ev["texto"] or "").strip()
     clase = {"clase": ev["clase"], "confianza": ev["confianza"],
@@ -423,10 +424,18 @@ async def _respondio(s: dict, ev, reabrir: bool = False) -> None:
         if c:
             mailer.suprimir(c["email"], "pidió no recibir más (en su respuesta)",
                             s["contact_id"])
+    return clase
+
+
+async def _respondio(s: dict, ev, reabrir: bool = False) -> None:
+    """Contestó: se corta la secuencia y el lead pasa a IA CONVERSANDO."""
+    texto = (ev["texto"] or "").strip()
+    clase = await _leer(s, ev)
 
     with get_db() as conn:
-        conn.execute("UPDATE secuencias SET estado='respondio', motivo=? WHERE id=?",
-                     ("Contestó el correo " + str(s["paso"] or 1), s["id"]))
+        conn.execute("UPDATE secuencias SET estado='respondio', motivo=?, "
+                     "ultima_respuesta=? WHERE id=?",
+                     ("Contestó el correo " + str(s["paso"] or 1), dict(ev).get("id"), s["id"]))
         _cancelar_pendientes(conn, s)
 
     detalle = f"\nLo que escribió:\n{texto[:2000]}" if texto else ""
@@ -438,6 +447,49 @@ async def _respondio(s: dict, ev, reabrir: bool = False) -> None:
     if clase["clase"] and s.get("lead_id") and kommo.configured():
         await kommo.poner_campo_lead(s["lead_id"], "Lectura de la IA",
                                      respuestas.lectura(clase))
+
+
+async def _nuevas_respuestas() -> None:
+    """Lo que el cliente escribió después de su primera respuesta.
+
+    Antes solo se leía la primera: el 06/11/2026 un cliente escribió «me
+    interesa» y después «saca mi correo», y el campo seguía diciendo «Le
+    interesa». Ahora cada respuesta nueva pisa la lectura y, si pide que no
+    le escriban, se le da de baja. El lead no se mueve: en IA CONVERSANDO esa
+    conversación ya es del equipo.
+    """
+    with get_db() as conn:
+        filas = [dict(r) for r in conn.execute(
+            "SELECT * FROM secuencias WHERE estado='respondio'")]
+        pendientes = []
+        for s in filas:
+            fam = _familia(conn, s["campaign_id"])
+            marcas = ",".join("?" * len(fam))
+            evs = [dict(r) for r in conn.execute(
+                f"""SELECT e.id, r.id rid, r.texto, r.clase, r.confianza, r.porque
+                      FROM email_events e LEFT JOIN respuestas r ON r.event_id = e.id
+                     WHERE e.contact_id=? AND e.kind='reply' AND e.bot=0
+                       AND e.campaign_id IN ({marcas})
+                     ORDER BY e.id""", [s["contact_id"], *fam])]
+            if not evs:
+                continue
+            # Una base de antes de este arreglo no sabe cuál se leyó: fue la
+            # primera, la que movió el lead.
+            ya = s["ultima_respuesta"] or evs[0]["id"]
+            nuevas = [e for e in evs if e["id"] > ya]
+            if nuevas:
+                pendientes.append((s, nuevas))
+    for s, nuevas in pendientes:
+        for ev in nuevas:
+            clase = await _leer(s, ev)
+            if ev["rid"] and (ev["texto"] or "").strip() and not clase["clase"]:
+                break  # la IA no contestó: se reintenta en la vuelta siguiente
+            if clase["clase"] and s.get("lead_id") and kommo.configured():
+                await kommo.poner_campo_lead(s["lead_id"], "Lectura de la IA",
+                                             respuestas.lectura(clase))
+            with get_db() as conn:
+                conn.execute("UPDATE secuencias SET ultima_respuesta=? WHERE id=?",
+                             (ev["id"], s["id"]))
 
 
 async def _revisar(s: dict, ahora: datetime) -> None:
@@ -600,6 +652,10 @@ async def avanzar() -> dict:
         await _tardias()
     except Exception as exc:
         print(f"[secuencia] tardías: {type(exc).__name__}: {exc}", flush=True)
+    try:
+        await _nuevas_respuestas()
+    except Exception as exc:
+        print(f"[secuencia] respuestas nuevas: {type(exc).__name__}: {exc}", flush=True)
     try:
         await _reintentar_kommo()
     except Exception as exc:
